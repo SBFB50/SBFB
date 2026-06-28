@@ -30,7 +30,7 @@
   {
     "name": "css",
     "path": "bundle/assets/index-*.css",
-    "limit": "25 KB",
+    "limit": "27 KB",
     "brotli": false,
     "gzip": false
   },

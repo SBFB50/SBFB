@@ -1,19 +1,33 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// Sprint 80 Phase D — the arbre de procédé (folds A1/U1, the SBFB signature:
-// process-as-artifact). It restitutes the gisement ALREADY computed by Rust
-// (sprint_history.rs): sprint → phase → commit → artefact, with each phase's
-// RESTITUTED preflight/review/Codex verdicts. The cardinal rule holds end to
-// end: every verdict is read off the on-disk artifacts (the UI computes
-// nothing, scores nothing). Each verdict carries its SOURCE artifact filename
-// (fold U2, provenance-de-verdict — preflight_bilan.phases[].file). The frise
-// (fold V8) is the condensed verdict strip; clicking a phase commit opens its
-// diff (fold J11) via the bespoke `DiffViewer` (Phase H — the SAME viewer that
-// renders the working tree in VERIFY, fold V2/U7) and a conformity card (folds
-// U3/A9/V10). The in-app artifact CONTENT reader is S81; here the provenance is
-// the named source.
-import { useEffect, useState } from 'react'
-import { getSprintHistory, OperatorError, type SprintHistory } from '../../api/operator'
+// Sprint 80 Phase D → front rapid-add — the arbre de procédé (folds A1/U1, the
+// SBFB signature: process-as-artifact). It restitutes the gisement ALREADY
+// computed by Rust (sprint_history.rs): sprint → phase → commit → artefact,
+// with each phase's RESTITUTED preflight/review/Codex verdicts. The cardinal
+// rule holds end to end: every verdict is read off the on-disk artifacts (the
+// UI computes nothing, scores nothing). Each verdict carries its SOURCE
+// artifact filename (fold U2). The frise (fold V8) is the condensed verdict
+// strip; clicking a phase commit opens its diff (fold J11) via the bespoke
+// `DiffViewer` (the SAME viewer that renders the working tree in VERIFY, fold
+// V2/U7) and a conformity card (folds U3/A9/V10).
+//
+// Rapid-add enrichment: a LIVE "où on en est" banner (current phase from
+// /api/status, restituted before its commit exists), per-phase files-changed,
+// the full sprint commit timeline, the carries register, the §1 verification
+// table, the entry→exit test bilan, a local phase filter + multi-expand, and a
+// glyph legend. Everything is RESTITUTED from the two backends; nothing is a
+// fabricated verdict.
+import { useEffect, useMemo, useState } from 'react'
+import {
+  getSprintHistory,
+  getStatus,
+  OperatorError,
+  type CarryItem,
+  type CommitInfo,
+  type OperatorStatus,
+  type SprintHistory,
+  type VerificationSummary,
+} from '../../api/operator'
 import { preflightTone, reviewTone, toneBg, toneText } from '../../lib/verdict'
 import { DiffViewer } from '../verify/plein/DiffViewer'
 import { ConformiteCard } from './ConformiteCard'
@@ -27,32 +41,39 @@ function VerdictPill({ verdict, tone }: { verdict: string | null; tone: string }
   )
 }
 
+type FileChange = SprintHistory['phases'][number]['files_changed'][number]
+
+function FilesChanged({ files }: { files: FileChange[] }) {
+  if (files.length === 0) return null
+  return (
+    <div data-testid="phase-files">
+      <div className="mb-0.5 font-mono text-[8.5px] uppercase tracking-wider text-tx4">
+        fichiers <span className="text-tx4">· {files.length}</span>
+      </div>
+      <ul className="flex flex-col gap-0.5">
+        {files.map((f, i) => (
+          <li key={`${f.path}-${i}`} className="flex items-baseline gap-2 font-mono text-[10px]">
+            <span className="w-3 shrink-0 text-tx4" aria-hidden>
+              {f.status}
+            </span>
+            <span className="min-w-0 flex-1 truncate text-tx3">{f.path}</span>
+            <span className="shrink-0 text-ok">+{f.insertions}</span>
+            <span className="shrink-0 text-bad">−{f.deletions}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 function PhaseNode({
-  letter,
-  title,
-  commitSha,
-  preflightVerdict,
+  phase,
   preflightFile,
-  reviewVerdict,
-  codex,
-  rustDelta,
-  vitestDelta,
-  deliverables,
-  findings,
   expanded,
   onToggle,
 }: {
-  letter: string
-  title: string
-  commitSha: string | null
-  preflightVerdict: string | null
+  phase: SprintHistory['phases'][number]
   preflightFile: string | null
-  reviewVerdict: string | null
-  codex: { confirmed: number | null; partial: number | null; gap: number | null }
-  rustDelta: number
-  vitestDelta: number
-  deliverables: string[]
-  findings: { severity: string; code: string; description: string; status: string }[]
   expanded: boolean
   onToggle: () => void
 }) {
@@ -64,14 +85,14 @@ function PhaseNode({
         onClick={onToggle}
         className="flex w-full items-center gap-2.5 py-1.5 text-left hover:bg-s1"
       >
-        <span className="font-mono text-[11px] font-semibold text-tx">{letter}</span>
-        <span className="min-w-0 flex-1 truncate font-sans text-[12px] text-tx2">{title || '—'}</span>
-        <VerdictPill verdict={preflightVerdict} tone={toneText(preflightTone(preflightVerdict))} />
+        <span className="font-mono text-[11px] font-semibold text-tx">{phase.letter}</span>
+        <span className="min-w-0 flex-1 truncate font-sans text-[12px] text-tx2">{phase.title || '—'}</span>
+        <VerdictPill verdict={phase.preflight_verdict} tone={toneText(preflightTone(phase.preflight_verdict))} />
         <span className="text-tx4" aria-hidden>
           ·
         </span>
-        <VerdictPill verdict={reviewVerdict} tone={toneText(reviewTone(reviewVerdict))} />
-        {commitSha ? <span className="font-mono text-[9.5px] text-tx4">{commitSha}</span> : null}
+        <VerdictPill verdict={phase.review_verdict} tone={toneText(reviewTone(phase.review_verdict))} />
+        {phase.commit_sha ? <span className="font-mono text-[9.5px] text-tx4">{phase.commit_sha}</span> : null}
         <span className="font-mono text-[10px] text-tx4" aria-hidden>
           {expanded ? '▾' : '▸'}
         </span>
@@ -80,7 +101,10 @@ function PhaseNode({
         <div className="mb-2 ml-1 flex flex-col gap-2 border-l border-bd pl-3">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10px] text-tx3">
             <span>
-              préflight <span className={toneText(preflightTone(preflightVerdict))}>{preflightVerdict ?? '—'}</span>
+              préflight{' '}
+              <span className={toneText(preflightTone(phase.preflight_verdict))}>
+                {phase.preflight_verdict ?? '—'}
+              </span>
             </span>
             {preflightFile ? (
               <span
@@ -91,20 +115,20 @@ function PhaseNode({
               </span>
             ) : null}
             <span>
-              review <span className={toneText(reviewTone(reviewVerdict))}>{reviewVerdict ?? '—'}</span>
+              review <span className={toneText(reviewTone(phase.review_verdict))}>{phase.review_verdict ?? '—'}</span>
             </span>
             <span>
-              codex {codex.confirmed ?? 0}✓ {codex.partial ?? 0}~ {codex.gap ?? 0}⚠
+              codex {phase.codex_confirmed ?? 0}✓ {phase.codex_partial ?? 0}~ {phase.codex_gap ?? 0}⚠
             </span>
             <span>
-              Δ +{rustDelta} Rust · +{vitestDelta} Vitest
+              Δ +{phase.rust_delta} Rust · +{phase.vitest_delta} Vitest
             </span>
           </div>
-          {deliverables.length > 0 ? (
+          {phase.deliverables.length > 0 ? (
             <div data-testid="phase-deliverables">
               <div className="mb-0.5 font-mono text-[8.5px] uppercase tracking-wider text-tx4">livrables</div>
               <ul className="flex flex-col gap-0.5">
-                {deliverables.map((d, i) => (
+                {phase.deliverables.map((d, i) => (
                   <li key={i} className="font-mono text-[10px] text-tx3">
                     <span className="text-tx4" aria-hidden>
                       ·{' '}
@@ -115,24 +139,22 @@ function PhaseNode({
               </ul>
             </div>
           ) : null}
-          {findings.length > 0 ? (
+          {phase.findings.length > 0 ? (
             <div data-testid="phase-findings">
               <div className="mb-0.5 font-mono text-[8.5px] uppercase tracking-wider text-tx4">
-                findings review <span className="text-tx4">· {findings.length}</span>
+                findings review <span className="text-tx4">· {phase.findings.length}</span>
               </div>
               <ul className="flex flex-col gap-0.5">
-                {findings.map((f, i) => (
+                {phase.findings.map((f, i) => (
                   <li key={i} className="font-mono text-[10px] text-tx3">
-                    <span className={f.status === 'resolved' ? 'text-ok' : 'text-warn'}>
-                      {f.severity}
-                    </span>{' '}
-                    {f.description}
+                    <span className={f.status === 'resolved' ? 'text-ok' : 'text-warn'}>{f.severity}</span> {f.description}
                   </li>
                 ))}
               </ul>
             </div>
           ) : null}
-          {commitSha ? <PhaseDiff sha={commitSha} /> : null}
+          <FilesChanged files={phase.files_changed} />
+          {phase.commit_sha ? <PhaseDiff sha={phase.commit_sha} /> : null}
         </div>
       ) : null}
     </div>
@@ -163,28 +185,260 @@ function PhaseDiff({ sha }: { sha: string }) {
   )
 }
 
+/** The LIVE "où on en est" banner: restitutes the current sprint/phase from
+ * /api/status. The current phase usually has NO commit yet (it is not in the
+ * committed `phases` list) — this is the one place that surfaces it. */
+function LiveProcessBanner({
+  history,
+  status,
+}: {
+  history: SprintHistory
+  status: OperatorStatus | null
+}) {
+  const current = status?.current_phase ?? null
+  const committed = new Set(history.phases.map((p) => p.letter))
+  const currentDone = current !== null && committed.has(current)
+  const liveProgress = current !== null ? status?.phases.find((p) => p.letter === current) ?? null : null
+  return (
+    <div
+      data-testid="live-process"
+      className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-md border border-bd bg-s1 px-3 py-2"
+    >
+      <span className="font-sans text-[8.5px] font-semibold uppercase tracking-[0.14em] text-tx4">où on en est</span>
+      <span className="flex items-center gap-1.5 font-mono text-[11px]">
+        <span className={`h-1.5 w-1.5 rounded-full ${currentDone ? 'bg-ok' : 'bg-warn'}`} aria-hidden />
+        <span className="text-tx2">phase courante</span>
+        <span className="font-semibold text-tx">{current ?? '—'}</span>
+        <span className="text-tx4">
+          {current === null
+            ? ''
+            : currentDone
+              ? '· committée'
+              : liveProgress
+                ? `· ${liveProgress.has_preflight ? 'préflight' : 'démarrage'}${liveProgress.has_review ? '→review' : ''}${liveProgress.has_codex ? '→codex' : ''} · pas encore committée`
+                : '· en cours · pas encore committée'}
+        </span>
+      </span>
+      <span className="ml-auto font-mono text-[10px] text-tx3">
+        {history.phases.length} phases committées · {history.total_commits} commits
+      </span>
+    </div>
+  )
+}
+
+function TestsBilan({ tests }: { tests: SprintHistory['tests'] }) {
+  const hasEntryExit = tests.rust_exit > 0 || tests.vitest_exit > 0
+  return (
+    <div
+      data-testid="tests-bilan"
+      className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-md border border-bd bg-s1 px-3 py-2 font-mono text-[10px] text-tx3"
+    >
+      <span className="font-sans text-[8.5px] font-semibold uppercase tracking-[0.14em] text-tx4">bilan tests</span>
+      {hasEntryExit ? (
+        <>
+          <span>
+            Rust <span className="text-tx2">{tests.rust_entry}→{tests.rust_exit}</span>{' '}
+            <span className={tests.rust_delta >= 0 ? 'text-ok' : 'text-bad'}>
+              ({tests.rust_delta >= 0 ? '+' : ''}
+              {tests.rust_delta})
+            </span>
+          </span>
+          <span>
+            Vitest <span className="text-tx2">{tests.vitest_entry}→{tests.vitest_exit}</span>{' '}
+            <span className={tests.vitest_delta >= 0 ? 'text-ok' : 'text-bad'}>
+              ({tests.vitest_delta >= 0 ? '+' : ''}
+              {tests.vitest_delta})
+            </span>
+          </span>
+        </>
+      ) : (
+        <span className="text-tx4">entrée→sortie au wrap-up (verification.md)</span>
+      )}
+      <span>
+        size-limit <span className="text-tx2">{tests.size_limit}</span>
+      </span>
+      {tests.per_phase.length > 0 ? (
+        <span className="text-tx4">· {tests.per_phase.length} phases mesurées</span>
+      ) : null}
+    </div>
+  )
+}
+
+function CommitTimeline({ commits }: { commits: CommitInfo[] }) {
+  const [open, setOpen] = useState(false)
+  if (commits.length === 0) return null
+  return (
+    <div className="mt-4 border-t border-bd pt-3" data-testid="commit-timeline">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="mb-1 flex items-center gap-2 font-sans text-[8.5px] font-semibold uppercase tracking-[0.14em] text-tx4 hover:text-tx2"
+      >
+        <span aria-hidden>{open ? '▾' : '▸'}</span>
+        timeline des commits · {commits.length}
+      </button>
+      {open ? (
+        <ul className="flex flex-col gap-0.5">
+          {commits.map((c) => (
+            <li
+              key={c.sha}
+              data-testid="commit-row"
+              className="flex items-baseline gap-2 rounded-sm px-1 py-0.5 font-mono text-[10px] hover:bg-s1"
+            >
+              <span className="shrink-0 text-info">{c.short}</span>
+              <span className={`shrink-0 ${c.is_phase ? 'text-tx2' : 'text-tx4'}`}>
+                {c.commit_type}
+                {c.phase ? `·${c.phase}` : ''}
+              </span>
+              <span className="min-w-0 flex-1 truncate text-tx3">{c.title}</span>
+              <span className="shrink-0 text-ok">+{c.insertions}</span>
+              <span className="shrink-0 text-bad">−{c.deletions}</span>
+              <span className="shrink-0 text-tx4">{c.date.slice(0, 10)}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  )
+}
+
+function CarriesSection({ open, closed }: { open: CarryItem[]; closed: CarryItem[] }) {
+  if (open.length === 0 && closed.length === 0) return null
+  return (
+    <div className="mt-4 border-t border-bd pt-3" data-testid="carries">
+      <div className="mb-1 font-sans text-[8.5px] font-semibold uppercase tracking-[0.14em] text-tx4">
+        dette portée · {open.length} ouverte{open.length > 1 ? 's' : ''} · {closed.length} fermée
+        {closed.length > 1 ? 's' : ''}
+      </div>
+      <ul className="flex flex-col gap-0.5">
+        {open.map((c, i) => (
+          <li key={`o-${c.code}-${i}`} className="font-mono text-[10px] text-tx3">
+            <span className="text-warn" aria-hidden>
+              ○{' '}
+            </span>
+            <span className="text-tx2">{c.code}</span> {c.description}
+            {c.disposition ? <span className="text-tx4"> → {c.disposition}</span> : null}
+          </li>
+        ))}
+        {closed.map((c, i) => (
+          <li key={`c-${c.code}-${i}`} className="font-mono text-[10px] text-tx4">
+            <span className="text-ok" aria-hidden>
+              ●{' '}
+            </span>
+            <span className="text-tx3">{c.code}</span> {c.description}
+            {c.phase_closed ? <span> (phase {c.phase_closed})</span> : null}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+function VerificationTable({ verification }: { verification: VerificationSummary | null }) {
+  if (verification === null) {
+    return (
+      <div className="mt-4 border-t border-bd pt-3" data-testid="verification-table">
+        <div className="font-sans text-[8.5px] font-semibold uppercase tracking-[0.14em] text-tx4">
+          vérification §1
+        </div>
+        <p className="mt-1 font-mono text-[10px] text-tx4">restituée au wrap-up (verification.md)</p>
+      </div>
+    )
+  }
+  return (
+    <div className="mt-4 border-t border-bd pt-3" data-testid="verification-table">
+      <div className="mb-1 font-sans text-[8.5px] font-semibold uppercase tracking-[0.14em] text-tx4">
+        vérification §1 · {verification.passed}/{verification.total_checks}
+      </div>
+      <ul className="flex flex-col gap-0.5">
+        {verification.checks.map((c) => (
+          <li key={c.number} className="flex items-baseline gap-2 font-mono text-[10px]">
+            <span className={toneText(reviewTone(c.result))}>{c.result}</span>
+            <span className="min-w-0 flex-1 truncate text-tx3">{c.name}</span>
+            <span className="shrink-0 truncate text-tx4" title={c.command}>
+              {c.command}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+function GlyphLegend() {
+  return (
+    <details className="mt-4 border-t border-bd pt-3" data-testid="glyph-legend">
+      <summary className="cursor-pointer font-sans text-[8.5px] font-semibold uppercase tracking-[0.14em] text-tx4 hover:text-tx2">
+        légende
+      </summary>
+      <div className="mt-1 flex flex-col gap-0.5 font-mono text-[10px] text-tx3">
+        <span>
+          codex : <span className="text-ok">✓</span> confirmé · <span className="text-warn">~</span> partiel ·{' '}
+          <span className="text-bad">⚠</span> gap
+        </span>
+        <span>
+          scope cut : <span className="text-ok">◦</span> respecté · <span className="text-warn">×</span> dévié
+        </span>
+        <span>
+          dette : <span className="text-warn">○</span> ouverte · <span className="text-ok">●</span> fermée
+        </span>
+        <span className="text-tx4">verdicts restitués depuis les artefacts .planning/ — jamais calculés ici</span>
+      </div>
+    </details>
+  )
+}
+
 export function ProcedeSurface() {
   const [history, setHistory] = useState<SprintHistory | null>(null)
+  const [status, setStatus] = useState<OperatorStatus | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [expanded, setExpanded] = useState<string | null>(null)
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [filter, setFilter] = useState('')
 
   useEffect(() => {
     const controller = new AbortController()
-    getSprintHistory(undefined, controller.signal)
-      .then((h) => {
-        if (!controller.signal.aborted) setHistory(h)
-      })
-      .catch((err) => {
-        if (controller.signal.aborted) return
+    // History is required; status (live position) degrades independently.
+    void Promise.allSettled([
+      getSprintHistory(undefined, controller.signal),
+      getStatus(controller.signal),
+    ]).then(([histR, statR]) => {
+      if (controller.signal.aborted) return
+      if (histR.status === 'rejected') {
+        const err = histR.reason
         setError(err instanceof OperatorError ? `procédé indisponible (${err.status})` : 'procédé indisponible')
-      })
+        return
+      }
+      setHistory(histR.value)
+      if (statR.status === 'fulfilled') setStatus(statR.value)
+    })
     return () => controller.abort()
   }, [])
+
+  const fileByPhase = useMemo(
+    () => new Map((history?.preflight_bilan.phases ?? []).map((p) => [p.phase, p.file])),
+    [history],
+  )
+
+  const filteredPhases = useMemo(() => {
+    if (history === null) return []
+    const q = filter.trim().toLowerCase()
+    if (q === '') return history.phases
+    return history.phases.filter((p) => p.letter.toLowerCase().includes(q) || p.title.toLowerCase().includes(q))
+  }, [history, filter])
 
   if (error) return <div className="p-5 font-mono text-[11px] text-warn">{error}</div>
   if (history === null) return <div className="p-5 font-mono text-[11px] text-tx4">lecture du procédé…</div>
 
-  const fileByPhase = new Map(history.preflight_bilan.phases.map((p) => [p.phase, p.file]))
+  const toggle = (letter: string) =>
+    setExpanded((cur) => {
+      const next = new Set(cur)
+      if (next.has(letter)) next.delete(letter)
+      else next.add(letter)
+      return next
+    })
+  const expandAll = () => setExpanded(new Set(filteredPhases.map((p) => p.letter)))
+  const collapseAll = () => setExpanded(new Set())
 
   return (
     <div data-testid="procede-surface" className="flex min-h-0 flex-1 flex-col overflow-auto p-5">
@@ -199,6 +453,8 @@ export function ProcedeSurface() {
           {history.phase_commits} commits de phase · {history.chore_commits} chore
         </span>
       </div>
+
+      <LiveProcessBanner history={history} status={status} />
 
       {/* preflight bilan + verdict frise (fold V8) */}
       <div className="mb-4 flex flex-wrap items-center gap-2 rounded-md border border-bd bg-s1 px-3 py-2">
@@ -219,25 +475,48 @@ export function ProcedeSurface() {
         </span>
       </div>
 
+      <TestsBilan tests={history.tests} />
+
+      {/* filter + multi-expand controls */}
+      <div className="mb-2 flex items-center gap-2">
+        <input
+          type="text"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          placeholder="filtrer les phases…"
+          data-testid="phase-filter"
+          className="min-w-0 flex-1 rounded-sm border border-bd bg-s0 px-2 py-1 font-mono text-[11px] text-tx placeholder:text-tx4 focus:border-bd2 focus:outline-none"
+        />
+        <button
+          type="button"
+          onClick={expandAll}
+          className="rounded-sm border border-bd bg-s1 px-2 py-1 font-mono text-[10px] text-tx3 hover:bg-s2"
+        >
+          tout déplier
+        </button>
+        <button
+          type="button"
+          onClick={collapseAll}
+          className="rounded-sm border border-bd bg-s1 px-2 py-1 font-mono text-[10px] text-tx3 hover:bg-s2"
+        >
+          tout replier
+        </button>
+      </div>
+
       <div className="flex flex-col">
-        {history.phases.map((p) => (
-          <PhaseNode
-            key={p.letter}
-            letter={p.letter}
-            title={p.title}
-            commitSha={p.commit_sha}
-            preflightVerdict={p.preflight_verdict}
-            preflightFile={fileByPhase.get(p.letter) ?? null}
-            reviewVerdict={p.review_verdict}
-            codex={{ confirmed: p.codex_confirmed, partial: p.codex_partial, gap: p.codex_gap }}
-            rustDelta={p.rust_delta}
-            vitestDelta={p.vitest_delta}
-            deliverables={p.deliverables}
-            findings={p.findings}
-            expanded={expanded === p.letter}
-            onToggle={() => setExpanded((cur) => (cur === p.letter ? null : p.letter))}
-          />
-        ))}
+        {filteredPhases.length === 0 ? (
+          <div className="py-3 font-mono text-[10px] text-tx4">aucune phase ne correspond au filtre</div>
+        ) : (
+          filteredPhases.map((p) => (
+            <PhaseNode
+              key={p.letter}
+              phase={p}
+              preflightFile={fileByPhase.get(p.letter) ?? null}
+              expanded={expanded.has(p.letter)}
+              onToggle={() => toggle(p.letter)}
+            />
+          ))
+        )}
       </div>
 
       {history.scope_cuts.length > 0 ? (
@@ -255,6 +534,11 @@ export function ProcedeSurface() {
           </ul>
         </div>
       ) : null}
+
+      <CarriesSection open={history.carries_open} closed={history.carries_closed} />
+      <VerificationTable verification={history.verification} />
+      <CommitTimeline commits={history.commits} />
+      <GlyphLegend />
     </div>
   )
 }

@@ -171,6 +171,52 @@ export interface PreflightPhase {
   file: string
 }
 
+/** One commit in the sprint (`CommitInfo`). All fields are RESTITUTED from
+ * `git log` parsing — `commit_type`/`is_phase`/`phase` are graved by the
+ * backend regex, the UI never re-derives them. */
+export interface CommitInfo {
+  sha: string
+  short: string
+  title: string
+  author: string
+  date: string
+  commit_type: string
+  scope: string
+  is_phase: boolean
+  phase: string | null
+  insertions: number
+  deletions: number
+  files: string[]
+  body_sections: string[]
+}
+
+/** One §1 verification check (`VerificationCheck`). `result` is the RESTITUTED
+ * historical PASS/FAIL recorded in verification.md — never a live verdict. */
+export interface VerificationCheck {
+  number: number
+  name: string
+  command: string
+  result: string
+}
+
+/** `VerificationSummary` — the §1 fail-fast table read from verification.md.
+ * `null` until the sprint is wrapped (no verification.md yet). */
+export interface VerificationSummary {
+  total_checks: number
+  passed: number
+  failed: number
+  checks: VerificationCheck[]
+}
+
+/** A carried debt item (`CarryItem`) — open OR closed; `phase_closed` is set
+ * only on a closed carry. Restituted disposition, never a UI judgement. */
+export interface CarryItem {
+  code: string
+  description: string
+  disposition: string
+  phase_closed: string | null
+}
+
 export interface SprintHistory {
   sprint: number
   status: string
@@ -178,10 +224,12 @@ export interface SprintHistory {
   head: string
   entry_tip: string | null
   exit_tip: string | null
+  roadmap: string | null
   total_commits: number
   phase_commits: number
   chore_commits: number
   phases: PhaseHistory[]
+  commits: CommitInfo[]
   preflight_bilan: {
     total: number
     execute: number
@@ -192,13 +240,43 @@ export interface SprintHistory {
   tests: {
     rust_entry: number
     rust_exit: number
+    rust_delta: number
     vitest_entry: number
     vitest_exit: number
+    vitest_delta: number
+    size_limit: string
     per_phase: { phase: string; rust_delta: number; vitest_delta: number; detail: string }[]
   }
   scope_cuts: { number: number; item: string; target: string; respected: boolean }[]
-  carries_open: { code: string; description: string; disposition: string }[]
-  carries_closed: { code: string; description: string; phase_closed: string | null }[]
+  carries_open: CarryItem[]
+  carries_closed: CarryItem[]
+  verification: VerificationSummary | null
+}
+
+/** One phase's live progress (`/api/status` phases[]) — artifact presence +
+ * restituted review verdict, available BEFORE the phase commit lands. */
+export interface StatusPhase {
+  letter: string
+  has_preflight: boolean
+  has_review: boolean
+  review_verdict: string | null
+  has_codex: boolean
+}
+
+/** `GET /api/status` — the LIVE process position: which sprint/phase we are on
+ * right now (`current_phase`), the planning-artifact presence, and per-phase
+ * progress. Distinct from `/api/sprint-history` (committed history): this
+ * surfaces the IN-PROGRESS phase before its commit exists. */
+export interface OperatorStatus {
+  sprint: number
+  branch: string
+  head: string
+  current_phase: string | null
+  has_kickoff: boolean
+  has_plan: boolean
+  has_design_review: boolean
+  has_audit_plan: boolean
+  phases: StatusPhase[]
 }
 
 export interface DiffLine {
@@ -285,6 +363,11 @@ export interface ChatLog {
    * consumer (D2 hash-drift) never assumes a field the backend did not seal. */
   context_pack: Partial<ContextPack>
   messages: { role: string; content: string; action?: string }[]
+}
+
+/** `GET /api/status` — the live process position (current sprint/phase). */
+export function getStatus(signal?: AbortSignal): Promise<OperatorStatus> {
+  return getJson<OperatorStatus>('/api/status', signal)
 }
 
 /** `GET /api/sprint-history` (active sprint) or `/{n}` for a specific one. */
