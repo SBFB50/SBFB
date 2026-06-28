@@ -350,9 +350,16 @@ export interface TerminalCast {
   path: string
   size_bytes: number
 }
+/** A resumable `claude` session scoped to this repo (terminal.rs
+ * `list_claude_sessions` — `~/.claude/sessions/*.json` filtered by cwd). */
+export interface ClaudeSession {
+  session_id: string
+  name: string
+  updated_at: number
+}
 export interface TerminalSessions {
   sessions: TerminalCast[]
-  claude_sessions: unknown[]
+  claude_sessions: ClaudeSession[]
 }
 
 export interface ChatLog {
