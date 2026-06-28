@@ -8,6 +8,7 @@ import { ProcedeSurface } from './ProcedeSurface'
 vi.mock('../../api/operator', () => ({
   getSprintHistory: vi.fn(),
   getStatus: vi.fn(),
+  getAllSprints: vi.fn(),
   getCommitDiff: vi.fn(),
   getAudit: vi.fn(),
   getLint: vi.fn(),
@@ -16,6 +17,7 @@ vi.mock('../../api/operator', () => ({
 
 const getSprintHistory = vi.mocked(api.getSprintHistory)
 const getStatus = vi.mocked(api.getStatus)
+const getAllSprints = vi.mocked(api.getAllSprints)
 const getCommitDiff = vi.mocked(api.getCommitDiff)
 const getAudit = vi.mocked(api.getAudit)
 const getLint = vi.mocked(api.getLint)
@@ -99,6 +101,13 @@ beforeEach(() => {
   vi.clearAllMocks()
   getSprintHistory.mockResolvedValue(HISTORY)
   getStatus.mockResolvedValue(STATUS)
+  getAllSprints.mockResolvedValue({
+    total: 2,
+    sprints: [
+      { sprint: 80, version: 'v2.1', status: 'in_progress', phase_count: 8, phases_pass: 8, has_verification: false, dir: 'active' },
+      { sprint: 79, version: 'v2.1', status: 'closed', phase_count: 9, phases_pass: 9, has_verification: true, dir: 'archive/v2.1' },
+    ],
+  })
   getCommitDiff.mockResolvedValue({ sha: 'a5ace8d', title: 'auth', files: [] })
   getAudit.mockResolvedValue({ rev: 'a5ace8d', title: 'auth', is_phase_commit: true, ok: true, issues: [] })
   getLint.mockResolvedValue({ ok: true, errors: [], warnings: [] })
@@ -149,6 +158,17 @@ describe('ProcedeSurface (arbre de procédé)', () => {
     fireEvent.change(screen.getByTestId('phase-filter'), { target: { value: 'zzz' } })
     expect(screen.queryByTestId('procede-phase')).toBeNull()
     expect(screen.getByText(/aucune phase ne correspond/)).toBeInTheDocument()
+  })
+
+  it('drills into a past sprint from the cross-sprint index', async () => {
+    const user = userEvent.setup()
+    render(<ProcedeSurface />)
+    await screen.findByTestId('procede-surface')
+    await user.click(screen.getByRole('button', { name: /tous les sprints/ }))
+    await user.click(await screen.findByText('S79'))
+    await waitFor(() => expect(getSprintHistory).toHaveBeenCalledWith(79, expect.anything()))
+    // Drilling a non-active sprint replaces the live banner with a back affordance.
+    expect(await screen.findByTestId('drill-banner')).toBeInTheDocument()
   })
 
   it('degrades gracefully when /api/status fails (history still renders)', async () => {

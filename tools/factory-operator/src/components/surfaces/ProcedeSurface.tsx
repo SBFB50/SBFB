@@ -19,6 +19,7 @@
 // fabricated verdict.
 import { useEffect, useMemo, useState } from 'react'
 import {
+  getAllSprints,
   getSprintHistory,
   getStatus,
   OperatorError,
@@ -26,6 +27,7 @@ import {
   type CommitInfo,
   type OperatorStatus,
   type SprintHistory,
+  type SprintSummary,
   type VerificationSummary,
 } from '../../api/operator'
 import { preflightTone, reviewTone, toneBg, toneText } from '../../lib/verdict'
@@ -389,31 +391,96 @@ function GlyphLegend() {
   )
 }
 
+/** The cross-sprint index (GET /api/sprint-history/all): a collapsible grid of
+ * every detected sprint. Clicking a card drills into that sprint's procédé.
+ * `phases_pass/phase_count` is a RESTITUTED count, never a fabricated score. */
+function SprintIndex({
+  sprints,
+  viewing,
+  onSelect,
+}: {
+  sprints: SprintSummary[]
+  viewing: number
+  onSelect: (sprint: number) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const sorted = useMemo(() => [...sprints].sort((a, b) => b.sprint - a.sprint), [sprints])
+  if (sprints.length === 0) return null
+  return (
+    <div className="mb-4" data-testid="sprint-index">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="mb-1 flex items-center gap-2 font-sans text-[8.5px] font-semibold uppercase tracking-[0.14em] text-tx4 hover:text-tx2"
+      >
+        <span aria-hidden>{open ? '▾' : '▸'}</span>
+        tous les sprints · {sprints.length}
+      </button>
+      {open ? (
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(7rem,1fr))] gap-1.5">
+          {sorted.map((s) => (
+            <button
+              key={s.sprint}
+              type="button"
+              data-testid="sprint-card"
+              onClick={() => onSelect(s.sprint)}
+              title={`${s.version} · ${s.status}`}
+              className={`flex flex-col gap-0.5 rounded-sm border px-2 py-1.5 text-left font-mono text-[10px] ${
+                s.sprint === viewing ? 'border-bd2 bg-s2 text-tx' : 'border-bd text-tx3 hover:bg-s1'
+              }`}
+            >
+              <span className="font-semibold">S{s.sprint}</span>
+              <span className="text-tx4">{s.version}</span>
+              <span className="text-tx4">
+                {s.phases_pass}/{s.phase_count} ph{s.has_verification ? ' ✓v' : ''}
+              </span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 export function ProcedeSurface() {
   const [history, setHistory] = useState<SprintHistory | null>(null)
   const [status, setStatus] = useState<OperatorStatus | null>(null)
+  const [allSprints, setAllSprints] = useState<SprintSummary[] | null>(null)
+  const [selectedSprint, setSelectedSprint] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [filter, setFilter] = useState('')
 
+  // Global signals (once): the live position + the cross-sprint index.
   useEffect(() => {
     const controller = new AbortController()
-    // History is required; status (live position) degrades independently.
-    void Promise.allSettled([
-      getSprintHistory(undefined, controller.signal),
-      getStatus(controller.signal),
-    ]).then(([histR, statR]) => {
-      if (controller.signal.aborted) return
-      if (histR.status === 'rejected') {
-        const err = histR.reason
-        setError(err instanceof OperatorError ? `procédé indisponible (${err.status})` : 'procédé indisponible')
-        return
-      }
-      setHistory(histR.value)
-      if (statR.status === 'fulfilled') setStatus(statR.value)
-    })
+    void Promise.allSettled([getStatus(controller.signal), getAllSprints(controller.signal)]).then(
+      ([statR, allR]) => {
+        if (controller.signal.aborted) return
+        if (statR.status === 'fulfilled') setStatus(statR.value)
+        if (allR.status === 'fulfilled') setAllSprints(allR.value.sprints)
+      },
+    )
     return () => controller.abort()
   }, [])
+
+  // The displayed sprint history — re-fetched when the operator drills a sprint
+  // (selectedSprint null = active sprint).
+  useEffect(() => {
+    const controller = new AbortController()
+    getSprintHistory(selectedSprint ?? undefined, controller.signal)
+      .then((h) => {
+        if (controller.signal.aborted) return
+        setHistory(h)
+        setError(null)
+      })
+      .catch((err) => {
+        if (controller.signal.aborted) return
+        setError(err instanceof OperatorError ? `procédé indisponible (${err.status})` : 'procédé indisponible')
+      })
+    return () => controller.abort()
+  }, [selectedSprint])
 
   const fileByPhase = useMemo(
     () => new Map((history?.preflight_bilan.phases ?? []).map((p) => [p.phase, p.file])),
@@ -427,7 +494,21 @@ export function ProcedeSurface() {
     return history.phases.filter((p) => p.letter.toLowerCase().includes(q) || p.title.toLowerCase().includes(q))
   }, [history, filter])
 
-  if (error) return <div className="p-5 font-mono text-[11px] text-warn">{error}</div>
+  if (error)
+    return (
+      <div className="flex flex-col gap-2 p-5 font-mono text-[11px] text-warn">
+        <span>{error}</span>
+        {selectedSprint !== null ? (
+          <button
+            type="button"
+            onClick={() => setSelectedSprint(null)}
+            className="self-start rounded-sm border border-bd px-2 py-1 text-tx3 hover:bg-s1"
+          >
+            ← sprint actif
+          </button>
+        ) : null}
+      </div>
+    )
   if (history === null) return <div className="p-5 font-mono text-[11px] text-tx4">lecture du procédé…</div>
 
   const toggle = (letter: string) =>
@@ -454,7 +535,33 @@ export function ProcedeSurface() {
         </span>
       </div>
 
-      <LiveProcessBanner history={history} status={status} />
+      {allSprints ? (
+        <SprintIndex
+          sprints={allSprints}
+          viewing={selectedSprint ?? status?.sprint ?? history.sprint}
+          onSelect={(n) => setSelectedSprint(n === status?.sprint ? null : n)}
+        />
+      ) : null}
+
+      {selectedSprint === null ? (
+        <LiveProcessBanner history={history} status={status} />
+      ) : (
+        <div
+          data-testid="drill-banner"
+          className="mb-4 flex items-center gap-3 rounded-md border border-bd bg-s1 px-3 py-2"
+        >
+          <span className="font-mono text-[11px] text-tx2">
+            sprint {history.sprint} · {history.status} · archivé
+          </span>
+          <button
+            type="button"
+            onClick={() => setSelectedSprint(null)}
+            className="ml-auto rounded-sm border border-bd px-2 py-0.5 font-mono text-[10px] text-tx3 hover:bg-s2"
+          >
+            ← sprint actif
+          </button>
+        </div>
+      )}
 
       {/* preflight bilan + verdict frise (fold V8) */}
       <div className="mb-4 flex flex-wrap items-center gap-2 rounded-md border border-bd bg-s1 px-3 py-2">

@@ -377,6 +377,28 @@ export function getStatus(signal?: AbortSignal): Promise<OperatorStatus> {
   return getJson<OperatorStatus>('/api/status', signal)
 }
 
+/** One sprint in the cross-sprint index (`SprintSummary`, sprint_history.rs).
+ * `phases_pass`/`phase_count` are RESTITUTED counts, never a sprint score. */
+export interface SprintSummary {
+  sprint: number
+  version: string
+  status: string
+  phase_count: number
+  phases_pass: number
+  has_verification: boolean
+  dir: string
+}
+export interface AllSprintsResult {
+  sprints: SprintSummary[]
+  total: number
+}
+
+/** `GET /api/sprint-history/all` — every sprint (active + archived) the
+ * backend detected, for the cross-sprint index. */
+export function getAllSprints(signal?: AbortSignal): Promise<AllSprintsResult> {
+  return getJson<AllSprintsResult>('/api/sprint-history/all', signal)
+}
+
 /** `GET /api/sprint-history` (active sprint) or `/{n}` for a specific one. */
 export function getSprintHistory(sprint?: number, signal?: AbortSignal): Promise<SprintHistory> {
   const path = sprint == null ? '/api/sprint-history' : `/api/sprint-history/${sprint}`
