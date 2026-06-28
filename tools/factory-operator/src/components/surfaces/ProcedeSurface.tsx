@@ -466,7 +466,9 @@ export function ProcedeSurface() {
   }, [])
 
   // The displayed sprint history — re-fetched when the operator drills a sprint
-  // (selectedSprint null = active sprint).
+  // (selectedSprint null = active sprint). The placeholder reset + per-sprint
+  // view-state clear happen in `drillTo` (the click handler), not here, so the
+  // effect never calls setState synchronously (react-hooks).
   useEffect(() => {
     const controller = new AbortController()
     getSprintHistory(selectedSprint ?? undefined, controller.signal)
@@ -521,6 +523,17 @@ export function ProcedeSurface() {
   const expandAll = () => setExpanded(new Set(filteredPhases.map((p) => p.letter)))
   const collapseAll = () => setExpanded(new Set())
 
+  // Drill to a sprint (null = active). Clears the placeholder + per-sprint view
+  // state in the SAME click so a drill never flashes the previous tree nor
+  // bleeds expanded rows / the filter across sprints. (Event handler, not an
+  // effect — so no synchronous-setState-in-effect.)
+  const drillTo = (target: number | null) => {
+    setHistory(null)
+    setExpanded(new Set())
+    setFilter('')
+    setSelectedSprint(target)
+  }
+
   return (
     <div data-testid="procede-surface" className="flex min-h-0 flex-1 flex-col overflow-auto p-5">
       <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-tx2">
@@ -539,7 +552,7 @@ export function ProcedeSurface() {
         <SprintIndex
           sprints={allSprints}
           viewing={selectedSprint ?? status?.sprint ?? history.sprint}
-          onSelect={(n) => setSelectedSprint(n === status?.sprint ? null : n)}
+          onSelect={(n) => drillTo(n === (status?.sprint ?? history.sprint) ? null : n)}
         />
       ) : null}
 
@@ -555,7 +568,7 @@ export function ProcedeSurface() {
           </span>
           <button
             type="button"
-            onClick={() => setSelectedSprint(null)}
+            onClick={() => drillTo(null)}
             className="ml-auto rounded-sm border border-bd px-2 py-0.5 font-mono text-[10px] text-tx3 hover:bg-s2"
           >
             ← sprint actif
@@ -591,6 +604,7 @@ export function ProcedeSurface() {
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
           placeholder="filtrer les phases…"
+          aria-label="filtrer les phases"
           data-testid="phase-filter"
           className="min-w-0 flex-1 rounded-sm border border-bd bg-s0 px-2 py-1 font-mono text-[11px] text-tx placeholder:text-tx4 focus:border-bd2 focus:outline-none"
         />

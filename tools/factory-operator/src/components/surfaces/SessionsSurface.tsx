@@ -24,6 +24,7 @@ import {
   type TerminalCast,
 } from '../../api/operator'
 import type { TerminalStatus } from '../verify/TerminalXterm'
+import { formatSessionDate } from '../../lib/sessionDate'
 import { CastReplay } from './CastReplay'
 
 const ResumeTerminal = lazy(() => import('../verify/TerminalXterm'))
@@ -73,16 +74,16 @@ function ChatMessage({ role, content }: { role: string; content: string }) {
   )
 }
 
-function formatSessionDate(updated: number): string {
-  if (!updated) return ''
-  const ms = updated > 1e12 ? updated : updated * 1000
-  const d = new Date(ms)
-  return Number.isNaN(d.getTime()) ? '' : d.toLocaleString('fr-FR')
-}
-
 function ResumePanel({ sessions }: { sessions: ClaudeSession[] }) {
   const [resume, setResume] = useState<string | null>(null)
   const [status, setStatus] = useState<TerminalStatus | 'inactif'>('inactif')
+  // Reset the shared status in the toggle handler (not an effect) so the new
+  // panel never shows the previous session's stale status; key={resume} below
+  // also remounts the PTY for a clean WS teardown.
+  const toggleResume = (id: string) => {
+    setStatus('inactif')
+    setResume((cur) => (cur === id ? null : id))
+  }
   if (sessions.length === 0) {
     return <div className="font-mono text-[10.5px] text-tx4">aucune session claude reprenable pour ce dépôt</div>
   }
@@ -101,7 +102,7 @@ function ResumePanel({ sessions }: { sessions: ClaudeSession[] }) {
             <span className="shrink-0 font-mono text-[9.5px] text-tx4">{formatSessionDate(s.updated_at)}</span>
             <button
               type="button"
-              onClick={() => setResume((cur) => (cur === s.session_id ? null : s.session_id))}
+              onClick={() => toggleResume(s.session_id)}
               data-testid="claude-resume"
               className={`shrink-0 rounded-sm border px-2 py-0.5 font-mono text-[9.5px] ${
                 resume === s.session_id ? 'border-bd2 bg-s2 text-tx' : 'border-bd text-tx3 hover:border-bd2'
@@ -120,7 +121,7 @@ function ResumePanel({ sessions }: { sessions: ClaudeSession[] }) {
           </div>
           <div className="h-72 min-h-0 bg-s0 p-2">
             <Suspense fallback={<div className="p-3 font-mono text-[11px] text-tx4">chargement du terminal…</div>}>
-              <ResumeTerminal resume={resume} onStatus={setStatus} />
+              <ResumeTerminal key={resume} resume={resume} onStatus={setStatus} />
             </Suspense>
           </div>
         </div>

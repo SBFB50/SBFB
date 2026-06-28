@@ -2,10 +2,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createSession,
+  getAllSprints,
   getContext,
   getGates,
   getPrompt,
   getProviders,
+  getStatus,
   getWorkingTreeDiff,
   OperatorError,
   sendMessage,
@@ -81,6 +83,20 @@ describe('operator API client', () => {
   it('getWorkingTreeDiff parses the working-tree envelope (Phase H)', async () => {
     globalThis.fetch = vi.fn(async () => ok({ head: 'd59ee32', unstaged: [], staged: [], truncated: false }))
     await expect(getWorkingTreeDiff()).resolves.toMatchObject({ head: 'd59ee32', truncated: false })
+  })
+
+  it('getStatus hits /api/status and parses the live position', async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => ok({ sprint: 80, current_phase: 'I', phases: [] }))
+    globalThis.fetch = fetchMock
+    await expect(getStatus()).resolves.toMatchObject({ sprint: 80, current_phase: 'I' })
+    expect(String(fetchMock.mock.calls[0][0])).toBe('/api/status')
+  })
+
+  it('getAllSprints hits /api/sprint-history/all and parses the index', async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => ok({ total: 1, sprints: [{ sprint: 80 }] }))
+    globalThis.fetch = fetchMock
+    await expect(getAllSprints()).resolves.toMatchObject({ total: 1 })
+    expect(String(fetchMock.mock.calls[0][0])).toBe('/api/sprint-history/all')
   })
 
   it('getGates unpacks the gates list and propagates the AbortSignal (Phase H)', async () => {

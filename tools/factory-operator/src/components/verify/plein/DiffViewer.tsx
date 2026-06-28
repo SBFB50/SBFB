@@ -17,6 +17,7 @@
 // keeping the VerifyScene hero chunk under its budget (preflight §4).
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { DiffLine, FileDiff } from '../../../api/operator'
+import { isTypingTarget } from '../../../lib/dom'
 import { wordDiff, type WordSeg } from './wordDiff'
 
 export type DiffMode = 'inline' | 'split'
@@ -31,6 +32,10 @@ export interface DiffViewerProps {
   truncated?: boolean
   /** Route a hunk correction to the session as an intention (never execute). */
   onHunkIntent?: (file: string, hunkHeader: string) => void
+  /** Focus the scroll area once on first content so j/k works without a click.
+   * ONLY the hero VERIFY viewer sets this — a DiffViewer embedded in the
+   * procédé tree (multi-expand) must NOT grab focus when a phase unfolds. */
+  autoFocus?: boolean
   testid?: string
 }
 
@@ -194,7 +199,7 @@ function SplitCell({ line, side }: { line?: PreparedLine; side: 'old' | 'new' })
   )
 }
 
-export function DiffViewer({ files, caption, emptyLabel, truncated, onHunkIntent, testid }: DiffViewerProps) {
+export function DiffViewer({ files, caption, emptyLabel, truncated, onHunkIntent, autoFocus, testid }: DiffViewerProps) {
   const [mode, setMode] = useState<DiffMode>('inline')
   const [changeSetOpen, setChangeSetOpen] = useState(true)
   const [current, setCurrent] = useState(0)
@@ -207,19 +212,15 @@ export function DiffViewer({ files, caption, emptyLabel, truncated, onHunkIntent
   const autofocused = useRef(false)
 
   // Auto-focus the scroll area ONCE when content first appears, so j/k · ↑/↓
-  // hunk navigation works without a preliminary click — unless the operator is
-  // already typing somewhere (never steal focus from a text field).
+  // hunk navigation works without a preliminary click — opt-in (autoFocus, hero
+  // VERIFY only) and never when the operator is already typing in a field.
   useEffect(() => {
-    if (files.length === 0 || autofocused.current) return
-    const active = document.activeElement
-    const typing =
-      active instanceof HTMLElement &&
-      (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)
-    if (!typing) {
+    if (!autoFocus || files.length === 0 || autofocused.current) return
+    if (!isTypingTarget(document.activeElement)) {
       scrollRef.current?.focus({ preventScroll: true })
       autofocused.current = true
     }
-  }, [files.length])
+  }, [autoFocus, files.length])
 
   const totalInsertions = files.reduce((a, f) => a + f.insertions, 0)
   const totalDeletions = files.reduce((a, f) => a + f.deletions, 0)

@@ -7,8 +7,8 @@
 // exists, the "pouls gates" is now LIVE: it restitutes a COUNT per gate status
 // (never an aggregate verdict — the cardinal "0 verdict calculé UI" holds, a
 // count of restituted statuses is restitution, not a fabricated PASS/score).
-// A manual refresh re-reads the context (freshness after a commit) and a
-// recent-commits dropdown restitutes the `git log --oneline -5` list.
+// A manual refresh re-reads the context for freshness after a commit. (The
+// full sprint commit timeline lives in the Procédé inspector, not the bar.)
 
 import type { RailHandle } from '../state/useRailStatus'
 import type { ExecProvider } from '../catalog/intentions'

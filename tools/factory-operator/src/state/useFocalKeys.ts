@@ -6,12 +6,8 @@
 // focused and no modifier is held — so it never fights typing in the composer
 // or a browser/Composer shortcut (Ctrl/Cmd+Enter etc.).
 import { useEffect } from 'react'
+import { isTypingTarget } from '../lib/dom'
 import type { FocalMode } from './useOperator'
-
-function isTypingTarget(el: EventTarget | null): boolean {
-  if (!(el instanceof HTMLElement)) return false
-  return el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable
-}
 
 export function useFocalKeys(setMode: (mode: FocalMode) => void): void {
   useEffect(() => {

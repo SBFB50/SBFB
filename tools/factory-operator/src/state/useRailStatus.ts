@@ -3,17 +3,20 @@
 // Sprint 80 Phase C → front rapid-add. The ambient rail's data source.
 // `GET /api/context` carries sprint, phase, branch and the working-tree
 // dirty/staged counts (process.rs context_data). Since Phase G `/api/gates`
-// exists and restitutes a per-gate status, the rail
-// now ALSO restitutes a COUNT per gate status — never an aggregate verdict
-// (the cardinal "0 verdict calculé UI" holds: a count of restituted statuses
-// is restitution, not a fabricated PASS/score). Context and gates degrade
-// INDEPENDENTLY (Promise.allSettled): a gates failure never blanks the rail.
+// exists and restitutes a per-gate status, the rail also restitutes a COUNT
+// per gate status — never an aggregate verdict (the cardinal "0 verdict calculé
+// UI" holds: a count of restituted statuses is restitution, not a fabricated
+// PASS/score). Context and gates degrade INDEPENDENTLY (Promise.allSettled):
+// a gates failure never blanks the rail.
 //
 // Freshness: the load runs at mount, on tab refocus (visibilitychange/focus),
 // and on a manual `refresh()` — so after an in-session commit the counts and
-// "N modifiés · N indexés" stop lying (the S80 review P1-1 freshness gap).
+// "N modifiés · N indexés" stop lying (the S80 review P1-1 freshness gap). The
+// refocus path coalesces (in-flight guard) so the two events Chrome fires on a
+// tab return don't double-fetch; `loading` flips true for the duration so the
+// refresh affordance can show its busy state.
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { getContext, getGates, type GateStatus } from '../api/operator'
 import { GATE_STATUS } from '../lib/gateStatus'
 
@@ -31,10 +34,6 @@ export interface RailStatus {
   /** Backend reachability — the only honest live signal the rail has. */
   reachable: boolean
   loading: boolean
-}
-
-interface RailState {
-  status: RailStatus
 }
 
 const EMPTY: RailStatus = {
@@ -66,29 +65,31 @@ export interface RailHandle extends RailStatus {
 }
 
 export function useRailStatus(): RailHandle {
-  const [{ status }, setState] = useState<RailState>({ status: EMPTY })
+  const [status, setStatus] = useState<RailStatus>(EMPTY)
+  const inFlight = useRef(false)
 
   const load = useCallback((signal?: AbortSignal) => {
+    // Coalesce the visibilitychange + focus pair Chrome fires on a tab return.
+    if (inFlight.current) return
+    inFlight.current = true
+    setStatus((s) => (s.loading ? s : { ...s, loading: true }))
     void Promise.allSettled([getContext(signal), getGates(signal)]).then(([ctxR, gatesR]) => {
+      inFlight.current = false
       if (signal?.aborted) return
       if (ctxR.status === 'rejected') {
-        // An abort (unmount / StrictMode cleanup) is not a real failure.
-        if (signal?.aborted) return
-        setState({ status: { ...EMPTY, reachable: false, loading: false } })
+        setStatus({ ...EMPTY, reachable: false, loading: false })
         return
       }
       const ctx = ctxR.value
-      setState({
-        status: {
-          sprint: typeof ctx.sprint === 'number' ? ctx.sprint : null,
-          phase: ctx.phase ?? null,
-          branch: ctx.branch ?? null,
-          dirty: Array.isArray(ctx.dirty_files) ? ctx.dirty_files.length : null,
-          staged: Array.isArray(ctx.staged_files) ? ctx.staged_files.length : null,
-          gateCounts: gatesR.status === 'fulfilled' ? countByStatus(gatesR.value.gates) : null,
-          reachable: true,
-          loading: false,
-        },
+      setStatus({
+        sprint: typeof ctx.sprint === 'number' ? ctx.sprint : null,
+        phase: ctx.phase ?? null,
+        branch: ctx.branch ?? null,
+        dirty: Array.isArray(ctx.dirty_files) ? ctx.dirty_files.length : null,
+        staged: Array.isArray(ctx.staged_files) ? ctx.staged_files.length : null,
+        gateCounts: gatesR.status === 'fulfilled' ? countByStatus(gatesR.value.gates) : null,
+        reachable: true,
+        loading: false,
       })
     })
   }, [])
@@ -96,7 +97,7 @@ export function useRailStatus(): RailHandle {
   useEffect(() => {
     const controller = new AbortController()
     load(controller.signal)
-    // Refetch when the operator returns to the tab — cheap, no polling.
+    // Refetch when the operator returns to the tab — cheap, coalesced.
     const onFocus = () => {
       if (document.visibilityState === 'visible') load()
     }
@@ -104,6 +105,9 @@ export function useRailStatus(): RailHandle {
     window.addEventListener('focus', onFocus)
     return () => {
       controller.abort()
+      // Release the in-flight guard on unmount so a StrictMode remount (or a
+      // later mount) is never blocked by the aborted load still "in flight".
+      inFlight.current = false
       document.removeEventListener('visibilitychange', onFocus)
       window.removeEventListener('focus', onFocus)
     }

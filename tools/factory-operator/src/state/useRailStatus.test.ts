@@ -89,4 +89,34 @@ describe('useRailStatus', () => {
     await waitFor(() => expect(getContext.mock.calls.length).toBeGreaterThan(before))
     expect(getGates.mock.calls.length).toBeGreaterThan(0)
   })
+
+  it('refetch au refocus de l onglet (fraîcheur P1-1)', async () => {
+    getContext.mockResolvedValue({ branch: 'm', head: 'h', dirty_files: [], staged_files: [] })
+    getGates.mockResolvedValue({ gates: [] })
+    const { result } = renderHook(() => useRailStatus())
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    const before = getContext.mock.calls.length
+    act(() => {
+      window.dispatchEvent(new Event('focus'))
+    })
+    await waitFor(() => expect(getContext.mock.calls.length).toBeGreaterThan(before))
+  })
+
+  it('refresh fait passer loading à true le temps du refetch (busy-state)', async () => {
+    getContext.mockResolvedValue({ branch: 'm', head: 'h', dirty_files: [], staged_files: [] })
+    getGates.mockResolvedValue({ gates: [] })
+    const { result } = renderHook(() => useRailStatus())
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    // Make the next context fetch hang so loading is observable.
+    let release: (() => void) | null = null
+    getContext.mockReturnValue(
+      new Promise((res) => {
+        release = () => res({ branch: 'm', head: 'h', dirty_files: [], staged_files: [] })
+      }),
+    )
+    act(() => result.current.refresh())
+    await waitFor(() => expect(result.current.loading).toBe(true))
+    act(() => release?.())
+    await waitFor(() => expect(result.current.loading).toBe(false))
+  })
 })

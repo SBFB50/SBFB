@@ -8,7 +8,8 @@
 // body while open. The MODE switch is manual (D6), never arrachée au stream;
 // `verifyReady` only lights an availability hint, never an auto-switch. Wiring:
 // useOperator (STEER turn lifecycle + focal mode + open surface + verifyReady) +
-// useRailStatus (ambient context from /api/context).
+// useRailStatus (ambient context from /api/context + gate pulse from /api/gates)
+// + useFocalKeys (keyboard s/v focal switch, D6 manual).
 import { lazy, Suspense } from 'react'
 import { OrientationBar } from './components/OrientationBar'
 import { Rail } from './components/Rail'

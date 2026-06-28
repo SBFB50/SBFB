@@ -92,6 +92,14 @@ describe('ContextPackInspector (sealed pack S2 + brouillon J13)', () => {
     expect(writeText).toHaveBeenCalledWith('b0000001')
   })
 
+  it('affiche « copié » après une copie réussie', async () => {
+    Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } })
+    render(<ContextPackInspector />)
+    const paths = await screen.findAllByTestId('copy-path')
+    fireEvent.click(paths[0])
+    expect(await screen.findByText('copié')).toBeInTheDocument()
+  })
+
   it('drifts against a REDUCED real session pack without crashing (Codex round-2)', async () => {
     // The backend chat/session pack omits process_docs/active_artifacts/agent_system.
     // groups() coalesces the missing arrays → no throw → D2 still compares the

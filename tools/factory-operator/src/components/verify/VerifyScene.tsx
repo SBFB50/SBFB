@@ -139,6 +139,7 @@ export function VerifyScene({ op }: { op: Operator }) {
             ) : (
               <DiffViewer
                 files={files}
+                autoFocus
                 caption={
                   diff
                     ? `working-tree · ${diff.unstaged.length} non indexés · ${diff.staged.length} indexés`

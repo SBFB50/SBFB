@@ -271,7 +271,9 @@ export interface OperatorStatus {
   sprint: number
   branch: string
   head: string
-  current_phase: string | null
+  /** Always a string — the Rust `StatusSprintResult.current_phase: String`
+   * (process.rs `detect_current_phase`) is never null/omitted. */
+  current_phase: string
   has_kickoff: boolean
   has_plan: boolean
   has_design_review: boolean

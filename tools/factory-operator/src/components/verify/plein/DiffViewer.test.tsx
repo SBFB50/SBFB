@@ -127,4 +127,24 @@ describe('DiffViewer (bespoke VERIFY diff-viewer — folds V1/V2/V3)', () => {
     expect(screen.getByText('<script>alert(1)</script>')).toBeInTheDocument()
     expect(container.querySelector('script')).toBeNull()
   })
+
+  it('auto-focuses the scroll area only with autoFocus (j/k sans clic préalable)', () => {
+    render(<DiffViewer files={FILES} autoFocus />)
+    expect(screen.getByTestId('diff-scroll')).toHaveFocus()
+  })
+
+  it('ne focalise PAS sans autoFocus (DiffViewer embarqué dans le procédé)', () => {
+    render(<DiffViewer files={FILES} />)
+    expect(screen.getByTestId('diff-scroll')).not.toHaveFocus()
+  })
+
+  it('ne vole PAS le focus d un champ de saisie actif (garde isTypingTarget)', () => {
+    const input = document.createElement('input')
+    document.body.appendChild(input)
+    input.focus()
+    render(<DiffViewer files={FILES} autoFocus />)
+    expect(input).toHaveFocus()
+    expect(screen.getByTestId('diff-scroll')).not.toHaveFocus()
+    input.remove()
+  })
 })

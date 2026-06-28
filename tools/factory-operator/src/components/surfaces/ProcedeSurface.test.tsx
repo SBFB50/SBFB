@@ -171,6 +171,79 @@ describe('ProcedeSurface (arbre de procédé)', () => {
     expect(await screen.findByTestId('drill-banner')).toBeInTheDocument()
   })
 
+  it('restitue la table de vérification §1 (résultats par-check, jamais un PASS agrégé)', async () => {
+    getSprintHistory.mockResolvedValue({
+      ...HISTORY,
+      verification: {
+        total_checks: 5,
+        passed: 4,
+        failed: 1,
+        checks: [
+          { number: 1, name: 'fmt', command: 'cargo fmt --check', result: 'PASS' },
+          { number: 2, name: 'clippy', command: 'cargo clippy', result: 'FAIL' },
+        ],
+      },
+    } as unknown as api.SprintHistory)
+    render(<ProcedeSurface />)
+    const table = await screen.findByTestId('verification-table')
+    // RESTITUTED count, not a fabricated sprint verdict.
+    expect(within(table).getByText(/4\/5/)).toBeInTheDocument()
+    // Per-check names + results are restituted verbatim (PASS for fmt, FAIL for clippy).
+    expect(within(table).getByText('fmt')).toBeInTheDocument()
+    expect(within(table).getByText('clippy')).toBeInTheDocument()
+    expect(within(table).getByText('PASS')).toBeInTheDocument()
+    expect(within(table).getByText('FAIL')).toBeInTheDocument()
+  })
+
+  it('restitue le registre de dette portée (carries ouverts/fermés)', async () => {
+    getSprintHistory.mockResolvedValue({
+      ...HISTORY,
+      carries_open: [{ code: 'CARRY-1', description: 'dette ouverte', disposition: 'différé S81', phase_closed: null }],
+      carries_closed: [{ code: 'CARRY-2', description: 'dette fermée', disposition: '', phase_closed: 'C' }],
+    } as unknown as api.SprintHistory)
+    render(<ProcedeSurface />)
+    const carries = await screen.findByTestId('carries')
+    expect(within(carries).getByText(/CARRY-1/)).toBeInTheDocument()
+    expect(within(carries).getByText(/différé S81/)).toBeInTheDocument()
+    expect(within(carries).getByText(/CARRY-2/)).toBeInTheDocument()
+    expect(within(carries).getByText(/phase C/)).toBeInTheDocument()
+  })
+
+  it('restitue le bilan tests entrée→sortie quand disponible', async () => {
+    render(<ProcedeSurface />)
+    const bilan = await screen.findByTestId('tests-bilan')
+    expect(within(bilan).getByText(/2000→2009/)).toBeInTheDocument()
+    expect(within(bilan).getByText(/\(\+9\)/)).toBeInTheDocument()
+  })
+
+  it('bascule le bilan tests sur « au wrap-up » quand entrée/sortie absentes', async () => {
+    getSprintHistory.mockResolvedValue({
+      ...HISTORY,
+      tests: { rust_entry: 0, rust_exit: 0, rust_delta: 0, vitest_entry: 0, vitest_exit: 0, vitest_delta: 0, size_limit: '6/6', per_phase: [] },
+    } as unknown as api.SprintHistory)
+    render(<ProcedeSurface />)
+    const bilan = await screen.findByTestId('tests-bilan')
+    expect(within(bilan).getByText(/au wrap-up/)).toBeInTheDocument()
+  })
+
+  it('LiveProcessBanner restitue « committée » quand la phase courante a un commit', async () => {
+    getStatus.mockResolvedValue({ ...STATUS, current_phase: 'A' } as unknown as api.OperatorStatus)
+    render(<ProcedeSurface />)
+    const live = await screen.findByTestId('live-process')
+    expect(live).toHaveTextContent('committée')
+  })
+
+  it('LiveProcessBanner restitue l avancement de la phase courante non committée', async () => {
+    getStatus.mockResolvedValue({
+      ...STATUS,
+      current_phase: 'I',
+      phases: [{ letter: 'I', has_preflight: true, has_review: true, review_verdict: null, has_codex: false }],
+    } as unknown as api.OperatorStatus)
+    render(<ProcedeSurface />)
+    const live = await screen.findByTestId('live-process')
+    expect(live).toHaveTextContent('préflight→review')
+  })
+
   it('degrades gracefully when /api/status fails (history still renders)', async () => {
     getStatus.mockRejectedValue(new Error('status down'))
     render(<ProcedeSurface />)
