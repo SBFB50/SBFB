@@ -15,7 +15,6 @@ export interface RailStatus {
   sprint: number | null
   phase: string | null
   branch: string | null
-  head: string | null
   dirty: number | null
   staged: number | null
   /** Backend reachability — the only honest live signal the rail has. */
@@ -27,7 +26,6 @@ const EMPTY: RailStatus = {
   sprint: null,
   phase: null,
   branch: null,
-  head: null,
   dirty: null,
   staged: null,
   reachable: false,
@@ -45,7 +43,6 @@ export function useRailStatus(): RailStatus {
           sprint: typeof ctx.sprint === 'number' ? ctx.sprint : null,
           phase: ctx.phase ?? null,
           branch: ctx.branch ?? null,
-          head: ctx.head ?? null,
           dirty: Array.isArray(ctx.dirty_files) ? ctx.dirty_files.length : null,
           staged: Array.isArray(ctx.staged_files) ? ctx.staged_files.length : null,
           reachable: true,

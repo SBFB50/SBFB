@@ -18,10 +18,14 @@ function ModeButton({
   active,
   label,
   onClick,
+  ready,
 }: {
   active: boolean
   label: string
   onClick: () => void
+  /** D6 disponibilité: light a "ready" dot when a complete turn awaits
+   * examination. The toggle stays manual — this is an affordance, not a switch. */
+  ready?: boolean
 }) {
   return (
     <button
@@ -35,6 +39,14 @@ function ModeButton({
     >
       <span className={cn('h-1.5 w-1.5 rounded-full', active ? 'bg-tx' : 'border border-bd2')} aria-hidden />
       <span className={cn('font-sans text-xs', active ? 'font-semibold text-tx' : 'text-tx3')}>{label}</span>
+      {ready && !active ? (
+        <span
+          data-testid="verify-ready"
+          className="ml-auto h-1.5 w-1.5 rounded-full bg-info"
+          title="un tour terminé attend l’examen — bascule manuelle"
+          aria-label="prêt à examiner"
+        />
+      ) : null}
     </button>
   )
 }
@@ -45,12 +57,14 @@ export function Rail({
   surface,
   onSurface,
   reachable,
+  verifyReady,
 }: {
   mode: FocalMode
   onMode: (mode: FocalMode) => void
   surface: SecondarySurface | null
   onSurface: (surface: SecondarySurface) => void
   reachable: boolean
+  verifyReady?: boolean
 }) {
   return (
     <nav
@@ -66,7 +80,12 @@ export function Rail({
       >
         <ModeButton active={surface === null && mode === 'steer'} label="STEER" onClick={() => onMode('steer')} />
         <div className="border-t border-bd" />
-        <ModeButton active={surface === null && mode === 'verify'} label="VERIFY" onClick={() => onMode('verify')} />
+        <ModeButton
+          active={surface === null && mode === 'verify'}
+          label="VERIFY"
+          onClick={() => onMode('verify')}
+          ready={verifyReady}
+        />
       </div>
       <div className="mb-4 font-mono text-[8.5px] leading-tight text-tx4">bascule manuelle · jamais auto</div>
 

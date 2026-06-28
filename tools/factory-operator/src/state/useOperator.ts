@@ -70,6 +70,11 @@ export interface Operator {
   turn: OperatorTurn
   /** True once a turn exists — the scene leaves the empty/discovery state. */
   hasTurn: boolean
+  /** D6 bascule DISPONIBILITÉ (not an auto-switch): a turn has reached a
+   * terminal complete state (done / ended), so examining the result in VERIFY
+   * is now meaningful. The toggle itself stays MANUAL — this only lights the
+   * VERIFY affordance, never arrachée au stream. */
+  verifyReady: boolean
   launch: (text: string, kind: string) => void
   /** S5: re-run the last user message as a new full-cost turn. */
   relaunch: () => void
@@ -188,6 +193,7 @@ export function useOperator(): Operator {
     setProvider,
     sessionId,
     hasTurn: message !== null,
+    verifyReady: message !== null && (stream.status === 'done' || stream.status === 'ended'),
     turn: {
       message,
       kind,

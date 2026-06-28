@@ -3,8 +3,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createSession,
   getContext,
+  getGates,
   getPrompt,
   getProviders,
+  getWorkingTreeDiff,
   OperatorError,
   sendMessage,
   streamUrl,
@@ -74,5 +76,21 @@ describe('operator API client', () => {
     expect(err.status).toBe(401)
     expect(err.path).toBe('/api/x')
     expect(err).toBeInstanceOf(Error)
+  })
+
+  it('getWorkingTreeDiff parses the working-tree envelope (Phase H)', async () => {
+    globalThis.fetch = vi.fn(async () => ok({ head: 'd59ee32', unstaged: [], staged: [], truncated: false }))
+    await expect(getWorkingTreeDiff()).resolves.toMatchObject({ head: 'd59ee32', truncated: false })
+  })
+
+  it('getGates unpacks the gates list and propagates the AbortSignal (Phase H)', async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      ok({ gates: [{ gate: 'lint-planning', status: 'passed', issues: [] }] }),
+    )
+    globalThis.fetch = fetchMock
+    const ctrl = new AbortController()
+    await expect(getGates(ctrl.signal)).resolves.toMatchObject({ gates: [{ gate: 'lint-planning' }] })
+    expect(String(fetchMock.mock.calls[0][0])).toBe('/api/gates')
+    expect(fetchMock.mock.calls[0][1]?.signal).toBe(ctrl.signal)
   })
 })

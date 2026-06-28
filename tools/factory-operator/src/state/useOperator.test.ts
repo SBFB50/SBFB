@@ -141,4 +141,25 @@ describe('useOperator', () => {
     act(() => result.current.preparePack())
     expect(result.current.surface).toBe('knowledge')
   })
+
+  it('verifyReady (D6 availability) is false with no turn and mid-stream, never on abort', async () => {
+    sendMessage.mockResolvedValue({ ok: true })
+    globalThis.fetch = vi.fn(async () => ({ ok: true, status: 200, body: liveBody() }) as unknown as Response)
+    const { result } = renderHook(() => useOperator())
+    expect(result.current.verifyReady).toBe(false) // no turn yet
+    act(() => result.current.launch('prepare the phase', 'preflight'))
+    await waitFor(() => expect(result.current.turn.status).toBe('streaming'))
+    expect(result.current.verifyReady).toBe(false) // mid-stream: not a complete turn
+    act(() => result.current.interrupt())
+    await waitFor(() => expect(result.current.turn.status).toBe('aborted'))
+    expect(result.current.verifyReady).toBe(false) // aborted ≠ complete
+  })
+
+  it('verifyReady lights once a turn reaches a complete terminal (done)', async () => {
+    sendMessage.mockResolvedValue({ ok: true })
+    const { result } = renderHook(() => useOperator())
+    act(() => result.current.launch('prepare the phase', 'preflight'))
+    await waitFor(() => expect(result.current.turn.status).toBe('done'))
+    expect(result.current.verifyReady).toBe(true)
+  })
 })

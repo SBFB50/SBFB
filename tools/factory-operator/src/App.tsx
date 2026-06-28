@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// Sprint 80 Phase C → D — the bi-focal shell: a permanent altitude-0
-// orientation bar + narrow rail framing ONE state-driven scene. Phase D adds
-// the VERIFY-bootstrap focal scene (terminal-PTY + gates band) and the rail's
-// secondary INSPECTORS (procédé / sessions / knowledge), which replace the
-// focal scene body while open. The MODE switch is manual (D6), never arrachée
-// au stream. Wiring: useOperator (STEER turn lifecycle + focal mode + open
-// surface) + useRailStatus (ambient context from /api/context).
+// Sprint 80 Phase C → H — the bi-focal shell: a permanent altitude-0
+// orientation bar + narrow rail framing ONE state-driven scene. Phase D added
+// the VERIFY-bootstrap focal scene; Phase H made VERIFY the full diff-viewer +
+// live gates panel (the terminal-PTY is now a secondary tool there). The rail's
+// secondary INSPECTORS (procédé / sessions / knowledge) replace the focal scene
+// body while open. The MODE switch is manual (D6), never arrachée au stream;
+// `verifyReady` only lights an availability hint, never an auto-switch. Wiring:
+// useOperator (STEER turn lifecycle + focal mode + open surface + verifyReady) +
+// useRailStatus (ambient context from /api/context).
 import { lazy, Suspense } from 'react'
 import { OrientationBar } from './components/OrientationBar'
 import { Rail } from './components/Rail'
@@ -47,6 +49,7 @@ export function App() {
           surface={op.surface}
           onSurface={op.openSurface}
           reachable={status.reachable}
+          verifyReady={op.verifyReady}
         />
         {/* The focal pane is the only element that morphs on the STEER⇄VERIFY
            bascule (signature 4, altitude shift). `view-transition-name: focal`
@@ -60,7 +63,7 @@ export function App() {
             ) : op.mode === 'steer' ? (
               <SteerScene op={op} />
             ) : (
-              <VerifyScene />
+              <VerifyScene op={op} />
             )}
           </Suspense>
         </div>

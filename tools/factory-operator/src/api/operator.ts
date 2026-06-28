@@ -340,3 +340,67 @@ export function terminalWsUrl(resume?: string): string {
   const base = `${proto}//${window.location.host}/api/terminal/ws`
   return resume ? `${base}?resume=${encodeURIComponent(resume)}` : base
 }
+
+// --- Sprint 80 Phase H — VERIFY-plein (working-tree diff + live gates) ---
+//
+// Both shapes MIRROR a Rust struct read 1:1 (sprint_history.rs /
+// gates.rs) and are RESTITUTED by the front, never computed. The
+// diff-viewer renders the hunks the BACKEND parsed (`parse_unified_diff`),
+// never a JS re-diff; the gates band restitutes each gate's distinct status,
+// never an aggregated verdict (kickoff cardinal: 0 verdict calculé UI).
+
+/** `GET /api/git/diff` — the repo working tree, computed in Rust
+ * (`working_tree_diff_data`). `head` is the short HEAD sha (freshness /
+ * `run@<rev>`); a partially staged file legitimately appears in BOTH
+ * arrays (git semantics). `truncated` is set past `MAX_DIFF_LINES`
+ * (20 000). `old_lineno`/`new_lineno` are nullable on each `DiffLine`. */
+export interface WorkingTreeDiff {
+  head: string
+  unstaged: FileDiff[]
+  staged: FileDiff[]
+  truncated: boolean
+}
+
+/** The distinct, never-flattened status of a gate, mirroring the Rust
+ * `GateStatus` enum (gates.rs:75-89, snake_case). EXACTLY these five — the
+ * acceptance T2 words (PROVISIONAL / Not-evidenced / RIG-ABSENT) are NOT in
+ * this enum and must never be fabricated from `/api/gates`. */
+export type GateStatus = 'not_run' | 'not_applicable' | 'passed' | 'informational' | 'blocking'
+
+/** One issue attached to a gate (gates.rs `GateIssueView`). `line` is
+ * ALWAYS `null` in S80 (no line anchor before the `GateResult.issues ->
+ * struct` refactor, carry S81); `file`, when present, is a `.planning/`
+ * basename (the lint-planning source), NOT a change-set path — so V5/V6
+ * (per-line gutter / per-change-set-file gate marker) are degraded to S81. */
+export interface GateIssueView {
+  message: string
+  file: string | null
+  line: number | null
+}
+
+/** One gate's restituted state (gates.rs `GateEntryView`). A single `gate`
+ * name can appear under more than one `status` (lint-planning splits its
+ * errors → `blocking` and warnings → `informational`), so consumers key by
+ * `(gate, status)`, never by `gate` alone. */
+export interface GateEntryView {
+  gate: string
+  status: GateStatus
+  issues: GateIssueView[]
+}
+
+/** `GET /api/gates` — a flat list of restituted gate states with NO
+ * aggregate field at the root (gates.rs:111-121: no `overall`/`all_passed`/
+ * score). The Operator closes no verdict; the front restitutes 1:1. */
+export interface GatesView {
+  gates: GateEntryView[]
+}
+
+/** The working-tree diff the Phase H VERIFY diff-viewer renders. */
+export function getWorkingTreeDiff(signal?: AbortSignal): Promise<WorkingTreeDiff> {
+  return getJson<WorkingTreeDiff>('/api/git/diff', signal)
+}
+
+/** The live gate registry the Phase H VERIFY gates band restitutes. */
+export function getGates(signal?: AbortSignal): Promise<GatesView> {
+  return getJson<GatesView>('/api/gates', signal)
+}

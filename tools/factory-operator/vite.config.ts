@@ -67,6 +67,14 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           const nid = id.replace(/\\/g, '/')
+          // Sprint 80 Phase H: the bespoke diff-viewer (DiffViewer + the
+          // in-house word-diff) into its OWN async chunk. Imported by BOTH the
+          // VerifyScene hero surface AND the Procédé inspector (fold V2/U7), so
+          // hoisting it out keeps the VerifyScene `verify-surface` chunk under
+          // its budget (.size-limit.json `verify-surface`, bumped to 96 KB this
+          // phase — review P3-g). Measured by .size-limit.json `diff-viewer`;
+          // motion-free, so it never drags the Motion engine.
+          if (nid.includes('/src/components/verify/plein/')) return 'diff-viewer'
           if (!nid.includes('/node_modules/')) return
           if (
             nid.includes('/node_modules/react/') ||

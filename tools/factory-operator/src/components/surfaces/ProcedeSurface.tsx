@@ -8,12 +8,14 @@
 // nothing, scores nothing). Each verdict carries its SOURCE artifact filename
 // (fold U2, provenance-de-verdict — preflight_bilan.phases[].file). The frise
 // (fold V8) is the condensed verdict strip; clicking a phase commit opens its
-// diff (fold J11, DiffView) and conformity card (folds U3/A9/V10). The in-app
-// artifact CONTENT reader is S81; here the provenance is the named source.
+// diff (fold J11) via the bespoke `DiffViewer` (Phase H — the SAME viewer that
+// renders the working tree in VERIFY, fold V2/U7) and a conformity card (folds
+// U3/A9/V10). The in-app artifact CONTENT reader is S81; here the provenance is
+// the named source.
 import { useEffect, useState } from 'react'
 import { getSprintHistory, OperatorError, type SprintHistory } from '../../api/operator'
 import { preflightTone, reviewTone, toneBg, toneText } from '../../lib/verdict'
-import { DiffView } from './DiffView'
+import { DiffViewer } from '../verify/plein/DiffViewer'
 import { ConformiteCard } from './ConformiteCard'
 import { useCommitDiff } from '../../state/useCommitDiff'
 
@@ -147,7 +149,15 @@ function PhaseDiff({ sha }: { sha: string }) {
       ) : error ? (
         <div className="font-mono text-[10px] text-warn">{error}</div>
       ) : diff ? (
-        <DiffView diff={diff} />
+        // Fold V2/U7: the SAME bespoke viewer renders a PAST commit here and the
+        // working tree in VERIFY — one component, two usages, on the shared
+        // FileDiff[] shape (the hunks computed in Rust, never a JS re-diff).
+        <DiffViewer
+          files={diff.files}
+          caption={`commit ${diff.sha.slice(0, 10)} — ${diff.title}`}
+          emptyLabel="aucun fichier dans ce diff"
+          testid="diff-view"
+        />
       ) : null}
     </div>
   )

@@ -16,14 +16,21 @@
   {
     "name": "verify-surface",
     "path": "bundle/assets/VerifyScene-*.js",
-    "limit": "92 KB",
+    "limit": "96 KB",
+    "brotli": false,
+    "gzip": false
+  },
+  {
+    "name": "diff-viewer",
+    "path": "bundle/assets/diff-viewer-*.js",
+    "limit": "22 KB",
     "brotli": false,
     "gzip": false
   },
   {
     "name": "css",
     "path": "bundle/assets/index-*.css",
-    "limit": "21 KB",
+    "limit": "25 KB",
     "brotli": false,
     "gzip": false
   },

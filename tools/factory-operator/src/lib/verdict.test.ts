@@ -1,6 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { describe, expect, it } from 'vitest'
-import { preflightTone, reviewTone, toneBg, toneText, VERIFY_ETAT } from './verdict'
+import {
+  GATE_STATUS,
+  gateStatusGlyph,
+  gateStatusLabel,
+  gateStatusTone,
+  pickVerifyEtat,
+  preflightTone,
+  reviewTone,
+  toneBg,
+  toneText,
+  VERIFY_ETAT,
+} from './verdict'
 
 describe('reviewTone (restituted review verdict)', () => {
   it('maps the recorded verdicts to honest tones', () => {
@@ -39,6 +50,46 @@ describe('VERIFY état slot never fabricates a verdict', () => {
     for (const text of Object.values(VERIFY_ETAT)) {
       expect(text).not.toMatch(/\bPASS\b/)
       expect(text).not.toMatch(/Vérifié|Approuvé/)
+    }
+  })
+
+  it('pickVerifyEtat reads observable facts, not a verdict', () => {
+    expect(pickVerifyEtat({ loading: true, hasChanges: false })).toBe('reading')
+    expect(pickVerifyEtat({ loading: false, hasChanges: true })).toBe('inspecting')
+    expect(pickVerifyEtat({ loading: false, hasChanges: false })).toBe('empty')
+  })
+})
+
+describe('gate status restitution (Phase H — GET /api/gates)', () => {
+  it('GATE_STATUS mirrors EXACTLY the five wire statuses', () => {
+    expect(Object.values(GATE_STATUS).sort()).toEqual([
+      'blocking',
+      'informational',
+      'not_applicable',
+      'not_run',
+      'passed',
+    ])
+  })
+
+  it('maps each status to a distinct glyph (a tick, never the literal PASS)', () => {
+    expect(gateStatusGlyph('passed')).toBe('✓')
+    expect(gateStatusGlyph('blocking')).toBe('✕')
+    expect(gateStatusGlyph('not_applicable')).toBe('—')
+    expect(gateStatusGlyph('informational')).toBe('•')
+    expect(gateStatusGlyph('not_run')).toBe('•')
+  })
+
+  it('maps each status to an honest tone', () => {
+    expect(gateStatusTone('passed')).toBe('ok')
+    expect(gateStatusTone('blocking')).toBe('bad')
+    expect(gateStatusTone('informational')).toBe('warn')
+    expect(gateStatusTone('not_run')).toBe('neu')
+    expect(gateStatusTone('not_applicable')).toBe('neu')
+  })
+
+  it('labels never use a forbidden verdict word', () => {
+    for (const status of Object.values(GATE_STATUS)) {
+      expect(gateStatusLabel(status)).not.toMatch(/\b(PASS|Vérifié|Approuvé)\b/)
     }
   })
 })
