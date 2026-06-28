@@ -72,7 +72,7 @@ export function Rail({
       aria-label="Orientation"
       className="flex w-[158px] flex-shrink-0 flex-col border-r border-bd bg-s1 px-2.5 py-3"
     >
-      <div className="mb-2 font-sans text-[8.5px] font-semibold uppercase tracking-[0.16em] text-tx4">mode focal</div>
+      <div className="mb-2 eyebrow">mode focal</div>
       <div
         className="mb-1.5 flex flex-col overflow-hidden rounded-sm border border-bd"
         role="group"
@@ -93,7 +93,7 @@ export function Rail({
         clavier : <span className="text-tx3">s</span> / <span className="text-tx3">v</span>
       </div>
 
-      <div className="mb-2 font-sans text-[8.5px] font-semibold uppercase tracking-[0.16em] text-tx4">inspecteurs</div>
+      <div className="mb-2 eyebrow">inspecteurs</div>
       <div className="flex flex-col gap-px">
         {SECONDARY_SURFACES.map((s) => {
           const active = surface === s.id

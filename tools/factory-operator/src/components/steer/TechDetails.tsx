@@ -85,7 +85,7 @@ export function TechDetails({
         )}
       </div>
       <div className="border-t border-bd pt-2">
-        <div className="mb-1 text-[8.5px] uppercase tracking-wider text-tx4">
+        <div className="mb-1 eyebrow">
           prompt assemblé (lecture seule)
         </div>
         {!ready ? (

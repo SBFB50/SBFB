@@ -53,14 +53,14 @@ export function ConformiteCard({ rev }: { rev: string }) {
   return (
     <div data-testid="conformite-card" className="flex flex-col gap-3 rounded-md border border-bd bg-s1 px-4 py-3">
       <div className="flex items-center gap-2 font-mono text-[10.5px]">
-        <span className="font-sans text-[8.5px] font-semibold uppercase tracking-[0.14em] text-tx4">
+        <span className="eyebrow">
           conformité du commit
         </span>
         <span className="text-tx">{audit.rev.slice(0, 10)}</span>
         {audit.is_phase_commit ? (
-          <span className="rounded-sm border border-bd2 px-1 py-0.5 text-[8.5px] uppercase text-tx3">phase</span>
+          <span className="rounded-sm border border-bd2 px-1 py-0.5 text-[12px] text-tx3">phase</span>
         ) : (
-          <span className="rounded-sm border border-bd px-1 py-0.5 text-[8.5px] uppercase text-tx4">hors-phase</span>
+          <span className="rounded-sm border border-bd px-1 py-0.5 text-[12px] text-tx3">hors-phase</span>
         )}
       </div>
 

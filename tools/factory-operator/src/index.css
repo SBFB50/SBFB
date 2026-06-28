@@ -74,6 +74,10 @@
     background-color: var(--color-s0);
     color: var(--color-tx);
     font-family: var(--font-sans);
+    /* Audit a11y 2026-06-28 L2 : base lisible 16px (corps), interligne 1.5.
+       Les tailles inférieures sont des exceptions tokenisées, jamais < 13px. */
+    font-size: 16px;
+    line-height: 1.5;
     font-synthesis: none;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
@@ -84,6 +88,20 @@
     outline: 2px solid var(--color-info);
     outline-offset: 2px;
   }
+}
+
+/* Audit a11y 2026-06-28 L2 — `.eyebrow` remplace le pattern toxique
+   text-[8.5px] uppercase tracking-[0.14em] text-tx4 (4 pénalités cumulées :
+   sous-9px + majuscules + letter-spacing positif + encre sous-contraste).
+   Étiquette de section LISIBLE : 12px, sentence-case, tracking quasi nul,
+   encre tx3 (AA). Unlayered pour battre les utilitaires Tailwind. */
+.eyebrow {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  text-transform: none;
+  color: var(--color-tx3);
 }
 
 /* Sprint 80 Phase E — motion = sens, jamais déco. The CSS-driven signatures

@@ -49,7 +49,7 @@ function FilesChanged({ files }: { files: FileChange[] }) {
   if (files.length === 0) return null
   return (
     <div data-testid="phase-files">
-      <div className="mb-0.5 font-mono text-[8.5px] uppercase tracking-wider text-tx4">
+      <div className="mb-0.5 eyebrow">
         fichiers <span className="text-tx4">· {files.length}</span>
       </div>
       <ul className="flex flex-col gap-0.5">
@@ -128,7 +128,7 @@ function PhaseNode({
           </div>
           {phase.deliverables.length > 0 ? (
             <div data-testid="phase-deliverables">
-              <div className="mb-0.5 font-mono text-[8.5px] uppercase tracking-wider text-tx4">livrables</div>
+              <div className="mb-0.5 eyebrow">livrables</div>
               <ul className="flex flex-col gap-0.5">
                 {phase.deliverables.map((d, i) => (
                   <li key={i} className="font-mono text-[10px] text-tx3">
@@ -143,7 +143,7 @@ function PhaseNode({
           ) : null}
           {phase.findings.length > 0 ? (
             <div data-testid="phase-findings">
-              <div className="mb-0.5 font-mono text-[8.5px] uppercase tracking-wider text-tx4">
+              <div className="mb-0.5 eyebrow">
                 findings review <span className="text-tx4">· {phase.findings.length}</span>
               </div>
               <ul className="flex flex-col gap-0.5">
@@ -206,7 +206,7 @@ function LiveProcessBanner({
       data-testid="live-process"
       className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-md border border-bd bg-s1 px-3 py-2"
     >
-      <span className="font-sans text-[8.5px] font-semibold uppercase tracking-[0.14em] text-tx4">où on en est</span>
+      <span className="eyebrow">où on en est</span>
       <span className="flex items-center gap-1.5 font-mono text-[11px]">
         <span className={`h-1.5 w-1.5 rounded-full ${currentDone ? 'bg-ok' : 'bg-warn'}`} aria-hidden />
         <span className="text-tx2">phase courante</span>
@@ -235,7 +235,7 @@ function TestsBilan({ tests }: { tests: SprintHistory['tests'] }) {
       data-testid="tests-bilan"
       className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-md border border-bd bg-s1 px-3 py-2 font-mono text-[10px] text-tx3"
     >
-      <span className="font-sans text-[8.5px] font-semibold uppercase tracking-[0.14em] text-tx4">bilan tests</span>
+      <span className="eyebrow">bilan tests</span>
       {hasEntryExit ? (
         <>
           <span>
@@ -275,7 +275,7 @@ function CommitTimeline({ commits }: { commits: CommitInfo[] }) {
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
-        className="mb-1 flex items-center gap-2 font-sans text-[8.5px] font-semibold uppercase tracking-[0.14em] text-tx4 hover:text-tx2"
+        className="mb-1 flex items-center gap-2 eyebrow hover:text-tx2"
       >
         <span aria-hidden>{open ? '▾' : '▸'}</span>
         timeline des commits · {commits.length}
@@ -309,7 +309,7 @@ function CarriesSection({ open, closed }: { open: CarryItem[]; closed: CarryItem
   if (open.length === 0 && closed.length === 0) return null
   return (
     <div className="mt-4 border-t border-bd pt-3" data-testid="carries">
-      <div className="mb-1 font-sans text-[8.5px] font-semibold uppercase tracking-[0.14em] text-tx4">
+      <div className="mb-1 eyebrow">
         dette portée · {open.length} ouverte{open.length > 1 ? 's' : ''} · {closed.length} fermée
         {closed.length > 1 ? 's' : ''}
       </div>
@@ -341,7 +341,7 @@ function VerificationTable({ verification }: { verification: VerificationSummary
   if (verification === null) {
     return (
       <div className="mt-4 border-t border-bd pt-3" data-testid="verification-table">
-        <div className="font-sans text-[8.5px] font-semibold uppercase tracking-[0.14em] text-tx4">
+        <div className="eyebrow">
           vérification §1
         </div>
         <p className="mt-1 font-mono text-[10px] text-tx4">restituée au wrap-up (verification.md)</p>
@@ -350,7 +350,7 @@ function VerificationTable({ verification }: { verification: VerificationSummary
   }
   return (
     <div className="mt-4 border-t border-bd pt-3" data-testid="verification-table">
-      <div className="mb-1 font-sans text-[8.5px] font-semibold uppercase tracking-[0.14em] text-tx4">
+      <div className="mb-1 eyebrow">
         vérification §1 · {verification.passed}/{verification.total_checks}
       </div>
       <ul className="flex flex-col gap-0.5">
@@ -371,7 +371,7 @@ function VerificationTable({ verification }: { verification: VerificationSummary
 function GlyphLegend() {
   return (
     <details className="mt-4 border-t border-bd pt-3" data-testid="glyph-legend">
-      <summary className="cursor-pointer font-sans text-[8.5px] font-semibold uppercase tracking-[0.14em] text-tx4 hover:text-tx2">
+      <summary className="cursor-pointer eyebrow hover:text-tx2">
         légende
       </summary>
       <div className="mt-1 flex flex-col gap-0.5 font-mono text-[10px] text-tx3">
@@ -412,7 +412,7 @@ function SprintIndex({
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
-        className="mb-1 flex items-center gap-2 font-sans text-[8.5px] font-semibold uppercase tracking-[0.14em] text-tx4 hover:text-tx2"
+        className="mb-1 flex items-center gap-2 eyebrow hover:text-tx2"
       >
         <span aria-hidden>{open ? '▾' : '▸'}</span>
         tous les sprints · {sprints.length}
@@ -578,7 +578,7 @@ export function ProcedeSurface() {
 
       {/* preflight bilan + verdict frise (fold V8) */}
       <div className="mb-4 flex flex-wrap items-center gap-2 rounded-md border border-bd bg-s1 px-3 py-2">
-        <span className="font-sans text-[8.5px] font-semibold uppercase tracking-[0.14em] text-tx4">frise</span>
+        <span className="eyebrow">frise</span>
         <span className="font-mono text-[10px] text-tx3">
           préflights {history.preflight_bilan.total} · {history.preflight_bilan.execute} EXECUTE ·{' '}
           {history.preflight_bilan.plan_adapt} PLAN-ADAPT · {history.preflight_bilan.design_conflict} conflit
@@ -642,7 +642,7 @@ export function ProcedeSurface() {
 
       {history.scope_cuts.length > 0 ? (
         <div className="mt-4 border-t border-bd pt-3">
-          <div className="mb-1 font-sans text-[8.5px] font-semibold uppercase tracking-[0.14em] text-tx4">
+          <div className="mb-1 eyebrow">
             scope cuts restitués
           </div>
           <ul className="flex flex-col gap-0.5">

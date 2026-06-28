@@ -199,7 +199,7 @@ export function ContextPackInspector({
         <div className="flex flex-col gap-3">
           {groups(pack).map((g) => (
             <div key={g.label}>
-              <div className="mb-1 font-sans text-[8.5px] font-semibold uppercase tracking-[0.14em] text-tx4">
+              <div className="mb-1 eyebrow">
                 {g.label} <span className="text-tx4">· {g.refs.length}</span>
               </div>
               <div className="flex flex-col gap-1">

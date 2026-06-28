@@ -312,7 +312,7 @@ export function DiffViewer({ files, caption, emptyLabel, truncated, onHunkIntent
             data-testid="diff-changeset"
             className="flex w-52 flex-shrink-0 flex-col overflow-auto border-r border-bd bg-s1"
           >
-            <div className="border-b border-bd px-3 py-1.5 font-sans text-[8.5px] font-semibold uppercase tracking-wider text-tx4">
+            <div className="border-b border-bd px-3 py-1.5 eyebrow">
               change-set · {files.length}
             </div>
             {prepared.map((pf) => (

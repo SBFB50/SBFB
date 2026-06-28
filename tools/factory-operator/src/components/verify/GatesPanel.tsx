@@ -57,7 +57,7 @@ export function GatesPanel({
   return (
     <div data-testid="verify-gates" className="flex flex-col bg-s2">
       <div className="flex items-center gap-2 px-4 py-2 font-mono text-[10.5px]">
-        <span className="font-sans text-[8.5px] font-semibold uppercase tracking-wider text-tx4">gates</span>
+        <span className="eyebrow">gates</span>
 
         {loading ? (
           <span className="text-tx4">lecture des gates…</span>
@@ -102,7 +102,7 @@ export function GatesPanel({
 
       {open ? (
         <div data-testid="verify-gates-tray" className="border-t border-bd bg-s1 px-4 py-2.5">
-          <div className="mb-1.5 font-sans text-[8.5px] font-semibold uppercase tracking-wider text-tx4">
+          <div className="mb-1.5 eyebrow">
             diagnostic · aucun agrégat · chaque gate garde son état
           </div>
           {gates && gates.length > 0 ? (

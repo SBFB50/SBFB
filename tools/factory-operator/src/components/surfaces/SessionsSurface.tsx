@@ -95,9 +95,7 @@ function ResumePanel({ sessions }: { sessions: ClaudeSession[] }) {
             key={s.session_id}
             className="flex items-center gap-2 rounded-sm border border-bd bg-s1 px-2.5 py-1.5"
           >
-            <span className="shrink-0 rounded-sm border border-bd px-1 font-mono text-[8.5px] uppercase text-tx4">
-              claude
-            </span>
+            <span className="shrink-0 rounded-sm border border-bd px-1 text-[12px] text-tx3">claude</span>
             <span className="min-w-0 flex-1 truncate font-sans text-[11px] text-tx2">{s.name || s.session_id}</span>
             <span className="shrink-0 font-mono text-[9.5px] text-tx4">{formatSessionDate(s.updated_at)}</span>
             <button
@@ -188,7 +186,7 @@ export function SessionsSurface({ sessionId }: { sessionId: string | null }) {
   return (
     <div data-testid="sessions-surface" className="flex min-h-0 flex-1 flex-col overflow-auto p-5">
       <section className="mb-5">
-        <div className="mb-1.5 font-sans text-[8.5px] font-semibold uppercase tracking-[0.14em] text-tx4">
+        <div className="mb-1.5 eyebrow">
           journal de bord · registre des refus du mur
         </div>
         {error ? (
@@ -201,7 +199,7 @@ export function SessionsSurface({ sessionId }: { sessionId: string | null }) {
       </section>
 
       <section className="mb-5">
-        <div className="mb-1 font-sans text-[8.5px] font-semibold uppercase tracking-[0.14em] text-tx4">
+        <div className="mb-1 eyebrow">
           sessions reprenables
         </div>
         {/* Honest provider scope: only the Claude CLI persists resumable
@@ -222,7 +220,7 @@ export function SessionsSurface({ sessionId }: { sessionId: string | null }) {
 
       {sessionId ? (
         <section className="mb-5">
-          <div className="mb-1.5 font-sans text-[8.5px] font-semibold uppercase tracking-[0.14em] text-tx4">
+          <div className="mb-1.5 eyebrow">
             session STEER en cours{' '}
             <span className="text-tx4">· {chat?.messages.length ?? 0} messages (non-autoritaire)</span>
           </div>
@@ -235,7 +233,7 @@ export function SessionsSurface({ sessionId }: { sessionId: string | null }) {
       ) : null}
 
       <section className="min-h-0 flex-1">
-        <div className="mb-1.5 font-sans text-[8.5px] font-semibold uppercase tracking-[0.14em] text-tx4">
+        <div className="mb-1.5 eyebrow">
           enregistrements terminal · rejeu
         </div>
         {casts === null ? (
