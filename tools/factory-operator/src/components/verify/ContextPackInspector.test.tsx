@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as api from '../../api/operator'
 import { ContextPackInspector } from './ContextPackInspector'
@@ -77,6 +77,19 @@ describe('ContextPackInspector (sealed pack S2 + brouillon J13)', () => {
     expect(markers).toHaveLength(1)
     // The unchanged base prompt is rendered with its hash chip and no marker.
     expect(screen.getByText('b0000001')).toBeInTheDocument()
+  })
+
+  it('copie le chemin et l empreinte d une référence (clipboard)', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.assign(navigator, { clipboard: { writeText } })
+    render(<ContextPackInspector />)
+    await waitFor(() => expect(screen.getByTestId('context-pack-inspector')).toBeInTheDocument())
+    const paths = await screen.findAllByTestId('copy-path')
+    fireEvent.click(paths[0])
+    expect(writeText).toHaveBeenCalledWith('prompts/agent/base.md')
+    const hashes = screen.getAllByTestId('copy-hash')
+    fireEvent.click(hashes[0])
+    expect(writeText).toHaveBeenCalledWith('b0000001')
   })
 
   it('drifts against a REDUCED real session pack without crashing (Codex round-2)', async () => {

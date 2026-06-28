@@ -15,7 +15,7 @@
 // This module lives under verify/plein/ so the vite manualChunk pulls it into
 // the dedicated `diff-viewer` async chunk (measured by .size-limit.json),
 // keeping the VerifyScene hero chunk under its budget (preflight §4).
-import { useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { DiffLine, FileDiff } from '../../../api/operator'
 import { wordDiff, type WordSeg } from './wordDiff'
 
@@ -203,6 +203,23 @@ export function DiffViewer({ files, caption, emptyLabel, truncated, onHunkIntent
 
   const fileRefs = useRef<(HTMLDivElement | null)[]>([])
   const hunkRefs = useRef<(HTMLDivElement | null)[]>([])
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const autofocused = useRef(false)
+
+  // Auto-focus the scroll area ONCE when content first appears, so j/k · ↑/↓
+  // hunk navigation works without a preliminary click — unless the operator is
+  // already typing somewhere (never steal focus from a text field).
+  useEffect(() => {
+    if (files.length === 0 || autofocused.current) return
+    const active = document.activeElement
+    const typing =
+      active instanceof HTMLElement &&
+      (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)
+    if (!typing) {
+      scrollRef.current?.focus({ preventScroll: true })
+      autofocused.current = true
+    }
+  }, [files.length])
 
   const totalInsertions = files.reduce((a, f) => a + f.insertions, 0)
   const totalDeletions = files.reduce((a, f) => a + f.deletions, 0)
@@ -323,6 +340,7 @@ export function DiffViewer({ files, caption, emptyLabel, truncated, onHunkIntent
 
         {/* diff scroll area — keyboard navigable (j/k · ↑/↓ between hunks) */}
         <div
+          ref={scrollRef}
           data-testid="diff-scroll"
           tabIndex={0}
           role="group"

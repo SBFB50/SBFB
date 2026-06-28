@@ -32,8 +32,8 @@ export function Terminal() {
         <div className="max-w-prose rounded-md border border-dashed border-bd bg-s1 px-6 py-6 text-center">
           <div className="mb-1 font-sans text-sm font-semibold text-tx">Terminal de vérification</div>
           <div className="mb-4 font-sans text-[12.5px] leading-relaxed text-tx2">
-            Une session PTY tracée pour inspecter le dépôt à la main (git diff, status, log) pendant
-            que le visualiseur de diff dédié arrive en Phase&nbsp;H. La session est enregistrée et
+            Une session PTY tracée pour inspecter le dépôt à la main (git diff, status, log) en
+            complément du visualiseur de diff dédié de la surface VERIFY. La session est enregistrée et
             rejouable depuis l'inspecteur Sessions.
           </div>
           <button

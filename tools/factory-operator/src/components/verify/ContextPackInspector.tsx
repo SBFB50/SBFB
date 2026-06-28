@@ -14,6 +14,7 @@
 // DERIVED by key, never set synchronously in an effect — react-hooks).
 import { useEffect, useState } from 'react'
 import { getChatLog, postContextPack, OperatorError, type ContextPack, type HashRef } from '../../api/operator'
+import { copyText } from '../../lib/clipboard'
 
 interface PackGroup {
   label: string
@@ -57,19 +58,46 @@ function basename(path: string): string {
 }
 
 function HashRefRow({ entry, drifted }: { entry: HashRef; drifted: boolean }) {
+  const [copied, setCopied] = useState<'path' | 'hash' | null>(null)
+
+  useEffect(() => {
+    if (copied === null) return
+    const t = setTimeout(() => setCopied(null), 1200)
+    return () => clearTimeout(t)
+  }, [copied])
+
+  const copy = (kind: 'path' | 'hash', text: string) => {
+    void copyText(text).then((ok) => {
+      if (ok) setCopied(kind)
+    })
+  }
+
   return (
     <div className="flex items-center gap-2 border border-dashed border-bd2 bg-s0 px-2.5 py-1.5">
       <span className="w-3 text-center font-mono text-[10px] text-tx4" aria-hidden>
         ◇
       </span>
-      <span className="min-w-0 flex-1 truncate font-mono text-[10.5px] text-tx2">
+      <button
+        type="button"
+        onClick={() => copy('path', entry.path)}
+        data-testid="copy-path"
+        title="copier le chemin"
+        className="min-w-0 flex-1 truncate text-left font-mono text-[10.5px] text-tx2 hover:text-tx"
+      >
         <span className="text-tx4">{entry.path.slice(0, entry.path.length - basename(entry.path).length)}</span>
         <span className="text-tx">{basename(entry.path)}</span>
-      </span>
+      </button>
+      {copied === 'path' ? <span className="font-mono text-[9px] text-ok">copié</span> : null}
       {entry.exists && entry.hash ? (
-        <span className="rounded-sm border border-bd bg-s1 px-1 py-0.5 font-mono text-[9px] tabular-nums text-tx3">
-          {entry.hash}
-        </span>
+        <button
+          type="button"
+          onClick={() => copy('hash', entry.hash!)}
+          data-testid="copy-hash"
+          title="copier l'empreinte"
+          className="rounded-sm border border-bd bg-s1 px-1 py-0.5 font-mono text-[9px] tabular-nums text-tx3 hover:text-tx"
+        >
+          {copied === 'hash' ? 'copié' : entry.hash}
+        </button>
       ) : (
         <span className="font-mono text-[9px] text-warn">absent</span>
       )}

@@ -87,7 +87,11 @@ export function Rail({
           ready={verifyReady}
         />
       </div>
-      <div className="mb-4 font-mono text-[8.5px] leading-tight text-tx4">bascule manuelle · jamais auto</div>
+      <div className="mb-4 font-mono text-[8.5px] leading-tight text-tx4">
+        bascule manuelle · jamais auto
+        <br />
+        clavier : <span className="text-tx3">s</span> / <span className="text-tx3">v</span>
+      </div>
 
       <div className="mb-2 font-sans text-[8.5px] font-semibold uppercase tracking-[0.16em] text-tx4">inspecteurs</div>
       <div className="flex flex-col gap-px">

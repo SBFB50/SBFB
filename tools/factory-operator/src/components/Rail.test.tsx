@@ -32,6 +32,6 @@ describe('Rail (D6 manual toggle + verify-ready affordance)', () => {
 
   it('keeps the bascule MANUAL (the affordance never auto-switches)', () => {
     render(<Rail {...base} verifyReady />)
-    expect(screen.getByText('bascule manuelle · jamais auto')).toBeInTheDocument()
+    expect(screen.getByText(/bascule manuelle · jamais auto/)).toBeInTheDocument()
   })
 })

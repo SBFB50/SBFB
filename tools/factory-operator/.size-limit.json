@@ -2,7 +2,7 @@
   {
     "name": "app",
     "path": "bundle/assets/index-*.js",
-    "limit": "44 KB",
+    "limit": "45 KB",
     "brotli": false,
     "gzip": false
   },

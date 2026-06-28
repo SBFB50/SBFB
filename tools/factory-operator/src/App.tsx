@@ -16,6 +16,7 @@ import { ErrorBoundary } from './components/ErrorBoundary'
 import { SteerScene } from './components/steer/SteerScene'
 import { useOperator } from './state/useOperator'
 import { useRailStatus } from './state/useRailStatus'
+import { useFocalKeys } from './state/useFocalKeys'
 
 // Sprint 80 Phase E — the Motion LIBRARY does NOT live at the hero. Empirically
 // (preflight §5.1) `<LazyMotion>` + `<MotionConfig>` pull ~30 KB RAW of engine
@@ -39,6 +40,8 @@ const SurfaceHost = lazy(() => import('./components/surfaces/SurfaceHost').then(
 export function App() {
   const op = useOperator()
   const status = useRailStatus()
+  // Keyboard focal switch (D6 manual): `s`/`v` when not typing.
+  useFocalKeys(op.setMode)
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-s1 text-tx font-sans">
