@@ -45,6 +45,14 @@ function operatorToken(): string {
 }
 const OPERATOR_TOKEN = operatorToken()
 
+// Dev-only: the Operator's listen port. Defaults to 3001 (its CLI default,
+// `operator serve --port`). Override with `OPERATOR_PORT` when 3001 is taken
+// by another local process (e.g. a Docker-forwarded container). Committed
+// behaviour is unchanged when the env is unset.
+const OPERATOR_PORT = (process.env.OPERATOR_PORT || '3001').trim()
+const OPERATOR_HTTP = `http://127.0.0.1:${OPERATOR_PORT}`
+const OPERATOR_WS = `ws://127.0.0.1:${OPERATOR_PORT}`
+
 export default defineConfig({
   plugins: [
     react(),
@@ -98,7 +106,7 @@ export default defineConfig({
     port: 5174,
     proxy: {
       '/api/terminal/ws': {
-        target: 'ws://127.0.0.1:3001',
+        target: OPERATOR_WS,
         ws: true,
         configure: (proxy) => {
           proxy.on('proxyReqWs', (proxyReq) => {
@@ -107,7 +115,7 @@ export default defineConfig({
         },
       },
       '/api': {
-        target: 'http://127.0.0.1:3001',
+        target: OPERATOR_HTTP,
         configure: (proxy) => {
           proxy.on('proxyReq', (proxyReq) => {
             if (OPERATOR_TOKEN) proxyReq.setHeader(TOKEN_HEADER, OPERATOR_TOKEN)
