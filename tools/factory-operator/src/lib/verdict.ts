@@ -1,17 +1,28 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// Sprint 80 Phase D — verdict RESTITUTION helpers. The cardinal invariant:
-// every verdict is GRAVED by Rust (preflight/review artifacts, gate runs) and
-// the front only RESTITUTES it — it never computes, scores, or asserts one.
-// These helpers map a restituted verdict STRING to a display tone; they never
-// fabricate a verdict. The single allowed `PASS` literal is the `=== 'PASS'`
-// comparison (the front reads a backend verdict) — the scan-front-discipline
-// gate strips exactly that form, so no verdict WORD is ever rendered from a
-// literal here.
-import type { GateStatus } from '../api/operator'
+// Sprint 80 Phase D → front rapid-add — verdict RESTITUTION helpers. The
+// cardinal invariant: every verdict is GRAVED by Rust (preflight/review
+// artifacts, gate runs) and the front only RESTITUTES it — it never computes,
+// scores, or asserts one.
+//
+// The SMALL, eager-safe gate-status + tone primitives live in `gateStatus.ts`
+// (so the orientation-bar hero can restitute the live gate pulse without
+// pulling this whole module). They are RE-EXPORTED here so the VERIFY-surface
+// consumers (GatesPanel, ProcedeSurface) keep importing from `verdict`
+// unchanged. This module additionally carries the VERIFY-only machinery
+// (VERIFY_ETAT, pickVerifyEtat, reviewTone, preflightTone).
+import type { Tone } from './gateStatus'
 
-/** A semantic tone keyed to the oklch state tokens (colour = meaning). */
-export type Tone = 'ok' | 'warn' | 'bad' | 'info' | 'neu'
+export type { Tone } from './gateStatus'
+export {
+  GATE_STATUS,
+  GATE_STATUS_ORDER,
+  gateStatusGlyph,
+  gateStatusTone,
+  gateStatusLabel,
+  toneText,
+  toneBg,
+} from './gateStatus'
 
 /**
  * The live VERIFY état slot — a NAMED, enumerated state machine (Phase H). It
@@ -48,70 +59,6 @@ export function pickVerifyEtat(scene: { loading: boolean; hasChanges: boolean })
   return 'empty'
 }
 
-// --- Sprint 80 Phase H — live gate restitution (GET /api/gates) ---
-//
-// The single named mirror of the Rust `GateStatus` enum (gates.rs:75-89),
-// README §6.9: an enumerated domain is ONE named constant reused everywhere,
-// never a duplicated literal. `satisfies` pins every value to a real wire
-// status at compile time.
-
-/** Named mirror of the five wire gate statuses. */
-export const GATE_STATUS = {
-  notRun: 'not_run',
-  notApplicable: 'not_applicable',
-  passed: 'passed',
-  informational: 'informational',
-  blocking: 'blocking',
-} as const satisfies Record<string, GateStatus>
-
-/** Restituted glyph for a gate status — never a verdict word (✓/✕/•/—). The
- * passing glyph is a tick, never the literal "PASS" (scan-front gate). */
-export function gateStatusGlyph(status: GateStatus): string {
-  switch (status) {
-    case 'passed':
-      return '✓'
-    case 'blocking':
-      return '✕'
-    case 'not_applicable':
-      return '—'
-    case 'informational':
-    case 'not_run':
-      return '•'
-  }
-}
-
-/** Honest tone of a restituted gate status (colour = meaning). */
-export function gateStatusTone(status: GateStatus): Tone {
-  switch (status) {
-    case 'passed':
-      return 'ok'
-    case 'blocking':
-      return 'bad'
-    case 'informational':
-      return 'warn'
-    case 'not_run':
-    case 'not_applicable':
-      return 'neu'
-  }
-}
-
-/** FR label of a restituted gate status (for a11y/title) — deliberately NOT
- * the verdict words PASS / Vérifié / Approuvé (scan-front-discipline gate). */
-export function gateStatusLabel(status: GateStatus): string {
-  switch (status) {
-    case 'passed':
-      return 'tenue'
-    case 'blocking':
-      return 'bloquant'
-    case 'informational':
-      return 'informatif'
-    case 'not_run':
-      return 'non exécutée'
-    case 'not_applicable':
-      return 'hors périmètre'
-  }
-}
-
 /**
  * Tone of a RESTITUTED review verdict (`PASS` / `PASS-PENDING` / `CONCERN` /
  * `FAIL`). `=== 'PASS'` is the one allowed PASS literal — the gate strips it
@@ -134,38 +81,4 @@ export function preflightTone(verdict: string | null | undefined): Tone {
   if (verdict.includes('SCOPE-CUT')) return 'info'
   if (verdict.includes('DESIGN-CONFLICT')) return 'bad'
   return 'neu'
-}
-
-/** Tailwind text-colour class for a tone (the verdict is restituted, the tone
- * is only its honest colour — green for a recorded pass, amber for a concern). */
-export function toneText(tone: Tone): string {
-  switch (tone) {
-    case 'ok':
-      return 'text-ok'
-    case 'warn':
-      return 'text-warn'
-    case 'bad':
-      return 'text-bad'
-    case 'info':
-      return 'text-info'
-    default:
-      return 'text-tx3'
-  }
-}
-
-/** Tailwind bg-colour class for a tone. Returns a LITERAL class name (never a
- * runtime-built string) so the Tailwind v4 compiler emits the utility. */
-export function toneBg(tone: Tone): string {
-  switch (tone) {
-    case 'ok':
-      return 'bg-ok'
-    case 'warn':
-      return 'bg-warn'
-    case 'bad':
-      return 'bg-bad'
-    case 'info':
-      return 'bg-info'
-    default:
-      return 'bg-tx4'
-  }
 }

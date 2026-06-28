@@ -1,15 +1,19 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// Sprint 80 Phase C — the altitude-0 orientation bar: full-width, permanent,
-// NEVER part of a transition (Day-0 #8). It restitutes the ambient context
-// from `GET /api/context` — sprint · phase · branch · dirty/staged — plus a
-// loopback reachability dot. The "pouls gates" is a muted placeholder: it is
-// not wired until Phase G (`/api/gates`) and the front never fabricates a
-// verdict (plan-adaptation #7).
+// Sprint 80 Phase C → front rapid-add — the altitude-0 orientation bar:
+// full-width, permanent, NEVER part of a transition (Day-0 #8). It restitutes
+// the ambient context from `GET /api/context` — sprint · phase · branch ·
+// dirty/staged — plus a loopback reachability dot. Since Phase G `/api/gates`
+// exists, the "pouls gates" is now LIVE: it restitutes a COUNT per gate status
+// (never an aggregate verdict — the cardinal "0 verdict calculé UI" holds, a
+// count of restituted statuses is restitution, not a fabricated PASS/score).
+// A manual refresh re-reads the context (freshness after a commit) and a
+// recent-commits dropdown restitutes the `git log --oneline -5` list.
 
-import type { RailStatus } from '../state/useRailStatus'
+import type { RailHandle } from '../state/useRailStatus'
 import type { ExecProvider } from '../catalog/intentions'
 import { EXEC_PROVIDERS } from '../catalog/intentions'
+import { GATE_STATUS_ORDER, gateStatusGlyph, gateStatusLabel, gateStatusTone, toneText } from '../lib/gateStatus'
 import { TokenCount } from './motion/TokenCount'
 
 function providerLabel(provider: ExecProvider): string {
@@ -17,11 +21,39 @@ function providerLabel(provider: ExecProvider): string {
   return opt ? `${opt.label.toLowerCase()} · ${opt.note}` : provider
 }
 
+function GatePulse({ counts }: { counts: RailHandle['gateCounts'] }) {
+  if (counts === null) {
+    return (
+      <span className="text-tx4" title="pouls des gates — lecture…">
+        gates …
+      </span>
+    )
+  }
+  const active = GATE_STATUS_ORDER.filter((s) => counts[s] > 0)
+  if (active.length === 0) {
+    return (
+      <span className="text-tx4" title="aucun gate restitué">
+        gates —
+      </span>
+    )
+  }
+  return (
+    <span className="flex items-center gap-1.5" data-testid="gate-pulse" title="pouls des gates — compte par statut restitué">
+      {active.map((s) => (
+        <span key={s} className={`flex items-center gap-0.5 ${toneText(gateStatusTone(s))}`} title={gateStatusLabel(s)}>
+          <span aria-hidden>{gateStatusGlyph(s)}</span>
+          <span className="tabular-nums">{counts[s]}</span>
+        </span>
+      ))}
+    </span>
+  )
+}
+
 export function OrientationBar({
   status,
   provider,
 }: {
-  status: RailStatus
+  status: RailHandle
   provider: ExecProvider
 }) {
   const sprint = status.sprint !== null ? `Sprint ${status.sprint}` : '—'
@@ -69,13 +101,23 @@ export function OrientationBar({
         <span className="text-tx4" aria-hidden>
           ▸
         </span>
-        {/* Gates pulse — not wired before Phase G; never a verdict. */}
-        <span className="text-tx4" title="pouls des gates — câblage Phase G">
-          gates —
-        </span>
+        {/* Gates pulse — LIVE since Phase G: restituted counts, never a verdict. */}
+        <GatePulse counts={status.gateCounts} />
       </div>
 
-      <div className="ml-auto flex items-center gap-3.5 pl-4 font-mono text-[10.5px] text-tx3">
+      <div className="ml-auto flex items-center gap-3 pl-4 font-mono text-[10.5px] text-tx3">
+        <button
+          type="button"
+          onClick={status.refresh}
+          disabled={status.loading}
+          data-testid="context-refresh"
+          title="rafraîchir le contexte (sprint · arbre de travail · gates)"
+          className="rounded-sm border border-bd bg-s1 px-1.5 py-0.5 text-tx3 hover:bg-s2 disabled:opacity-50"
+          aria-busy={status.loading}
+        >
+          <span aria-hidden>↻</span>
+          <span className="sr-only">rafraîchir le contexte</span>
+        </button>
         <span>
           agent : <span className="text-tx2">{providerLabel(provider)}</span>
         </span>
