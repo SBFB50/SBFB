@@ -31,19 +31,28 @@
   --color-s3: oklch(0.290 0.007 260);
   --color-bd: oklch(0.330 0.006 260);
   --color-bd2: oklch(0.430 0.008 260);
-  /* Ink — 4 levels (consultative / ghost = tx4) */
+  /* Control border — non-text 3:1 vs s0/s1/s2 (WCAG 1.4.11). Audit a11y
+     2026-06-28 L1 : bd/bd2 (1.6–2.4:1) sont en dessous pour un input/textarea/
+     bouton dont la bordure est le SEUL indicateur. `field` est réservé aux
+     contrôles de saisie ; bd/bd2 restent les séparateurs de panneaux (déco,
+     exemptés WCAG). */
+  --color-field: oklch(0.550 0.008 260);
+  /* Ink — 3 niveaux LISIBLES (AA texte normal sur s0–s2) + 1 ghost déco.
+     Audit a11y 2026-06-28 L1 : tx3 0.540→0.700 (était 2.79–3.81:1, FAIL →
+     5.28–7.21:1 PASS) ; tx4 0.450→0.630 (rôle restreint au décor : gouttières,
+     séparateurs aria-hidden ; tout texte PORTEUR passe en tx3). */
   --color-tx: oklch(0.930 0.004 260);
   --color-tx2: oklch(0.720 0.005 260);
-  --color-tx3: oklch(0.540 0.006 260);
-  --color-tx4: oklch(0.450 0.006 260);
+  --color-tx3: oklch(0.700 0.006 260);
+  --color-tx4: oklch(0.630 0.006 260);
   /* State — colour is meaning, never decoration (only when a state is true) */
   --color-ok: oklch(0.74 0.14 150);
   --color-warn: oklch(0.80 0.12 78);
   --color-bad: oklch(0.68 0.18 25);
   --color-info: oklch(0.72 0.11 240);
-  --color-neu: oklch(0.54 0.006 260);
+  --color-neu: oklch(0.700 0.006 260);
   --color-ok-bg: oklch(0.30 0.045 150);
-  --color-bad-bg: oklch(0.31 0.055 27);
+  --color-bad-bg: oklch(0.27 0.055 27);
   /* MUR governance — amber = gravity */
   --color-mur: oklch(0.66 0.105 78);
   --color-mur-bg: oklch(0.235 0.030 78);
