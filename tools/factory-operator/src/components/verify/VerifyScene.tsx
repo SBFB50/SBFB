@@ -8,34 +8,49 @@
 // wired before Phase G, and the ÉTAT slot is a NAMED enumerated state that
 // never says the recorded review word (scan-front-discipline gate; kickoff
 // "0 verdict calculé UI").
+//
+// Sprint 80 Phase E — this async surface is where the Motion-lib signatures
+// live (confined here so the ~30 KB engine core + the feature bundle never
+// reach the hero `index` chunk; preflight §5.1). It is wrapped in
+// <MotionProvider> (LazyMotion + MotionConfig reducedMotion="user"); the gates
+// band REVEALS its cells in a short stagger (signature 3) when VERIFY is
+// entered, and the ÉTAT value FLIPS on change (signature 2). The flip animates a
+// RESTITUTED état string — it never fabricates a verdict.
 import { Terminal } from './Terminal'
 import { VERIFY_ETAT } from '../../lib/verdict'
+import { GateFlip } from '../motion/GateFlip'
+import { MotionProvider } from '../motion/MotionProvider'
+import { Reveal, RevealItem } from '../motion/Reveal'
 
 export function VerifyScene() {
   return (
-    <div data-testid="verify-scene" className="flex min-h-0 flex-1 flex-col bg-s0">
-      <div className="flex items-center gap-2.5 border-b border-bd px-5 py-3">
-        <span className="h-1.5 w-1.5 rounded-full bg-info" aria-hidden />
-        <span className="font-sans text-xs font-semibold tracking-wide text-tx">VERIFY</span>
-        <span className="font-sans text-xs text-tx3">— examiner le diff · lire les gates · preuve</span>
-        <span className="ml-auto font-mono text-[10px] text-tx4">la vérité = git diff, pas un buffer</span>
-      </div>
-
-      <Terminal />
-
-      {/* permanent gates + état band — honest, never a verdict */}
-      <div className="flex items-stretch border-t border-bd2 bg-s2">
-        <div className="flex flex-1 items-center gap-2 px-4 py-2.5 font-mono text-[10.5px] text-tx4">
-          <span className="font-sans text-[8.5px] font-semibold uppercase tracking-wider text-tx4">gates</span>
-          <span title="câblage Phase G">non câblées — Phase G</span>
+    <MotionProvider>
+      <div data-testid="verify-scene" className="flex min-h-0 flex-1 flex-col bg-s0">
+        <div className="flex items-center gap-2.5 border-b border-bd px-5 py-3">
+          <span className="h-1.5 w-1.5 rounded-full bg-info" aria-hidden />
+          <span className="font-sans text-xs font-semibold tracking-wide text-tx">VERIFY</span>
+          <span className="font-sans text-xs text-tx3">— examiner le diff · lire les gates · preuve</span>
+          <span className="ml-auto font-mono text-[10px] text-tx4">la vérité = git diff, pas un buffer</span>
         </div>
-        <div className="flex items-center gap-3 border-l border-bd2 bg-s3 px-4 py-2.5">
-          <span className="font-mono text-[8px] font-semibold uppercase tracking-wide text-info">état</span>
-          <span data-testid="verify-etat" className="font-mono text-[11px] tabular-nums text-tx2">
-            {VERIFY_ETAT.bootstrap}
-          </span>
-        </div>
+
+        <Terminal />
+
+        {/* permanent gates + état band — honest, never a verdict. Revealed in a
+           short stagger (signature 3) when the VERIFY surface is entered. */}
+        <Reveal className="flex items-stretch border-t border-bd2 bg-s2">
+          <RevealItem className="flex flex-1 items-center gap-2 px-4 py-2.5 font-mono text-[10.5px] text-tx4">
+            <span className="font-sans text-[8.5px] font-semibold uppercase tracking-wider text-tx4">gates</span>
+            <span title="câblage Phase G">non câblées — Phase G</span>
+          </RevealItem>
+          <RevealItem className="flex items-center gap-3 border-l border-bd2 bg-s3 px-4 py-2.5">
+            <span className="font-mono text-[8px] font-semibold uppercase tracking-wide text-info">état</span>
+            <span data-testid="verify-etat" className="font-mono text-[11px] tabular-nums text-tx2">
+              {/* gate flip (signature 2): the restituted état flips on change. */}
+              <GateFlip value={VERIFY_ETAT.bootstrap} />
+            </span>
+          </RevealItem>
+        </Reveal>
       </div>
-    </div>
+    </MotionProvider>
   )
 }

@@ -10,6 +10,7 @@
 import type { RailStatus } from '../state/useRailStatus'
 import type { ExecProvider } from '../catalog/intentions'
 import { EXEC_PROVIDERS } from '../catalog/intentions'
+import { TokenCount } from './motion/TokenCount'
 
 function providerLabel(provider: ExecProvider): string {
   const opt = EXEC_PROVIDERS.find((p) => p.id === provider)
@@ -55,11 +56,16 @@ export function OrientationBar({
         <span className="text-info" aria-hidden>
           ●
         </span>
-        <span>{status.dirty ?? '—'} modifiés</span>
+        {/* token settle (signature 1): the live counter settles in on change. */}
+        <span>
+          <TokenCount value={status.dirty ?? '—'} /> modifiés
+        </span>
         <span className="text-tx3" aria-hidden>
           ·
         </span>
-        <span className="text-tx3">{status.staged ?? '—'} indexés</span>
+        <span className="text-tx3">
+          <TokenCount value={status.staged ?? '—'} /> indexés
+        </span>
         <span className="text-tx4" aria-hidden>
           ▸
         </span>

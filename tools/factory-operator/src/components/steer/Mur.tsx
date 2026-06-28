@@ -27,7 +27,11 @@ export function Mur({
       data-testid="mur"
       role="alert"
       aria-label="Barrière de gouvernance"
-      className="border-y border-mur bg-mur-bg px-6 py-5"
+      // confirmation gravity (signature 5): the wall enters with weight — the
+      // physics IS the meaning (the consequence has mass). CSS-only (transform
+      // keyframe `.motion-gravity`, index.css) so the eager STEER scene carries
+      // no Motion-lib weight; transform-only ⇒ instant under reduced-motion.
+      className="motion-gravity border-y border-mur bg-mur-bg px-6 py-5"
     >
       <div className="flex items-start gap-5">
         <div className="mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md border-2 border-mur text-mur" aria-hidden>

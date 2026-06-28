@@ -8,13 +8,21 @@ import { defineConfig, globalIgnores } from 'eslint/config'
 
 // Sprint 80 Phase B — discipline gates carried at the lint layer:
 //
-// gate (4) anti-`motion.*`-nu (Day-0 D4): the SINGLE motion entrypoint
-//   is `m` (from 'motion/react-m') under <LazyMotion features={domAnimation}>.
-//   The full `motion` export (~34 kb) and `<motion.*>` JSX bust the hero
-//   budget (~4.6 kb LazyMotion+m). Two BLOCKING rules forbid both;
-//   `<LazyMotion strict>` is the runtime twin. Allowed: LazyMotion,
-//   MotionConfig, AnimatePresence, domAnimation (from 'motion/react'),
-//   and `m` (from 'motion/react-m').
+// gate (4) anti-`motion.*`-nu (Day-0 D4): the minimal motion components are the
+//   ONLY allowed entrypoint — NAMED from 'motion/react-m' (e.g.
+//   `import { div as MDiv } from 'motion/react-m'`), under <LazyMotion strict>.
+//   The full `motion` export and `<motion.*>` JSX pull the whole feature set and
+//   bust the hero budget. Sprint 80 Phase E (size-limit measures the RAW bundle,
+//   `.size-limit.json` gzip:false): the Motion engine core (~30 KB RAW measured)
+//   + the `domAnimation` features (~37 KB) are kept OUT of the hero by confining
+//   the WHOLE Motion provider (components/motion/MotionProvider) to the async
+//   VERIFY surface, so rolldown's natural split lands them in the async
+//   `VerifyScene-*.js` chunk (measured by the `verify-surface` size-limit entry).
+//   The dynamic-import ban + the namespace ban below close the `import('motion/
+//   react')` and `import * as` bypasses of this gate. Allowed: LazyMotion,
+//   MotionConfig, AnimatePresence, useReducedMotion, domAnimation (from
+//   'motion/react'), and the NAMED components from 'motion/react-m' — never
+//   `import * as` from it (would pull all ~100 tag components).
 //
 // gate (1) anti-`@radix-ui`-runtime (Day-0 D3): Base UI is the SOLE
 //   runtime primitive dependency. No `@radix-ui/*` import survives in
@@ -62,6 +70,13 @@ export default defineConfig([
           selector: "JSXMemberExpression[object.name='motion']",
           message:
             "Sprint 80 D4: use <m.*> from 'motion/react-m', never <motion.*> (hero LazyMotion budget).",
+        },
+        {
+          // `import * as m from 'motion/react-m'` pulls all ~100 tag components
+          // (~78 KB); only NAMED imports are allowed (Phase E review P3).
+          selector: "ImportNamespaceSpecifier[parent.source.value='motion/react-m']",
+          message:
+            "Sprint 80 D4: import NAMED components from 'motion/react-m' (e.g. `import { div as MDiv }`), never `import * as` (pulls all ~100 tag components).",
         },
         {
           // `no-restricted-imports` does not lint dynamic import(); these

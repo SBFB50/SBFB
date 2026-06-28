@@ -20,6 +20,7 @@ import { useCallback, useState } from 'react'
 import { createSession, sendMessage, streamUrl } from '../api/operator'
 import { DEFAULT_PROVIDER, type ExecProvider } from '../catalog/intentions'
 import type { SecondarySurface } from '../catalog/surfaces'
+import { altitudeShift } from '../lib/altitudeShift'
 import { useTokenStream } from '../lib/useTokenStream'
 
 export type FocalMode = 'steer' | 'verify'
@@ -158,9 +159,15 @@ export function useOperator(): Operator {
   }, [streamReset])
 
   // Selecting a focal MODE returns to that scene, closing any open inspector.
+  // The bascule shifts altitude via a native View Transition (signature 4):
+  // `altitudeShift` flushSync-applies the state inside `startViewTransition` so
+  // the new focal pane is captured, and degrades to an instant apply under
+  // prefers-reduced-motion (the VT is not auto-gated by MotionConfig).
   const setMode = useCallback((m: FocalMode) => {
-    setModeState(m)
-    setSurface(null)
+    altitudeShift(() => {
+      setModeState(m)
+      setSurface(null)
+    })
   }, [])
   const openSurface = useCallback((s: SecondarySurface) => setSurface(s), [])
   const closeSurface = useCallback(() => setSurface(null), [])

@@ -29,4 +29,12 @@ describe('Mur (requires_gate restitution)', () => {
     await userEvent.click(screen.getByTestId('mur-back'))
     expect(onBack).toHaveBeenCalledOnce()
   })
+
+  it('carries the confirmation-gravity signature (CSS-only, transform keyframe)', () => {
+    // Signature 5: the wall enters with weight via the `.motion-gravity` CSS
+    // keyframe (transform-only ⇒ instant under the reduced-motion reset). No
+    // Motion-lib weight in the eager STEER scene.
+    render(<Mur message="m" onBack={() => {}} />)
+    expect(screen.getByTestId('mur').className).toContain('motion-gravity')
+  })
 })

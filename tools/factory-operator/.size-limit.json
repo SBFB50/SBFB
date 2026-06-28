@@ -14,9 +14,16 @@
     "gzip": false
   },
   {
+    "name": "verify-surface",
+    "path": "bundle/assets/VerifyScene-*.js",
+    "limit": "92 KB",
+    "brotli": false,
+    "gzip": false
+  },
+  {
     "name": "css",
     "path": "bundle/assets/index-*.css",
-    "limit": "20 KB",
+    "limit": "21 KB",
     "brotli": false,
     "gzip": false
   },
