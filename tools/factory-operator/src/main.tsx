@@ -6,9 +6,12 @@ import { createRoot } from 'react-dom/client'
 // rationale (Day-0 D10, 0 CDN).
 import './index.css'
 import { App } from './App'
+import { ErrorBoundary } from './components/ErrorBoundary'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
   </StrictMode>,
 )

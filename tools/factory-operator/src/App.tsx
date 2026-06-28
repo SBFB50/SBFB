@@ -12,6 +12,7 @@
 import { lazy, Suspense } from 'react'
 import { OrientationBar } from './components/OrientationBar'
 import { Rail } from './components/Rail'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { SteerScene } from './components/steer/SteerScene'
 import { useOperator } from './state/useOperator'
 import { useRailStatus } from './state/useRailStatus'
@@ -42,6 +43,21 @@ export function App() {
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-s1 text-tx font-sans">
       <OrientationBar status={status} provider={op.provider} />
+      {/* Offline banner — one honest global signal when the loopback link is
+         down, instead of N isolated per-surface errors. Reuses the rail's
+         `reachable` (no extra fetch); hidden while the first probe is still in
+         flight so it never flashes during boot. */}
+      {!status.reachable && !status.loading && (
+        <div
+          role="status"
+          data-testid="offline-banner"
+          className="flex h-7 flex-shrink-0 items-center gap-2 border-b border-bd bg-bad-bg px-4 font-mono text-[11px] text-bad"
+        >
+          <span className="h-1.5 w-1.5 rounded-full bg-bad" aria-hidden />
+          Nœud injoignable — l'Operator ne répond pas sur le lien loopback. Les surfaces
+          resteront vides jusqu'au rétablissement.
+        </div>
+      )}
       <div className="flex min-h-0 flex-1">
         <Rail
           mode={op.mode}
@@ -57,15 +73,20 @@ export function App() {
            orientation bar stay fixed (Day-0 D8). The View Transition is native
            (CSS-driven) — no Motion-lib weight here. */}
         <div className="motion-focal flex min-h-0 flex-1 flex-col">
-          <Suspense fallback={<div className="flex-1 bg-s0" />}>
-            {op.surface !== null ? (
-              <SurfaceHost op={op} />
-            ) : op.mode === 'steer' ? (
-              <SteerScene op={op} />
-            ) : (
-              <VerifyScene op={op} />
-            )}
-          </Suspense>
+          {/* A scoped boundary around the focal pane: a throw in a surface
+             shows the recoverable fallback there while the rail + orientation
+             bar stay alive (the global boundary in main.tsx is the last net). */}
+          <ErrorBoundary scope="surface focale">
+            <Suspense fallback={<div className="flex-1 bg-s0" />}>
+              {op.surface !== null ? (
+                <SurfaceHost op={op} />
+              ) : op.mode === 'steer' ? (
+                <SteerScene op={op} />
+              ) : (
+                <VerifyScene op={op} />
+              )}
+            </Suspense>
+          </ErrorBoundary>
         </div>
       </div>
     </div>
