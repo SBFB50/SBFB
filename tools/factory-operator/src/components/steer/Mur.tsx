@@ -42,9 +42,9 @@ export function Mur({
           <div className="mb-2 font-sans text-meta font-semibold text-mur">
             barrière de gouvernance
           </div>
-          <div className="mb-2 font-sans text-scene font-semibold leading-snug text-tx">
+          <h2 className="mb-2 font-sans text-scene font-semibold leading-snug text-tx">
             Cette intention exige une vraie session agent.
-          </div>
+          </h2>
           <p className="max-w-prose font-sans text-body leading-relaxed text-tx2">
             {message} Commit, push, shell et validation ne s'exécutent jamais depuis le composeur :
             ils passent par une session tracée qui produit gates et preuves — c'est la barrière, pas

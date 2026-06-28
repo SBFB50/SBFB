@@ -537,7 +537,7 @@ export function ProcedeSurface() {
   return (
     <div data-testid="procede-surface" className="flex min-h-0 flex-1 flex-col overflow-auto p-5">
       <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-meta text-tx2">
-        <span className="font-sans text-card font-semibold text-tx">Sprint {history.sprint}</span>
+        <h2 className="font-sans text-card font-semibold text-tx">Sprint {history.sprint}</h2>
         <span className="text-tx3">{history.status}</span>
         <span className="text-tx4">·</span>
         <span className="text-tx">{history.branch}</span>

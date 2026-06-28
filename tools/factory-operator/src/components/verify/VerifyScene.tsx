@@ -106,7 +106,7 @@ export function VerifyScene({ op }: { op: Operator }) {
       <div data-testid="verify-scene" className="flex min-h-0 flex-1 flex-col bg-s0">
         <div className="flex items-center gap-2.5 border-b border-bd px-5 py-3">
           <span className="h-1.5 w-1.5 rounded-full bg-info" aria-hidden />
-          <span className="font-sans text-scene font-semibold text-tx">VERIFY</span>
+          <h1 className="font-sans text-scene font-semibold text-tx">VERIFY</h1>
           <span className="font-sans text-sec text-tx3">— examiner le diff · lire les gates · aperçu scellé · preuve</span>
           <button
             type="button"

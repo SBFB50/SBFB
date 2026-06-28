@@ -186,9 +186,9 @@ export function SessionsSurface({ sessionId }: { sessionId: string | null }) {
   return (
     <div data-testid="sessions-surface" className="flex min-h-0 flex-1 flex-col overflow-auto p-5">
       <section className="mb-5">
-        <div className="mb-1.5 eyebrow">
+        <h2 className="mb-1.5 eyebrow">
           journal de bord · registre des refus du mur
-        </div>
+        </h2>
         {error ? (
           <div className="font-mono text-meta text-warn">{error}</div>
         ) : log === null ? (
@@ -199,9 +199,9 @@ export function SessionsSurface({ sessionId }: { sessionId: string | null }) {
       </section>
 
       <section className="mb-5">
-        <div className="mb-1 eyebrow">
+        <h2 className="mb-1 eyebrow">
           sessions reprenables
-        </div>
+        </h2>
         {/* Honest provider scope: only the Claude CLI persists resumable
            sessions (~/.claude/sessions, `claude --resume`). Local (Ollama) /
            network intentions run through the STEER chat session below — there
@@ -220,10 +220,10 @@ export function SessionsSurface({ sessionId }: { sessionId: string | null }) {
 
       {sessionId ? (
         <section className="mb-5">
-          <div className="mb-1.5 eyebrow">
+          <h2 className="mb-1.5 eyebrow">
             session STEER en cours{' '}
             <span className="text-tx4">· {chat?.messages.length ?? 0} messages (non-autoritaire)</span>
-          </div>
+          </h2>
           <div className="flex flex-col gap-1">
             {(chat?.messages ?? []).map((m, i) => (
               <ChatMessage key={i} role={m.role} content={m.content} />
@@ -233,9 +233,9 @@ export function SessionsSurface({ sessionId }: { sessionId: string | null }) {
       ) : null}
 
       <section className="min-h-0 flex-1">
-        <div className="mb-1.5 eyebrow">
+        <h2 className="mb-1.5 eyebrow">
           enregistrements terminal · rejeu
-        </div>
+        </h2>
         {casts === null ? (
           <div className="font-mono text-meta text-tx4">lecture des enregistrements…</div>
         ) : casts.length === 0 ? (

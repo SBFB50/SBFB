@@ -16,7 +16,7 @@ function SceneHeader({ subtitle }: { subtitle: string }) {
   return (
     <div className="flex items-center gap-2.5 border-b border-bd px-5 py-3">
       <span className="h-1.5 w-1.5 rounded-full bg-tx2" aria-hidden />
-      <span className="font-sans text-scene font-semibold text-tx">STEER</span>
+      <h1 className="font-sans text-scene font-semibold text-tx">STEER</h1>
       <span className="font-sans text-sec text-tx3">— {subtitle}</span>
     </div>
   )

@@ -39,7 +39,7 @@ export function SurfaceHost({ op }: { op: Operator }) {
         <span className="font-mono text-meta text-tx4" aria-hidden>
           {def?.glyph}
         </span>
-        <span className="font-sans text-card font-semibold text-tx">{def?.label}</span>
+        <h1 className="font-sans text-card font-semibold text-tx">{def?.label}</h1>
         <span className="font-sans text-sec text-tx3">— {def?.hint}</span>
       </div>
 

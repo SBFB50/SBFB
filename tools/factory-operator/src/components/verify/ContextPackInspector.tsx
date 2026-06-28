@@ -176,9 +176,9 @@ export function ContextPackInspector({
   return (
     <section data-testid="context-pack-inspector" className="flex flex-col gap-3">
       <div className="rounded-md border border-bd bg-s1 px-4 py-3">
-        <div className="mb-1 font-sans text-card font-semibold text-tx">
+        <h2 className="mb-1 font-sans text-card font-semibold text-tx">
           Préparer le pack — brouillon de transmission
-        </div>
+        </h2>
         <p className="font-sans text-body leading-relaxed text-tx2">
           Le pack scellé ci-dessous est la seule chose qui franchit le mur : il se transmet à une
           vraie session agent qui produit gates et preuves. L'Operator restitue ce qui est tracé — il

@@ -30,7 +30,7 @@ export function Terminal() {
     return (
       <div className="flex flex-1 items-center justify-center p-7">
         <div className="max-w-prose rounded-md border border-dashed border-bd bg-s1 px-6 py-6 text-center">
-          <div className="mb-1 font-sans text-card font-semibold text-tx">Terminal de vérification</div>
+          <h2 className="mb-1 font-sans text-card font-semibold text-tx">Terminal de vérification</h2>
           <div className="mb-4 font-sans text-body leading-relaxed text-tx2">
             Une session PTY tracée pour inspecter le dépôt à la main (git diff, status, log) en
             complément du visualiseur de diff dédié de la surface VERIFY. La session est enregistrée et

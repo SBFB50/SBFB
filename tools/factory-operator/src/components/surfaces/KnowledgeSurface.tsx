@@ -13,7 +13,7 @@ export function KnowledgeSurface({ sessionId }: { sessionId: string | null }) {
   return (
     <div data-testid="knowledge-surface" className="flex min-h-0 flex-1 flex-col overflow-auto p-5">
       <div className="mb-4 rounded-md border border-dashed border-bd2 bg-s1 px-4 py-3">
-        <div className="mb-1 font-sans text-card font-semibold text-tx">Connaissance consultative</div>
+        <h2 className="mb-1 font-sans text-card font-semibold text-tx">Connaissance consultative</h2>
         <p className="font-sans text-body leading-relaxed text-tx2">
           Les packs de connaissance (animejs, daisyui) et les documents de procédé sont consommés par
           une session agent, jamais autoritaires. On en montre la provenance — chemin + empreinte
