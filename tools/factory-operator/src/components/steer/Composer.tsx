@@ -82,7 +82,7 @@ export function Composer({
         }}
         placeholder={`Décrivez l'intention en clair… « ${active.hint} »`}
         rows={grand ? 4 : 2}
-        className="resize-none rounded-md border border-field bg-s1 px-4 py-3 font-sans text-body leading-relaxed text-tx placeholder:text-tx3 focus:border-info focus:outline-none"
+        className="resize-none rounded-md border border-field bg-s1 px-4 py-3 font-sans text-body leading-relaxed text-tx placeholder:text-tx3 focus:border-info"
       />
 
       <div className="flex items-center justify-between gap-3">
@@ -93,7 +93,7 @@ export function Composer({
               data-testid="provider-select"
               value={provider}
               onChange={(e) => onProvider(e.target.value as ExecProvider)}
-              className="rounded-sm border border-field bg-s2 px-1.5 py-1 font-mono text-meta text-tx2 focus:border-info focus:outline-none"
+              className="rounded-sm border border-field bg-s2 px-1.5 py-1 font-mono text-meta text-tx2 focus:border-info"
             >
               {EXEC_PROVIDERS.map((p) => (
                 <option key={p.id} value={p.id}>

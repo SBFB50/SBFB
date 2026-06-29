@@ -55,7 +55,7 @@ export function Atelier({
       <div className="flex items-center gap-2.5">
         <span className={`h-1.5 w-1.5 rounded-full ${status.dot}`} aria-hidden />
         <span className="eyebrow">atelier observable</span>
-        <span className="ml-auto font-mono text-meta text-tx3" data-testid="turn-status">
+        <span className="ml-auto font-mono text-meta text-tx3" data-testid="turn-status" role="status" aria-live="polite">
           {status.text}
         </span>
       </div>
@@ -84,7 +84,7 @@ export function Atelier({
             <span className="text-tx4">aucune sortie</span>
           )
         ) : null}
-        {streaming ? <span className="text-tx">&nbsp;▌</span> : null}
+        {streaming ? <span className="text-tx" aria-hidden>&nbsp;▌</span> : null}
       </div>
 
       <div className="flex items-center gap-2.5">

@@ -168,6 +168,12 @@ function marker(kind: DiffLine['kind']): string {
   return kind === 'add' ? '+' : kind === 'del' ? '−' : ' '
 }
 
+function lineKindLabel(kind: DiffLine['kind']): string {
+  if (kind === 'add') return 'ligne ajoutee'
+  if (kind === 'del') return 'ligne supprimee'
+  return 'ligne contexte'
+}
+
 function InlineRow({ line }: { line: PreparedLine }) {
   return (
     <div className={`flex font-mono text-meta leading-relaxed ${lineTone(line.line.kind)}`}>
@@ -180,6 +186,7 @@ function InlineRow({ line }: { line: PreparedLine }) {
       <span className="w-3 flex-shrink-0 select-none text-center text-tx4" aria-hidden>
         {marker(line.line.kind)}
       </span>
+      <span className="sr-only">{lineKindLabel(line.line.kind)}</span>
       <LineContent line={line} />
     </div>
   )
@@ -194,6 +201,7 @@ function SplitCell({ line, side }: { line?: PreparedLine; side: 'old' | 'new' })
       <span className="w-3 flex-shrink-0 select-none text-center text-tx4" aria-hidden>
         {marker(line.line.kind)}
       </span>
+      <span className="sr-only">{lineKindLabel(line.line.kind)}</span>
       <LineContent line={line} />
     </div>
   )
@@ -250,7 +258,7 @@ export function DiffViewer({ files, caption, emptyLabel, truncated, onHunkIntent
 
   if (files.length === 0) {
     return (
-      <div data-testid={testid ?? 'verify-diff'} className="flex flex-1 flex-col">
+      <div data-testid={testid ?? 'verify-diff'} className="flex flex-1 flex-col" dir="ltr">
         {caption ? <div className="border-b border-bd px-4 py-2 font-mono text-meta text-tx3">{caption}</div> : null}
         <div className="flex flex-1 items-center justify-center p-8 font-mono text-meta text-tx4">
           {emptyLabel ?? 'aucun changement dans l’arbre de travail'}
@@ -260,7 +268,7 @@ export function DiffViewer({ files, caption, emptyLabel, truncated, onHunkIntent
   }
 
   return (
-    <div data-testid={testid ?? 'verify-diff'} className="flex min-h-0 flex-1 flex-col">
+    <div data-testid={testid ?? 'verify-diff'} className="flex min-h-0 flex-1 flex-col" dir="ltr">
       {/* toolbar: source caption + bi-mode toggle + change-set toggle + counts */}
       <div className="flex items-center gap-3 border-b border-bd bg-s1 px-4 py-2 font-mono text-meta text-tx3">
         {caption ? <span className="truncate text-tx2">{caption}</span> : null}
@@ -347,7 +355,7 @@ export function DiffViewer({ files, caption, emptyLabel, truncated, onHunkIntent
           role="group"
           aria-label="Diff — naviguer entre les hunks avec les flèches ou j/k"
           onKeyDown={onKeyDown}
-          className="min-h-0 flex-1 overflow-auto outline-none"
+          className="min-h-0 flex-1 overflow-auto focus-visible:outline focus-visible:outline-2 focus-visible:outline-info"
         >
           {prepared.map((pf) => (
             <div

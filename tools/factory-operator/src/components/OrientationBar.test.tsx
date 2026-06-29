@@ -3,11 +3,12 @@
 // The orientation bar restitutes the live gate pulse (counts per status) and
 // exposes the manual refresh. Cardinal invariant: the pulse is a COUNT, never
 // an aggregate verdict / PASS word.
-import { render, screen, within } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { OrientationBar } from './OrientationBar'
 import type { RailHandle } from '../state/useRailStatus'
+import { ACCESSIBILITY_STORAGE_KEY } from '../preferences/accessibility'
 
 const base: RailHandle = {
   sprint: 80,
@@ -20,6 +21,17 @@ const base: RailHandle = {
   loading: false,
   refresh: vi.fn(),
 }
+
+afterEach(() => {
+  cleanup()
+  if (typeof localStorage.removeItem === 'function') localStorage.removeItem(ACCESSIBILITY_STORAGE_KEY)
+  document.documentElement.removeAttribute('data-contrast')
+  document.documentElement.removeAttribute('data-pointer')
+  document.documentElement.removeAttribute('data-text-spacing')
+  document.documentElement.removeAttribute('data-font')
+  document.documentElement.removeAttribute('data-motion')
+  document.documentElement.removeAttribute('data-scale')
+})
 
 describe('OrientationBar — pouls de gates + refresh', () => {
   it('restitue un compte par statut de gate (jamais un agrégat PASS)', () => {
@@ -58,5 +70,15 @@ describe('OrientationBar — pouls de gates + refresh', () => {
   it('désactive le bouton de refresh pendant le chargement', () => {
     render(<OrientationBar provider="claude" status={{ ...base, loading: true }} />)
     expect(screen.getByTestId('context-refresh')).toBeDisabled()
+  })
+
+  it('ouvre le panneau accessibilite et applique les preferences sur html', async () => {
+    const user = userEvent.setup()
+    render(<OrientationBar provider="claude" status={base} />)
+    await user.click(screen.getByTestId('accessibility-toggle'))
+    await user.selectOptions(await screen.findByLabelText('contraste'), 'high')
+    await user.selectOptions(screen.getByLabelText('cibles'), 'large')
+    await waitFor(() => expect(document.documentElement).toHaveAttribute('data-contrast', 'high'))
+    expect(document.documentElement).toHaveAttribute('data-pointer', 'large')
   })
 })

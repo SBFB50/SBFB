@@ -46,6 +46,12 @@ describe('DiffViewer (bespoke VERIFY diff-viewer — folds V1/V2/V3)', () => {
     expect(changed).not.toContain('let ok = ')
   })
 
+  it('expose des libelles texte pour les lignes ajoutees et supprimees', () => {
+    render(<DiffViewer files={FILES} />)
+    expect(screen.getByText('ligne ajoutee')).toBeInTheDocument()
+    expect(screen.getByText('ligne supprimee')).toBeInTheDocument()
+  })
+
   it('toggles to side-by-side — the context line then appears on BOTH sides', () => {
     render(<DiffViewer files={FILES} />)
     expect(screen.getAllByText('return ok;')).toHaveLength(1)

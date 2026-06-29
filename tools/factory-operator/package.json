@@ -20,7 +20,8 @@
     "gate:scan-front": "bash scripts/scan-front-discipline.sh",
     "gate:i18n-verdict": "bash scripts/check-i18n-verdict-cross-locale.sh",
     "gate:i18n-parity": "bash scripts/check-i18n-key-parity.sh",
-    "gates": "npm run gate:no-radix && npm run gate:no-tw-config && npm run gate:scan-front && npm run gate:i18n-verdict && npm run gate:i18n-parity"
+    "gate:accessibility-system": "bash scripts/check-accessibility-system.sh",
+    "gates": "npm run gate:no-radix && npm run gate:no-tw-config && npm run gate:scan-front && npm run gate:i18n-verdict && npm run gate:i18n-parity && npm run gate:accessibility-system"
   },
   "dependencies": {
     "@base-ui/react": "1.6.0",

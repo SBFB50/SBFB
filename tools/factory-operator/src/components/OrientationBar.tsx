@@ -10,11 +10,16 @@
 // A manual refresh re-reads the context for freshness after a commit. (The
 // full sprint commit timeline lives in the Procédé inspector, not the bar.)
 
+import { lazy, Suspense, useState } from 'react'
 import type { RailHandle } from '../state/useRailStatus'
 import type { ExecProvider } from '../catalog/intentions'
 import { EXEC_PROVIDERS } from '../catalog/intentions'
 import { GATE_STATUS_ORDER, gateStatusGlyph, gateStatusLabel, gateStatusTone, toneText } from '../lib/gateStatus'
 import { TokenCount } from './motion/TokenCount'
+
+const AccessibilityPanel = lazy(() =>
+  import('./AccessibilityPanel').then((module) => ({ default: module.AccessibilityPanel })),
+)
 
 function providerLabel(provider: ExecProvider): string {
   const opt = EXEC_PROVIDERS.find((p) => p.id === provider)
@@ -43,9 +48,39 @@ function GatePulse({ counts }: { counts: RailHandle['gateCounts'] }) {
         <span key={s} className={`flex items-center gap-0.5 ${toneText(gateStatusTone(s))}`} title={gateStatusLabel(s)}>
           <span aria-hidden>{gateStatusGlyph(s)}</span>
           <span className="tabular-nums">{counts[s]}</span>
+          <span className="sr-only">
+            {gateStatusLabel(s)}: {counts[s]}
+          </span>
         </span>
       ))}
     </span>
+  )
+}
+
+function AccessibilityLauncher() {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        data-testid="accessibility-toggle"
+        aria-expanded={open}
+        aria-controls="accessibility-panel"
+        onClick={() => setOpen((value) => !value)}
+        className="a11y-toggle"
+        title="preferences d'accessibilite"
+      >
+        <span className="a11y-mark" aria-hidden>
+          A11Y
+        </span>
+        <span>Accessibilite</span>
+      </button>
+      {open ? (
+        <Suspense fallback={null}>
+          <AccessibilityPanel />
+        </Suspense>
+      ) : null}
+    </div>
   )
 }
 
@@ -63,7 +98,7 @@ export function OrientationBar({
   return (
     <header
       data-testid="operator-orientation"
-      className="flex h-12 flex-shrink-0 items-center gap-0 border-b border-bd bg-s2 px-4"
+      className="operator-orientation flex flex-shrink-0 items-center border-b border-bd bg-s2 px-4"
     >
       <div className="flex items-center gap-2 border-r border-bd pr-4">
         <span className="h-2 w-2 rounded-sm bg-tx2" aria-hidden />
@@ -72,7 +107,7 @@ export function OrientationBar({
         </span>
       </div>
 
-      <div className="flex items-center gap-2.5 overflow-hidden pl-4 font-mono text-meta tabular-nums text-tx2">
+      <div className="flex min-w-0 items-center gap-2.5 overflow-hidden pl-4 font-mono text-meta tabular-nums text-tx2">
         <span className="text-tx">{sprint}</span>
         <span className="text-tx3" aria-hidden>
           ·
@@ -105,7 +140,8 @@ export function OrientationBar({
         <GatePulse counts={status.gateCounts} />
       </div>
 
-      <div className="ml-auto flex items-center gap-3 pl-4 font-mono text-meta text-tx3">
+      <div className="ml-auto flex flex-wrap items-center gap-3 pl-4 font-mono text-meta text-tx3">
+        <AccessibilityLauncher />
         <button
           type="button"
           onClick={status.refresh}

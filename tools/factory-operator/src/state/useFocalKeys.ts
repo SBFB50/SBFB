@@ -9,9 +9,11 @@ import { useEffect } from 'react'
 import { isTypingTarget } from '../lib/dom'
 import type { FocalMode } from './useOperator'
 
-export function useFocalKeys(setMode: (mode: FocalMode) => void): void {
+export function useFocalKeys(setMode: (mode: FocalMode) => void, enabled = true): void {
   useEffect(() => {
+    if (!enabled) return undefined
     const onKey = (e: KeyboardEvent) => {
+      if (document.documentElement.getAttribute('data-shortcuts') !== 'on') return
       if (e.metaKey || e.ctrlKey || e.altKey || e.repeat) return
       if (isTypingTarget(e.target)) return
       if (e.key === 's' || e.key === 'S') setMode('steer')
@@ -19,5 +21,5 @@ export function useFocalKeys(setMode: (mode: FocalMode) => void): void {
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [setMode])
+  }, [enabled, setMode])
 }

@@ -84,6 +84,7 @@ function PhaseNode({
       <button
         type="button"
         data-testid="procede-phase"
+        aria-expanded={expanded}
         onClick={onToggle}
         className="flex w-full items-center gap-2.5 py-1.5 text-left hover:bg-s1"
       >
@@ -606,7 +607,7 @@ export function ProcedeSurface() {
           placeholder="filtrer les phases…"
           aria-label="filtrer les phases"
           data-testid="phase-filter"
-          className="min-w-0 flex-1 rounded-sm border border-field bg-s0 px-2 py-1 font-mono text-body text-tx placeholder:text-tx4 focus:border-field focus:outline-none"
+          className="min-w-0 flex-1 rounded-sm border border-field bg-s0 px-2 py-1 font-mono text-body text-tx placeholder:text-tx4 focus:border-info"
         />
         <button
           type="button"

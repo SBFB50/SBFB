@@ -70,16 +70,16 @@ export function Rail({
     <nav
       data-testid="operator-rail"
       aria-label="Orientation"
-      className="flex w-[158px] flex-shrink-0 flex-col border-r border-bd bg-s1 px-2.5 py-3"
+      className="operator-rail flex w-[158px] flex-shrink-0 flex-col border-r border-bd bg-s1 px-2.5 py-3"
     >
-      <div className="mb-2 eyebrow">mode focal</div>
+      <div className="rail-heading mb-2 eyebrow">mode focal</div>
       <div
-        className="mb-1.5 flex flex-col overflow-hidden rounded-sm border border-bd"
+        className="operator-mode-group mb-1.5 flex flex-col overflow-hidden rounded-sm border border-bd"
         role="group"
         aria-label="Mode focal"
       >
         <ModeButton active={surface === null && mode === 'steer'} label="STEER" onClick={() => onMode('steer')} />
-        <div className="border-t border-bd" />
+        <div className="operator-mode-separator border-t border-bd" />
         <ModeButton
           active={surface === null && mode === 'verify'}
           label="VERIFY"
@@ -87,14 +87,14 @@ export function Rail({
           ready={verifyReady}
         />
       </div>
-      <div className="mb-4 font-mono text-meta leading-tight text-tx4">
+      <div className="operator-rail-hint mb-4 font-mono text-meta leading-tight text-tx4">
         bascule manuelle · jamais auto
         <br />
-        clavier : <span className="text-tx3">s</span> / <span className="text-tx3">v</span>
+        clavier : option
       </div>
 
-      <div className="mb-2 eyebrow">inspecteurs</div>
-      <div className="flex flex-col gap-px">
+      <div className="rail-heading mb-2 eyebrow">inspecteurs</div>
+      <div className="operator-inspector-list flex flex-col gap-px">
         {SECONDARY_SURFACES.map((s) => {
           const active = surface === s.id
           return (
@@ -121,7 +121,7 @@ export function Rail({
         })}
       </div>
 
-      <div className="mt-auto border-t border-bd pt-3 font-mono text-meta leading-relaxed text-tx4">
+      <div className="operator-rail-footer mt-auto border-t border-bd pt-3 font-mono text-meta leading-relaxed text-tx4">
         <span className={reachable ? 'text-ok' : 'text-tx4'}>{reachable ? 'token ✓' : 'token ·'}</span> · nœud souverain
         <br />
         factory-operator · v0

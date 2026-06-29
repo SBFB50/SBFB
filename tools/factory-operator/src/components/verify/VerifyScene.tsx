@@ -169,7 +169,7 @@ export function VerifyScene({ op }: { op: Operator }) {
               onReload={reload}
             />
           </RevealItem>
-          <RevealItem className="flex items-center gap-3 border-t border-bd2 bg-s3 px-4 py-2">
+          <RevealItem className="flex items-center gap-3 border-t border-bd2 bg-s3 px-4 py-2" role="status" aria-live="polite">
             <span className="font-sans text-meta font-semibold text-info">état</span>
             <span data-testid="verify-etat" className="font-mono text-meta tabular-nums text-tx2">
               {/* gate flip (signature 2): the restituted named état flips on change. */}

@@ -47,13 +47,13 @@ export function App() {
   useFocalKeys(op.setMode)
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-s1 text-tx font-sans">
+    <div className="operator-shell flex flex-col overflow-hidden bg-s1 text-tx font-sans">
       {/* Skip link (WCAG 2.4.1) — the rail (nav) precedes the content, so a
          keyboard user can jump straight to the focal pane. sr-only until
          focused, then revealed as a real button. */}
       <a
         href="#main-content"
-        className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-50 focus:rounded-sm focus:border focus:border-info focus:bg-s2 focus:px-3 focus:py-1.5 focus:text-body focus:text-tx"
+        className="skip-link"
       >
         <Trans>Aller au contenu</Trans>
       </a>
@@ -75,7 +75,7 @@ export function App() {
           </Trans>
         </div>
       )}
-      <div className="flex min-h-0 flex-1">
+      <div className="operator-body flex min-h-0 flex-1">
         <Rail
           mode={op.mode}
           onMode={op.setMode}
@@ -89,7 +89,11 @@ export function App() {
            (index.css) lifts it out of the root snapshot so the rail +
            orientation bar stay fixed (Day-0 D8). The View Transition is native
            (CSS-driven) — no Motion-lib weight here. */}
-        <main id="main-content" tabIndex={-1} className="motion-focal flex min-h-0 flex-1 flex-col outline-none">
+        <main
+          id="main-content"
+          tabIndex={-1}
+          className="motion-focal operator-main flex min-h-0 flex-1 flex-col"
+        >
           {/* A scoped boundary around the focal pane: a throw in a surface
              shows the recoverable fallback there while the rail + orientation
              bar stay alive (the global boundary in main.tsx is the last net). */}

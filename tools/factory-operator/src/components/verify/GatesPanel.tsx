@@ -35,6 +35,7 @@ function GateGlyph({ entry }: { entry: GateEntryView }) {
         {gateStatusGlyph(entry.status)}
       </span>
       {entry.issues.length > 0 ? <span className={tone}>{entry.issues.length}</span> : null}
+      <span className="sr-only">{gateStatusLabel(entry.status)}</span>
     </span>
   )
 }
@@ -115,11 +116,12 @@ export function GatesPanel({
                       <span className={`w-3 text-center ${tone}`} aria-hidden>
                         {gateStatusGlyph(entry.status)}
                       </span>
+                      <span className="sr-only">{gateStatusLabel(entry.status)}</span>
                       <span className="text-tx2">{entry.gate}</span>
                       <span className={tone}>{gateStatusLabel(entry.status)}</span>
                     </div>
                     {entry.issues.length > 0 ? (
-                      <ul className="ml-5 flex flex-col gap-0.5 py-0.5">
+                      <ul className="ms-5 flex flex-col gap-0.5 py-0.5">
                         {entry.issues.map((issue, i) => (
                           <li key={i} className="text-tx3">
                             <span className="text-tx4" aria-hidden>

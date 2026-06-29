@@ -39,16 +39,29 @@ export function Reveal({ children, className }: { children: ReactNode; className
   )
 }
 
-export function RevealItem({ children, className }: { children: ReactNode; className?: string }) {
+type RevealItemProps = {
+  children: ReactNode
+  className?: string
+  role?: string
+  'aria-live'?: 'off' | 'polite' | 'assertive'
+  'aria-atomic'?: boolean | 'false' | 'true'
+}
+
+export function RevealItem({ children, className, ...props }: RevealItemProps) {
   const reduce = usePrefersReducedMotion()
   if (reduce) {
-    return <div className={className}>{children}</div>
+    return (
+      <div className={className} {...props}>
+        {children}
+      </div>
+    )
   }
   return (
     <MDiv
       variants={{ hidden: { opacity: 0, y: MOTION_TRAVEL_PX }, shown: { opacity: 1, y: 0 } }}
       transition={REVEAL_CHILD_TRANSITION}
       className={className}
+      {...props}
     >
       {children}
     </MDiv>
