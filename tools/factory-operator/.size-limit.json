@@ -2,7 +2,7 @@
   {
     "name": "app",
     "path": "bundle/assets/index-*.js",
-    "limit": "45 KB",
+    "limit": "47 KB",
     "brotli": false,
     "gzip": false
   },
@@ -10,6 +10,13 @@
     "name": "vendor-react",
     "path": "bundle/assets/vendor-react-*.js",
     "limit": "210 KB",
+    "brotli": false,
+    "gzip": false
+  },
+  {
+    "name": "vendor-i18n",
+    "path": "bundle/assets/vendor-i18n-*.js",
+    "limit": "9 KB",
     "brotli": false,
     "gzip": false
   },

@@ -5,6 +5,7 @@ import path from 'node:path'
 import { defineConfig } from 'vite'
 import react, { reactCompilerPreset } from '@vitejs/plugin-react'
 import babel from '@rolldown/plugin-babel'
+import { lingui, linguiTransformerBabelPreset } from '@lingui/vite-plugin'
 import tailwindcss from '@tailwindcss/vite'
 
 // Sprint 80 Phase B — greenfield scaffold (preflight verdict PLAN-ADAPT).
@@ -56,7 +57,14 @@ const OPERATOR_WS = `ws://127.0.0.1:${OPERATOR_PORT}`
 export default defineConfig({
   plugins: [
     react(),
-    babel({ presets: [reactCompilerPreset()] }),
+    // i18n via Lingui. `lingui()` compiles the `.po` catalogs to eval-free
+    // message modules; the Lingui macros (<Trans>, t) are expanded by
+    // `linguiTransformerBabelPreset()` grafted onto the EXISTING
+    // @rolldown/plugin-babel call — NOT via `react({ babel })`, which is dead
+    // under @vitejs/plugin-react v6 (oxc, ADAPT-1 above). Babel runs presets in
+    // reverse, so the Lingui macro transform runs BEFORE the React Compiler.
+    lingui(),
+    babel({ presets: [reactCompilerPreset(), linguiTransformerBabelPreset()] }),
     tailwindcss(),
   ],
   resolve: {
@@ -90,6 +98,15 @@ export default defineConfig({
             nid.includes('/node_modules/scheduler/')
           ) {
             return 'vendor-react'
+          }
+          // i18n engine (@lingui/core + @lingui/react) into its OWN chunk. The
+          // <I18nProvider> wraps the root so this chunk is EAGER, but isolating
+          // it keeps the i18n cost measured by its own `vendor-i18n`
+          // size-limit entry instead of silently inflating the `app` hero
+          // (design doc §1.9 #3 — PO-chosen over bumping `app`). React is
+          // already claimed above, so its modules never land here.
+          if (nid.includes('/node_modules/@lingui/')) {
+            return 'vendor-i18n'
           }
           // Sprint 80 Phase D: xterm (~345 kB) into its OWN chunk. Only the
           // lazy <TerminalXterm>/<CastXterm> import it, so this chunk stays

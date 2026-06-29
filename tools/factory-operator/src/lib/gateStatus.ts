@@ -10,6 +10,7 @@
 //
 // Cardinal invariant preserved: these helpers map a RESTITUTED status/verdict
 // STRING to a display tone/glyph; they never compute, score, or assert one.
+import { t } from '@lingui/core/macro'
 import type { GateStatus } from '../api/operator'
 
 /** A semantic tone keyed to the oklch state tokens (colour = meaning). */
@@ -68,20 +69,23 @@ export function gateStatusTone(status: GateStatus): Tone {
   }
 }
 
-/** FR label of a restituted gate status (for a11y/title) — deliberately NOT
- * the verdict words PASS / Vérifié / Approuvé (scan-front-discipline gate). */
+/** Localised label of a restituted gate status (for a11y/title) — deliberately
+ * NOT the verdict words PASS / Vérifié / Approuvé (scan-front-discipline gate).
+ * Translated via the Lingui `t` macro (source locale `fr`); called at render so
+ * it reads the active locale. Reactivity on a runtime locale switch lands with
+ * the switcher slice (consumers will subscribe via useLingui). */
 export function gateStatusLabel(status: GateStatus): string {
   switch (status) {
     case 'passed':
-      return 'tenue'
+      return t`tenue`
     case 'blocking':
-      return 'bloquant'
+      return t`bloquant`
     case 'informational':
-      return 'informatif'
+      return t`informatif`
     case 'not_run':
-      return 'non exécutée'
+      return t`non exécutée`
     case 'not_applicable':
-      return 'hors périmètre'
+      return t`hors périmètre`
   }
 }
 

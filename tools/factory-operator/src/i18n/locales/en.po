@@ -1,0 +1,36 @@
+msgid ""
+msgstr ""
+"POT-Creation-Date: 2026-06-29 08:52+0200\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Generator: @lingui/cli\n"
+"Language: en\n"
+
+#: src/App.tsx:57
+msgid "Aller au contenu"
+msgstr "Skip to content"
+
+#: src/lib/gateStatus.ts:82
+msgid "bloquant"
+msgstr "blocking"
+
+#: src/lib/gateStatus.ts:88
+msgid "hors périmètre"
+msgstr "out of scope"
+
+#: src/lib/gateStatus.ts:84
+msgid "informatif"
+msgstr "informational"
+
+#: src/App.tsx:71
+msgid "Nœud injoignable — l'Operator ne répond pas sur le lien loopback. Les surfaces resteront vides jusqu'au rétablissement."
+msgstr "Node unreachable — the Operator is not responding on the loopback link. Surfaces will stay empty until it recovers."
+
+#: src/lib/gateStatus.ts:86
+msgid "non exécutée"
+msgstr "not run"
+
+#: src/lib/gateStatus.ts:80
+msgid "tenue"
+msgstr "met"

@@ -3,9 +3,12 @@
 // Shell-level test: the offline banner's anti-flash guard
 // (!reachable && !loading), and the useFocalKeys wiring. The hooks + focal
 // scenes are stubbed so the assertions isolate App's own logic.
+import type { ReactNode } from 'react'
 import { render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { I18nProvider } from '@lingui/react'
 import { App } from './App'
+import { i18n } from './i18n/i18n'
 import * as railMod from './state/useRailStatus'
 import * as opMod from './state/useOperator'
 import * as focalMod from './state/useFocalKeys'
@@ -22,6 +25,13 @@ vi.mock('./components/surfaces/SurfaceHost', () => ({ SurfaceHost: () => <div da
 const useRailStatus = vi.mocked(railMod.useRailStatus)
 const useOperator = vi.mocked(opMod.useOperator)
 const useFocalKeys = vi.mocked(focalMod.useFocalKeys)
+
+// App renders <Trans> (skip-link, offline banner); the runtime needs an
+// I18nProvider ancestor (the real provider lives in main.tsx). setup.ts has
+// already activated the source locale on this i18n.
+function I18nWrap({ children }: { children: ReactNode }) {
+  return <I18nProvider i18n={i18n}>{children}</I18nProvider>
+}
 
 const setMode = vi.fn()
 const baseOp = {
@@ -78,25 +88,25 @@ beforeEach(() => {
 describe('App shell — bannière offline + câblage', () => {
   it('ne montre PAS la bannière quand le backend est joignable', () => {
     useRailStatus.mockReturnValue(rail({ reachable: true, loading: false }))
-    render(<App />)
+    render(<App />, { wrapper: I18nWrap })
     expect(screen.queryByTestId('offline-banner')).toBeNull()
   })
 
   it('ne montre PAS la bannière pendant la 1re liaison (anti-flash boot)', () => {
     useRailStatus.mockReturnValue(rail({ reachable: false, loading: true }))
-    render(<App />)
+    render(<App />, { wrapper: I18nWrap })
     expect(screen.queryByTestId('offline-banner')).toBeNull()
   })
 
   it('montre la bannière quand le backend est injoignable et la liaison terminée', () => {
     useRailStatus.mockReturnValue(rail({ reachable: false, loading: false }))
-    render(<App />)
+    render(<App />, { wrapper: I18nWrap })
     expect(screen.getByTestId('offline-banner')).toBeInTheDocument()
   })
 
   it('câble useFocalKeys sur op.setMode et rend la scène STEER par défaut', () => {
     useRailStatus.mockReturnValue(rail({}))
-    render(<App />)
+    render(<App />, { wrapper: I18nWrap })
     expect(useFocalKeys).toHaveBeenCalledWith(setMode)
     expect(screen.getByTestId('steer-scene')).toBeInTheDocument()
   })

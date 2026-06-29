@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it } from 'vitest'
 import {
   GATE_STATUS,
   gateStatusGlyph,
@@ -12,6 +12,8 @@ import {
   toneText,
   VERIFY_ETAT,
 } from './verdict'
+import { i18n } from '../i18n/i18n'
+import { messages as enMessages } from '../i18n/locales/en.po'
 
 describe('reviewTone (restituted review verdict)', () => {
   it('maps the recorded verdicts to honest tones', () => {
@@ -91,5 +93,29 @@ describe('gate status restitution (Phase H — GET /api/gates)', () => {
     for (const status of Object.values(GATE_STATUS)) {
       expect(gateStatusLabel(status)).not.toMatch(/\b(PASS|Vérifié|Approuvé)\b/)
     }
+  })
+})
+
+// End-to-end proof of the Lingui pipeline (front rapid-add étape 1): the `t`
+// macro was extracted into the catalog, compiled to an eval-free module by the
+// Vite plugin, loaded, and rendered for the ACTIVE locale. gateStatusLabel reads
+// the global i18n, so activating `en` flips its output — and the EN labels stay
+// non-verdict (`met`, never `passed`/`PASS`, scan-front discipline).
+describe('gateStatusLabel renders the active locale (i18n pipeline proof)', () => {
+  afterAll(() => {
+    i18n.activate('fr') // restore the source locale for the rest of the suite
+  })
+
+  it('renders FR (source) by default', () => {
+    expect(gateStatusLabel('passed')).toBe('tenue')
+    expect(gateStatusLabel('blocking')).toBe('bloquant')
+  })
+
+  it('renders EN once the en catalog is loaded + activated', () => {
+    i18n.load('en', enMessages)
+    i18n.activate('en')
+    expect(gateStatusLabel('passed')).toBe('met')
+    expect(gateStatusLabel('blocking')).toBe('blocking')
+    expect(gateStatusLabel('not_run')).toBe('not run')
   })
 })

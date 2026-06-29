@@ -11,6 +11,7 @@
 // useRailStatus (ambient context from /api/context + gate pulse from /api/gates)
 // + useFocalKeys (keyboard s/v focal switch, D6 manual).
 import { lazy, Suspense } from 'react'
+import { Trans } from '@lingui/react/macro'
 import { OrientationBar } from './components/OrientationBar'
 import { Rail } from './components/Rail'
 import { ErrorBoundary } from './components/ErrorBoundary'
@@ -53,7 +54,7 @@ export function App() {
         href="#main-content"
         className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-50 focus:rounded-sm focus:border focus:border-info focus:bg-s2 focus:px-3 focus:py-1.5 focus:text-body focus:text-tx"
       >
-        Aller au contenu
+        <Trans>Aller au contenu</Trans>
       </a>
       <OrientationBar status={status} provider={op.provider} />
       {/* Offline banner — one honest global signal when the loopback link is
@@ -67,8 +68,10 @@ export function App() {
           className="flex h-7 flex-shrink-0 items-center gap-2 border-b border-bd bg-bad-bg px-4 font-mono text-sec text-bad"
         >
           <span className="h-1.5 w-1.5 rounded-full bg-bad" aria-hidden />
-          Nœud injoignable — l'Operator ne répond pas sur le lien loopback. Les surfaces
-          resteront vides jusqu'au rétablissement.
+          <Trans>
+            Nœud injoignable — l'Operator ne répond pas sur le lien loopback. Les surfaces
+            resteront vides jusqu'au rétablissement.
+          </Trans>
         </div>
       )}
       <div className="flex min-h-0 flex-1">
