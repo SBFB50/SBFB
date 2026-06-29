@@ -14,10 +14,12 @@
 import { lazy, Suspense } from 'react'
 import type { Operator } from '../../state/useOperator'
 import { SECONDARY_SURFACES } from '../../catalog/surfaces'
+import { AdaptiveSurface } from '../AdaptiveSurface'
 
 const ProcedeSurface = lazy(() => import('./ProcedeSurface').then((m) => ({ default: m.ProcedeSurface })))
 const SessionsSurface = lazy(() => import('./SessionsSurface').then((m) => ({ default: m.SessionsSurface })))
 const KnowledgeSurface = lazy(() => import('./KnowledgeSurface').then((m) => ({ default: m.KnowledgeSurface })))
+const DocumentsSurface = lazy(() => import('./DocumentsSurface').then((m) => ({ default: m.DocumentsSurface })))
 
 export function SurfaceHost({ op }: { op: Operator }) {
   const surface = op.surface
@@ -25,8 +27,8 @@ export function SurfaceHost({ op }: { op: Operator }) {
   const def = SECONDARY_SURFACES.find((s) => s.id === surface)
 
   return (
-    <div data-testid="surface-host" className="flex min-h-0 flex-1 flex-col bg-s0">
-      <div className="flex items-center gap-2.5 border-b border-bd px-5 py-3">
+    <AdaptiveSurface kind="surface-host" testId="surface-host" labelledBy="surface-title" className="flex min-h-0 flex-1 flex-col bg-s0">
+      <div className="adaptive-surface-header flex items-center gap-2.5 border-b border-bd px-5 py-3">
         <button
           type="button"
           data-testid="surface-back"
@@ -39,8 +41,8 @@ export function SurfaceHost({ op }: { op: Operator }) {
         <span className="font-mono text-meta text-tx4" aria-hidden>
           {def?.glyph}
         </span>
-        <h1 className="font-sans text-card font-semibold text-tx">{def?.label}</h1>
-        <span className="font-sans text-sec text-tx3">— {def?.hint}</span>
+        <h1 id="surface-title" className="font-sans text-card font-semibold text-tx">{def?.label}</h1>
+        <span className="adaptive-secondary font-sans text-sec text-tx3">— {def?.hint}</span>
       </div>
 
       <div className="min-h-0 flex-1 overflow-hidden">
@@ -49,11 +51,13 @@ export function SurfaceHost({ op }: { op: Operator }) {
             <ProcedeSurface />
           ) : surface === 'sessions' ? (
             <SessionsSurface sessionId={op.sessionId} />
-          ) : (
+          ) : surface === 'knowledge' ? (
             <KnowledgeSurface sessionId={op.sessionId} />
+          ) : (
+            <DocumentsSurface sessionId={op.sessionId} />
           )}
         </Suspense>
       </div>
-    </div>
+    </AdaptiveSurface>
   )
 }

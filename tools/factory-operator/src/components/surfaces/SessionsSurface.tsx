@@ -26,6 +26,7 @@ import {
 import type { TerminalStatus } from '../verify/TerminalXterm'
 import { formatSessionDate } from '../../lib/sessionDate'
 import { CastReplay } from './CastReplay'
+import { AdaptiveSurface } from '../AdaptiveSurface'
 
 const ResumeTerminal = lazy(() => import('../verify/TerminalXterm'))
 
@@ -184,7 +185,7 @@ export function SessionsSurface({ sessionId }: { sessionId: string | null }) {
     })
 
   return (
-    <div data-testid="sessions-surface" className="flex min-h-0 flex-1 flex-col overflow-auto p-5">
+    <AdaptiveSurface kind="sessions" testId="sessions-surface" className="flex min-h-0 flex-1 flex-col overflow-auto p-5">
       <section className="mb-5">
         <h2 className="mb-1.5 eyebrow">
           journal de bord · registre des refus du mur
@@ -206,7 +207,7 @@ export function SessionsSurface({ sessionId }: { sessionId: string | null }) {
            sessions (~/.claude/sessions, `claude --resume`). Local (Ollama) /
            network intentions run through the STEER chat session below — there
            is no CLI-resume store for them in the backend today. */}
-        <p className="mb-1.5 font-mono text-meta text-tx4">
+        <p className="adaptive-secondary mb-1.5 font-mono text-meta text-tx4">
           reprise via le CLI Claude (<span className="text-tx3">claude --resume</span>). Les intentions
           local (Ollama) / réseau passent par la session STEER ci-dessous — pas de reprise CLI côté
           backend aujourd'hui.
@@ -272,6 +273,6 @@ export function SessionsSurface({ sessionId }: { sessionId: string | null }) {
           </div>
         ))}
       </section>
-    </div>
+    </AdaptiveSurface>
   )
 }

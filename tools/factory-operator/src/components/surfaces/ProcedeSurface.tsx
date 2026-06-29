@@ -34,6 +34,7 @@ import { preflightTone, reviewTone, toneBg, toneText } from '../../lib/verdict'
 import { DiffViewer } from '../verify/plein/DiffViewer'
 import { ConformiteCard } from './ConformiteCard'
 import { useCommitDiff } from '../../state/useCommitDiff'
+import { AdaptiveSurface } from '../AdaptiveSurface'
 
 function VerdictPill({ verdict, tone }: { verdict: string | null; tone: string }) {
   return (
@@ -499,7 +500,7 @@ export function ProcedeSurface() {
 
   if (error)
     return (
-      <div className="flex flex-col gap-2 p-5 font-mono text-meta text-warn">
+      <AdaptiveSurface kind="procede" testId="procede-surface-error" className="flex flex-col gap-2 p-5 font-mono text-meta text-warn">
         <span>{error}</span>
         {selectedSprint !== null ? (
           <button
@@ -510,9 +511,9 @@ export function ProcedeSurface() {
             ← sprint actif
           </button>
         ) : null}
-      </div>
+      </AdaptiveSurface>
     )
-  if (history === null) return <div className="p-5 font-mono text-meta text-tx4">lecture du procédé…</div>
+  if (history === null) return <AdaptiveSurface kind="procede" testId="procede-surface-loading" className="p-5 font-mono text-meta text-tx4">lecture du procédé…</AdaptiveSurface>
 
   const toggle = (letter: string) =>
     setExpanded((cur) => {
@@ -536,15 +537,15 @@ export function ProcedeSurface() {
   }
 
   return (
-    <div data-testid="procede-surface" className="flex min-h-0 flex-1 flex-col overflow-auto p-5">
+    <AdaptiveSurface kind="procede" testId="procede-surface" className="flex min-h-0 flex-1 flex-col overflow-auto p-5">
       <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-meta text-tx2">
         <h2 className="font-sans text-card font-semibold text-tx">Sprint {history.sprint}</h2>
         <span className="text-tx3">{history.status}</span>
-        <span className="text-tx4">·</span>
+        <span className="adaptive-secondary text-tx4">·</span>
         <span className="text-tx">{history.branch}</span>
-        <span className="text-tx4">▸ {history.head}</span>
-        <span className="text-tx4">·</span>
-        <span className="text-tx3">
+        <span className="adaptive-secondary text-tx4">▸ {history.head}</span>
+        <span className="adaptive-secondary text-tx4">·</span>
+        <span className="adaptive-secondary text-tx3">
           {history.phase_commits} commits de phase · {history.chore_commits} chore
         </span>
       </div>
@@ -661,6 +662,6 @@ export function ProcedeSurface() {
       <VerificationTable verification={history.verification} />
       <CommitTimeline commits={history.commits} />
       <GlyphLegend />
-    </div>
+    </AdaptiveSurface>
   )
 }

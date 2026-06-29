@@ -8,7 +8,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { OrientationBar } from './OrientationBar'
 import type { RailHandle } from '../state/useRailStatus'
-import { ACCESSIBILITY_STORAGE_KEY } from '../preferences/accessibility'
+import { ACCESSIBILITY_STORAGE_KEY, LEGACY_ACCESSIBILITY_STORAGE_KEY } from '../preferences/accessibility'
 
 const base: RailHandle = {
   sprint: 80,
@@ -25,12 +25,21 @@ const base: RailHandle = {
 afterEach(() => {
   cleanup()
   if (typeof localStorage.removeItem === 'function') localStorage.removeItem(ACCESSIBILITY_STORAGE_KEY)
+  if (typeof localStorage.removeItem === 'function') localStorage.removeItem(LEGACY_ACCESSIBILITY_STORAGE_KEY)
   document.documentElement.removeAttribute('data-contrast')
+  document.documentElement.removeAttribute('data-color-vision')
   document.documentElement.removeAttribute('data-pointer')
   document.documentElement.removeAttribute('data-text-spacing')
   document.documentElement.removeAttribute('data-font')
   document.documentElement.removeAttribute('data-motion')
+  document.documentElement.removeAttribute('data-transparency')
+  document.documentElement.removeAttribute('data-density')
+  document.documentElement.removeAttribute('data-reading')
+  document.documentElement.removeAttribute('data-focus')
   document.documentElement.removeAttribute('data-scale')
+  document.documentElement.removeAttribute('data-assistive-tech')
+  document.documentElement.removeAttribute('data-captions')
+  document.documentElement.removeAttribute('data-needs')
 })
 
 describe('OrientationBar — pouls de gates + refresh', () => {
@@ -80,5 +89,24 @@ describe('OrientationBar — pouls de gates + refresh', () => {
     await user.selectOptions(screen.getByLabelText('cibles'), 'large')
     await waitFor(() => expect(document.documentElement).toHaveAttribute('data-contrast', 'high'))
     expect(document.documentElement).toHaveAttribute('data-pointer', 'large')
+  })
+
+  it('empile plusieurs besoins handicap dans le mode resolu', async () => {
+    const user = userEvent.setup()
+    render(<OrientationBar provider="claude" status={base} />)
+    await user.click(screen.getByTestId('accessibility-toggle'))
+    await user.click(await screen.findByLabelText('basse vision'))
+    await user.click(screen.getByLabelText('dyslexie'))
+    await user.click(screen.getByLabelText('photosensible'))
+    await waitFor(() => expect(document.documentElement).toHaveAttribute('data-theme', 'forced'))
+    expect(document.documentElement).toHaveAttribute('data-contrast', 'high')
+    expect(document.documentElement).toHaveAttribute('data-scale', '125')
+    expect(document.documentElement).toHaveAttribute('data-font', 'legible')
+    expect(document.documentElement).toHaveAttribute('data-reading', 'assist')
+    expect(document.documentElement).toHaveAttribute('data-motion', 'reduced')
+    expect(document.documentElement).toHaveAttribute('data-transparency', 'reduced')
+    expect(document.documentElement.getAttribute('data-needs')).toContain('lowVision')
+    expect(document.documentElement.getAttribute('data-needs')).toContain('dyslexia')
+    expect(document.documentElement.getAttribute('data-needs')).toContain('photosensitive')
   })
 })

@@ -5,6 +5,7 @@ import {
   getAllSprints,
   getContext,
   getGates,
+  getProjectDocuments,
   getPrompt,
   getProviders,
   getStatus,
@@ -108,5 +109,14 @@ describe('operator API client', () => {
     await expect(getGates(ctrl.signal)).resolves.toMatchObject({ gates: [{ gate: 'lint-planning' }] })
     expect(String(fetchMock.mock.calls[0][0])).toBe('/api/gates')
     expect(fetchMock.mock.calls[0][1]?.signal).toBe(ctrl.signal)
+  })
+
+  it('getProjectDocuments carries the active session id and parses the live map', async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      ok({ branch: 'master', head: 'abc1234', total: 1, truncated: false, pinned: [], documents: [] }),
+    )
+    globalThis.fetch = fetchMock
+    await expect(getProjectDocuments('s1')).resolves.toMatchObject({ branch: 'master', total: 1 })
+    expect(String(fetchMock.mock.calls[0][0])).toBe('/api/project-documents?session=s1')
   })
 })

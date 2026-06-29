@@ -15,6 +15,7 @@
 import { useEffect, useState } from 'react'
 import { getChatLog, postContextPack, OperatorError, type ContextPack, type HashRef } from '../../api/operator'
 import { copyText } from '../../lib/clipboard'
+import { AdaptiveSurface } from '../AdaptiveSurface'
 
 interface PackGroup {
   label: string
@@ -174,7 +175,7 @@ export function ContextPackInspector({
   const sealed = sessionId && sealedState?.sid === sessionId ? sealedState.map : null
 
   return (
-    <section data-testid="context-pack-inspector" className="flex flex-col gap-3">
+    <AdaptiveSurface as="section" kind="context-pack" testId="context-pack-inspector" className="flex flex-col gap-3">
       <div className="rounded-md border border-bd bg-s1 px-4 py-3">
         <h2 className="mb-1 font-sans text-card font-semibold text-tx">
           Préparer le pack — brouillon de transmission
@@ -184,7 +185,7 @@ export function ContextPackInspector({
           vraie session agent qui produit gates et preuves. L'Operator restitue ce qui est tracé — il
           ne clôt aucun verdict, il ne grave aucun « valider ».
         </p>
-        <div className="mt-2 font-mono text-meta text-tx4">
+        <div className="adaptive-secondary mt-2 font-mono text-meta text-tx4">
           références hachées · contenu jamais inliné · historique de chat non-autoritaire
         </div>
       </div>
@@ -216,6 +217,6 @@ export function ContextPackInspector({
           <div className="font-mono text-meta text-tx4">{pack.notice}</div>
         </div>
       )}
-    </section>
+    </AdaptiveSurface>
   )
 }

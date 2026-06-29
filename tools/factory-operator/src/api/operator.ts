@@ -445,6 +445,60 @@ export function getChatLog(id: string, signal?: AbortSignal): Promise<ChatLog> {
   return getJson<ChatLog>(`/api/chat/${encodeURIComponent(id)}/log`, signal)
 }
 
+export type ProjectDocumentRole = 'read' | 'use' | 'write' | 'scan'
+
+export interface ProjectDocumentRoleSource {
+  role: ProjectDocumentRole
+  source: string
+  detail: string
+}
+
+export interface ProjectDocumentCard {
+  path: string
+  name: string
+  dir: string
+  ext: string
+  kind: string
+  status: string
+  tracked: boolean
+  size_bytes: number | null
+  modified_ms: number | null
+  roles: ProjectDocumentRole[]
+  sources: ProjectDocumentRoleSource[]
+}
+
+export interface ProjectDocumentPinned {
+  path: string
+  role: ProjectDocumentRole
+  label: string
+  source: string
+  detail: string
+}
+
+export interface ProjectDocumentsSession {
+  id: string
+  provider: string
+  model: string
+  messages: number
+  chat_history_authoritative: boolean
+}
+
+export interface ProjectDocuments {
+  branch: string
+  head: string
+  generated_at: string
+  total: number
+  truncated: boolean
+  session: ProjectDocumentsSession | null
+  pinned: ProjectDocumentPinned[]
+  documents: ProjectDocumentCard[]
+}
+
+export function getProjectDocuments(sessionId?: string | null, signal?: AbortSignal): Promise<ProjectDocuments> {
+  const qs = sessionId ? `?${new URLSearchParams({ session: sessionId }).toString()}` : ''
+  return getJson<ProjectDocuments>(`/api/project-documents${qs}`, signal)
+}
+
 /** Same-origin WebSocket URL for the live PTY (`handle_terminal_ws`). The
  * HttpOnly cookie rides the handshake automatically — a WS cannot set a
  * custom auth header (kickoff Day-0 #5, why the cookie is the 1st gesture).

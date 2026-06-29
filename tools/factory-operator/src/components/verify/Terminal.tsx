@@ -7,6 +7,7 @@
 // spawning the server-side `claude` child just by glancing at VERIFY.
 import { lazy, Suspense, useState } from 'react'
 import type { TerminalStatus } from './TerminalXterm'
+import { AdaptiveSurface } from '../AdaptiveSurface'
 
 const TerminalXterm = lazy(() => import('./TerminalXterm'))
 
@@ -28,7 +29,7 @@ export function Terminal() {
 
   if (!started) {
     return (
-      <div className="flex flex-1 items-center justify-center p-7">
+      <AdaptiveSurface kind="terminal" testId="terminal-surface" className="flex flex-1 items-center justify-center p-7">
         <div className="max-w-prose rounded-md border border-dashed border-bd bg-s1 px-6 py-6 text-center">
           <h2 className="mb-1 font-sans text-card font-semibold text-tx">Terminal de vérification</h2>
           <div className="mb-4 font-sans text-body leading-relaxed text-tx2">
@@ -44,20 +45,20 @@ export function Terminal() {
           >
             Démarrer la session terminal
           </button>
-          <div className="mt-3 font-mono text-meta text-tx4">
+          <div className="adaptive-secondary mt-3 font-mono text-meta text-tx4">
             commit · push · shell restent derrière le mur — ici, lecture et inspection
           </div>
         </div>
-      </div>
+      </AdaptiveSurface>
     )
   }
 
   return (
-    <div data-testid="terminal-surface" className="flex min-h-0 flex-1 flex-col">
+    <AdaptiveSurface kind="terminal" testId="terminal-surface" className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-center gap-2 border-b border-bd bg-s1 px-4 py-1.5 font-mono text-meta text-tx3">
         <StatusDot status={status} />
         <span>terminal · {status}</span>
-        <span className="ml-auto text-tx4">enregistré en .cast · rejouable</span>
+        <span className="adaptive-secondary ml-auto text-tx4">enregistré en .cast · rejouable</span>
       </div>
       <div className="min-h-0 flex-1 overflow-hidden bg-s0 p-2">
         <Suspense
@@ -66,6 +67,6 @@ export function Terminal() {
           <TerminalXterm onStatus={setStatus} />
         </Suspense>
       </div>
-    </div>
+    </AdaptiveSurface>
   )
 }

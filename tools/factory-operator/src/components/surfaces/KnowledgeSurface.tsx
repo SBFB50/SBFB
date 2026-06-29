@@ -7,11 +7,12 @@
 // references, dashed mono chips, read-only — the Operator displays provenance,
 // it grants nothing (decision S79-D6). The full sealed pack + hash-drift
 // markers live in <ContextPackInspector>.
+import { AdaptiveSurface } from '../AdaptiveSurface'
 import { ContextPackInspector } from '../verify/ContextPackInspector'
 
 export function KnowledgeSurface({ sessionId }: { sessionId: string | null }) {
   return (
-    <div data-testid="knowledge-surface" className="flex min-h-0 flex-1 flex-col overflow-auto p-5">
+    <AdaptiveSurface kind="knowledge" testId="knowledge-surface" className="flex min-h-0 flex-1 flex-col overflow-auto p-5">
       <div className="mb-4 rounded-md border border-dashed border-bd2 bg-s1 px-4 py-3">
         <h2 className="mb-1 font-sans text-card font-semibold text-tx">Connaissance consultative</h2>
         <p className="font-sans text-body leading-relaxed text-tx2">
@@ -19,12 +20,12 @@ export function KnowledgeSurface({ sessionId }: { sessionId: string | null }) {
           une session agent, jamais autoritaires. On en montre la provenance — chemin + empreinte
           blake3 — pas le contenu : une référence vérifiable, pas une vérité gravée par l'Operator.
         </p>
-        <div className="mt-2 font-mono text-meta text-tx4">
+        <div className="adaptive-secondary mt-2 font-mono text-meta text-tx4">
           fraîcheur ≠ verdict · une empreinte qui dérive signale « relu », pas « approuvé »
         </div>
       </div>
 
       <ContextPackInspector sessionId={sessionId} />
-    </div>
+    </AdaptiveSurface>
   )
 }

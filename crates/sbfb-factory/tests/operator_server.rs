@@ -1078,6 +1078,44 @@ fn operator_chat_session_includes_authoring_knowledge() {
 }
 
 #[test]
+fn operator_project_documents_maps_repo_and_session_refs() {
+    let server = TestServer::start();
+    let session_resp = server.post_json(
+        "/api/chat/session",
+        serde_json::json!({"provider": "claude", "intent": "docs map"}),
+    );
+    assert_eq!(session_resp.status(), 200);
+    let session: serde_json::Value = session_resp.json().unwrap();
+    let id = session["id"].as_str().unwrap();
+
+    let resp = server.get(&format!("/api/project-documents?session={id}"));
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().unwrap();
+    assert!(
+        body["total"].as_u64().unwrap_or_default() > 0,
+        "document map should include repo files"
+    );
+    assert_eq!(body["session"]["id"], id);
+    assert_eq!(body["session"]["chat_history_authoritative"], false);
+    assert!(
+        body["documents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|d| d["path"] == "AGENTS.md"),
+        "AGENTS.md should be in the git-backed project inventory"
+    );
+    assert!(
+        body["pinned"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|p| p["path"] == "prompts/agent/base.md" && p["role"] == "use"),
+        "the active LLM session should pin the base prompt as a used document"
+    );
+}
+
+#[test]
 fn operator_chat_message_endpoint() {
     let server = TestServer::start();
     let session_resp = server.post_json(

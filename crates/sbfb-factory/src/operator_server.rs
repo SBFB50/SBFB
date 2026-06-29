@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::convert::Infallible;
-use std::path::PathBuf;
+use std::path::{Path as FsPath, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use axum::Router;
@@ -174,6 +174,7 @@ pub fn build_router(root: PathBuf, bundle: PathBuf, auth_state: AuthState) -> Ro
         .route("/api/prompt/{kind}", get(handle_prompt))
         .route("/api/context", get(handle_context))
         .route("/api/context-pack", post(handle_context_pack))
+        .route("/api/project-documents", get(handle_project_documents))
         .route("/api/providers", get(handle_providers))
         .route("/api/actions/run", post(handle_action_run))
         .route("/api/actions/log", get(handle_action_log))
@@ -535,6 +536,526 @@ fn authoring_knowledge(root: &std::path::Path) -> Vec<serde_json::Value> {
         .iter()
         .map(|rel| file_hash(root, rel))
         .collect()
+}
+
+#[derive(Deserialize)]
+struct ProjectDocumentsQuery {
+    session: Option<String>,
+}
+
+#[derive(Serialize, Clone)]
+struct ProjectDocumentRoleSource {
+    role: String,
+    source: String,
+    detail: String,
+}
+
+#[derive(Default, Clone)]
+struct ProjectDocumentAccumulator {
+    roles: BTreeSet<String>,
+    sources: Vec<ProjectDocumentRoleSource>,
+}
+
+#[derive(Serialize)]
+struct ProjectDocumentCard {
+    path: String,
+    name: String,
+    dir: String,
+    ext: String,
+    kind: String,
+    status: String,
+    tracked: bool,
+    size_bytes: Option<u64>,
+    modified_ms: Option<i64>,
+    roles: Vec<String>,
+    sources: Vec<ProjectDocumentRoleSource>,
+}
+
+#[derive(Serialize)]
+struct ProjectDocumentPinned {
+    path: String,
+    role: String,
+    label: String,
+    source: String,
+    detail: String,
+}
+
+#[derive(Serialize)]
+struct ProjectDocumentsSessionView {
+    id: String,
+    provider: String,
+    model: String,
+    messages: usize,
+    chat_history_authoritative: bool,
+}
+
+#[derive(Serialize)]
+struct ProjectDocumentsResult {
+    branch: String,
+    head: String,
+    generated_at: String,
+    total: usize,
+    truncated: bool,
+    session: Option<ProjectDocumentsSessionView>,
+    pinned: Vec<ProjectDocumentPinned>,
+    documents: Vec<ProjectDocumentCard>,
+}
+
+const MAX_PROJECT_DOCUMENTS: usize = 5_000;
+
+fn git_text_in(root: &FsPath, args: &[&str]) -> String {
+    std::process::Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(args)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+        .unwrap_or_default()
+}
+
+fn git_zero_paths_in(root: &FsPath, args: &[&str]) -> Vec<String> {
+    std::process::Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(args)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| {
+            o.stdout
+                .split(|b| *b == 0)
+                .filter(|part| !part.is_empty())
+                .map(|part| normalize_project_path(&String::from_utf8_lossy(part)))
+                .filter(|p| !p.is_empty())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn normalize_project_path(path: &str) -> String {
+    path.trim().trim_matches('"').replace('\\', "/")
+}
+
+fn git_project_paths(root: &FsPath) -> Vec<String> {
+    let mut paths = git_zero_paths_in(
+        root,
+        &[
+            "ls-files",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+            "-z",
+        ],
+    );
+    paths.sort();
+    paths.dedup();
+    paths
+}
+
+fn git_tracked_paths(root: &FsPath) -> BTreeSet<String> {
+    git_zero_paths_in(root, &["ls-files", "--cached", "-z"])
+        .into_iter()
+        .collect()
+}
+
+fn git_status_map(root: &FsPath) -> BTreeMap<String, String> {
+    let raw = git_text_in(root, &["status", "--short", "--porcelain"]);
+    let mut map = BTreeMap::new();
+    for line in raw.lines() {
+        if line.len() < 4 {
+            continue;
+        }
+        let status = line[..2].trim().to_string();
+        let mut path = normalize_project_path(&line[3..]);
+        if let Some((_, renamed_to)) = path.split_once(" -> ") {
+            path = normalize_project_path(renamed_to);
+        }
+        if !path.is_empty() {
+            map.insert(path, status);
+        }
+    }
+    map
+}
+
+fn mark_project_role(
+    acc: &mut BTreeMap<String, ProjectDocumentAccumulator>,
+    pinned: &mut Vec<ProjectDocumentPinned>,
+    path: &str,
+    role: &str,
+    source: &str,
+    detail: &str,
+    label: Option<&str>,
+) {
+    let path = normalize_project_path(path);
+    if path.is_empty() {
+        return;
+    }
+    let entry = acc.entry(path.clone()).or_default();
+    entry.roles.insert(role.to_string());
+    if !entry
+        .sources
+        .iter()
+        .any(|s| s.role == role && s.source == source && s.detail == detail)
+    {
+        entry.sources.push(ProjectDocumentRoleSource {
+            role: role.to_string(),
+            source: source.to_string(),
+            detail: detail.to_string(),
+        });
+    }
+    if let Some(label) = label {
+        if !pinned
+            .iter()
+            .any(|p| p.path == path && p.role == role && p.source == source)
+        {
+            pinned.push(ProjectDocumentPinned {
+                path,
+                role: role.to_string(),
+                label: label.to_string(),
+                source: source.to_string(),
+                detail: detail.to_string(),
+            });
+        }
+    }
+}
+
+fn mark_hash_ref(
+    acc: &mut BTreeMap<String, ProjectDocumentAccumulator>,
+    pinned: &mut Vec<ProjectDocumentPinned>,
+    value: &serde_json::Value,
+    role: &str,
+    source: &str,
+    label: &str,
+) {
+    if let Some(path) = value.get("path").and_then(|v| v.as_str()) {
+        let detail = value
+            .get("hash")
+            .and_then(|v| v.as_str())
+            .map(|hash| format!("ref hachee {hash}"))
+            .unwrap_or_else(|| "ref hachee absente ou fichier absent".to_string());
+        mark_project_role(acc, pinned, path, role, source, &detail, Some(label));
+    }
+}
+
+fn mark_hash_ref_array(
+    acc: &mut BTreeMap<String, ProjectDocumentAccumulator>,
+    pinned: &mut Vec<ProjectDocumentPinned>,
+    pack: &serde_json::Value,
+    field: &str,
+    role: &str,
+    source: &str,
+    label: &str,
+) {
+    if let Some(arr) = pack.get(field).and_then(|v| v.as_array()) {
+        for item in arr {
+            mark_hash_ref(acc, pinned, item, role, source, label);
+        }
+    }
+}
+
+fn mark_context_pack_refs(
+    acc: &mut BTreeMap<String, ProjectDocumentAccumulator>,
+    pinned: &mut Vec<ProjectDocumentPinned>,
+    pack: &serde_json::Value,
+    source: &str,
+) {
+    for (field, role, label) in [
+        ("base_prompt", "use", "prompt de base"),
+        ("universal_prompt", "use", "prompt universel"),
+        ("handoff_prompt", "use", "prompt de transmission"),
+        ("specialized_prompt", "use", "prompt specialise"),
+        ("agent_system", "read", "systeme agent"),
+    ] {
+        if let Some(value) = pack.get(field) {
+            mark_hash_ref(acc, pinned, value, role, source, label);
+        }
+    }
+    mark_hash_ref_array(
+        acc,
+        pinned,
+        pack,
+        "process_docs",
+        "read",
+        source,
+        "doc de procede",
+    );
+    mark_hash_ref_array(
+        acc,
+        pinned,
+        pack,
+        "authoring_knowledge",
+        "use",
+        source,
+        "knowledge LLM",
+    );
+    mark_hash_ref_array(
+        acc,
+        pinned,
+        pack,
+        "active_artifacts",
+        "read",
+        source,
+        "artefact actif",
+    );
+}
+
+fn default_context_pack_for_documents(root: &FsPath) -> serde_json::Value {
+    let active_artifacts: Vec<serde_json::Value> = crate::process::list_active_artifacts_pub(root)
+        .into_iter()
+        .map(|name| file_hash(root, &format!(".planning/active/{name}")))
+        .collect();
+    serde_json::json!({
+        "base_prompt": file_hash(root, "prompts/agent/base.md"),
+        "universal_prompt": file_hash(root, "prompts/agent/universal.md"),
+        "handoff_prompt": file_hash(root, "prompts/agent/handoff.md"),
+        "agent_system": file_hash(root, "docs/agent/AGENT_SYSTEM.md"),
+        "process_docs": [
+            file_hash(root, "docs/agent/PROCESS.md"),
+            file_hash(root, "docs/agent/TOOLING.md"),
+            file_hash(root, "AGENTS.md"),
+            file_hash(root, "CLAUDE.md"),
+        ],
+        "authoring_knowledge": authoring_knowledge(root),
+        "active_artifacts": active_artifacts,
+    })
+}
+
+fn normalize_gate_issue_file(root: &FsPath, file: &str) -> String {
+    let file = normalize_project_path(file);
+    if file.contains('/') || file.contains('\\') {
+        return file;
+    }
+    let active = format!(".planning/active/{file}");
+    if root.join(&active).exists() {
+        active
+    } else {
+        file
+    }
+}
+
+fn mark_gate_refs(
+    root: &FsPath,
+    acc: &mut BTreeMap<String, ProjectDocumentAccumulator>,
+    pinned: &mut Vec<ProjectDocumentPinned>,
+) {
+    let gates = serde_json::to_value(crate::gates::gates_live_data(root)).unwrap_or_default();
+    let Some(entries) = gates.get("gates").and_then(|v| v.as_array()) else {
+        return;
+    };
+    for gate in entries {
+        let name = gate.get("gate").and_then(|v| v.as_str()).unwrap_or("gate");
+        let Some(issues) = gate.get("issues").and_then(|v| v.as_array()) else {
+            continue;
+        };
+        for issue in issues {
+            if let Some(file) = issue.get("file").and_then(|v| v.as_str()) {
+                let path = normalize_gate_issue_file(root, file);
+                mark_project_role(
+                    acc,
+                    pinned,
+                    &path,
+                    "scan",
+                    "gates",
+                    &format!("signal {name}"),
+                    Some("signal gate"),
+                );
+            }
+        }
+    }
+}
+
+fn project_document_kind(path: &str) -> String {
+    if path.starts_with(".planning/") {
+        "planning".to_string()
+    } else if path.starts_with("docs/") {
+        "doc".to_string()
+    } else if path.starts_with("prompts/") {
+        "prompt".to_string()
+    } else if path.starts_with("crates/") || path.ends_with(".rs") {
+        "rust".to_string()
+    } else if path.starts_with("tools/factory-operator/") || path.starts_with("web/") {
+        "front".to_string()
+    } else if path.starts_with("tests/") || path.contains("/tests/") || path.ends_with(".test.tsx")
+    {
+        "test".to_string()
+    } else if path.starts_with("configs/") || path.starts_with("deploy/") {
+        "config".to_string()
+    } else if path.ends_with(".md") || path.ends_with(".txt") {
+        "doc".to_string()
+    } else if path.ends_with(".json")
+        || path.ends_with(".toml")
+        || path.ends_with(".yaml")
+        || path.ends_with(".yml")
+    {
+        "config".to_string()
+    } else {
+        "fichier".to_string()
+    }
+}
+
+fn role_rank(roles: &[String]) -> u8 {
+    if roles.iter().any(|r| r == "write") {
+        0
+    } else if roles.iter().any(|r| r == "read") {
+        1
+    } else if roles.iter().any(|r| r == "use") {
+        2
+    } else {
+        3
+    }
+}
+
+fn modified_ms(path: &FsPath) -> Option<i64> {
+    let meta = std::fs::metadata(path).ok()?;
+    let modified = meta.modified().ok()?;
+    let since_epoch = modified.duration_since(std::time::UNIX_EPOCH).ok()?;
+    Some(since_epoch.as_millis().min(i64::MAX as u128) as i64)
+}
+
+fn project_document_card(
+    root: &FsPath,
+    path: &str,
+    tracked: bool,
+    status: String,
+    acc: ProjectDocumentAccumulator,
+) -> ProjectDocumentCard {
+    let fs_path = root.join(path);
+    let meta = std::fs::metadata(&fs_path).ok();
+    let name = path.rsplit('/').next().unwrap_or(path).to_string();
+    let dir = path
+        .rsplit_once('/')
+        .map(|(d, _)| d.to_string())
+        .unwrap_or_default();
+    let ext = name
+        .rsplit_once('.')
+        .map(|(_, e)| e.to_ascii_lowercase())
+        .unwrap_or_default();
+    ProjectDocumentCard {
+        path: path.to_string(),
+        name,
+        dir,
+        ext,
+        kind: project_document_kind(path),
+        status,
+        tracked,
+        size_bytes: meta.as_ref().map(|m| m.len()),
+        modified_ms: modified_ms(&fs_path),
+        roles: acc.roles.into_iter().collect(),
+        sources: acc.sources,
+    }
+}
+
+fn project_documents_data(
+    state: &OperatorState,
+    session_id: Option<&str>,
+) -> ProjectDocumentsResult {
+    let root = &state.root;
+    let tracked = git_tracked_paths(root);
+    let status_map = git_status_map(root);
+    let mut acc: BTreeMap<String, ProjectDocumentAccumulator> = BTreeMap::new();
+    let mut pinned = Vec::new();
+
+    for path in git_project_paths(root) {
+        mark_project_role(
+            &mut acc,
+            &mut pinned,
+            &path,
+            "scan",
+            "inventaire git",
+            "fichier suivi ou non ignore",
+            None,
+        );
+    }
+
+    for (path, status) in &status_map {
+        let source = if status == "??" {
+            "git status untracked"
+        } else {
+            "git status"
+        };
+        mark_project_role(
+            &mut acc,
+            &mut pinned,
+            path,
+            "write",
+            source,
+            status,
+            Some("travail en cours"),
+        );
+    }
+
+    let default_pack = default_context_pack_for_documents(root);
+    mark_context_pack_refs(&mut acc, &mut pinned, &default_pack, "context-pack frais");
+    mark_gate_refs(root, &mut acc, &mut pinned);
+
+    let session = session_id.and_then(|id| {
+        let sessions = state.chat_sessions.lock().ok()?;
+        let session = sessions.get(id)?;
+        mark_context_pack_refs(
+            &mut acc,
+            &mut pinned,
+            &session.context_pack,
+            "session LLM active",
+        );
+        Some(ProjectDocumentsSessionView {
+            id: id.to_string(),
+            provider: session.provider.clone(),
+            model: session.model.clone(),
+            messages: session.messages.len(),
+            chat_history_authoritative: session
+                .context_pack
+                .get("chat_history_authoritative")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+        })
+    });
+
+    let total = acc.len();
+    let truncated = total > MAX_PROJECT_DOCUMENTS;
+    let mut documents: Vec<ProjectDocumentCard> = acc
+        .into_iter()
+        .take(MAX_PROJECT_DOCUMENTS)
+        .map(|(path, acc)| {
+            let status = status_map.get(&path).cloned().unwrap_or_default();
+            project_document_card(root, &path, tracked.contains(&path), status, acc)
+        })
+        .collect();
+    documents.sort_by(|a, b| {
+        role_rank(&a.roles)
+            .cmp(&role_rank(&b.roles))
+            .then_with(|| a.kind.cmp(&b.kind))
+            .then_with(|| a.path.cmp(&b.path))
+    });
+    pinned.sort_by(|a, b| {
+        role_rank(std::slice::from_ref(&a.role))
+            .cmp(&role_rank(std::slice::from_ref(&b.role)))
+            .then_with(|| a.path.cmp(&b.path))
+    });
+    pinned.dedup_by(|a, b| a.path == b.path && a.role == b.role && a.source == b.source);
+
+    ProjectDocumentsResult {
+        branch: git_text_in(root, &["rev-parse", "--abbrev-ref", "HEAD"])
+            .trim()
+            .to_string(),
+        head: git_text_in(root, &["rev-parse", "--short", "HEAD"])
+            .trim()
+            .to_string(),
+        generated_at: now_rfc3339(),
+        total,
+        truncated,
+        session,
+        pinned,
+        documents,
+    }
+}
+
+async fn handle_project_documents(
+    State(state): State<OperatorState>,
+    Query(query): Query<ProjectDocumentsQuery>,
+) -> Json<serde_json::Value> {
+    Json(serde_json::to_value(project_documents_data(&state, query.session.as_deref())).unwrap())
 }
 
 async fn handle_context_pack(

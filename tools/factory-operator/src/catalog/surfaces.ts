@@ -1,16 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// Sprint 80 Phase D — the secondary surfaces opened from the rail. These are
-// auxiliary INSPECTORS (procédé · sessions · knowledge), distinct from the
-// two focal MODES (STEER / VERIFY): they replace the focal scene body while
-// open and return to it on "← retour". The terminal-PTY is NOT here — it is
-// elevated INTO the VERIFY focal scene (kickoff: "terminal xterm élevé en
-// surface VERIFY de démarrage"), reachable via the VERIFY mode toggle.
-//
-// A named constant (no magic strings): the same list backs the rail buttons
-// and the SurfaceHost router (mirror of the union below).
+// Secondary surfaces opened from the rail. They replace the focal scene body
+// while open and return to it on back. Keep this list as the single source for
+// the rail buttons and the SurfaceHost router.
 
-export type SecondarySurface = 'procede' | 'sessions' | 'knowledge'
+export type SecondarySurface = 'procede' | 'sessions' | 'knowledge' | 'documents'
 
 export interface SurfaceDef {
   id: SecondarySurface
@@ -37,5 +31,11 @@ export const SECONDARY_SURFACES: readonly SurfaceDef[] = [
     glyph: '◇',
     label: 'Knowledge',
     hint: 'packs consultatifs · context-pack scellé',
+  },
+  {
+    id: 'documents',
+    glyph: '▦',
+    label: 'Docs',
+    hint: 'cartographie fichiers · rôles LLM · suivi live',
   },
 ] as const

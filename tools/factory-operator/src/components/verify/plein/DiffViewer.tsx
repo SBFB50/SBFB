@@ -18,6 +18,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { DiffLine, FileDiff } from '../../../api/operator'
 import { isTypingTarget } from '../../../lib/dom'
+import { AdaptiveSurface } from '../../AdaptiveSurface'
 import { wordDiff, type WordSeg } from './wordDiff'
 
 export type DiffMode = 'inline' | 'split'
@@ -258,19 +259,19 @@ export function DiffViewer({ files, caption, emptyLabel, truncated, onHunkIntent
 
   if (files.length === 0) {
     return (
-      <div data-testid={testid ?? 'verify-diff'} className="flex flex-1 flex-col" dir="ltr">
+      <AdaptiveSurface kind="diff" testId={testid ?? 'verify-diff'} className="flex flex-1 flex-col" dir="ltr">
         {caption ? <div className="border-b border-bd px-4 py-2 font-mono text-meta text-tx3">{caption}</div> : null}
         <div className="flex flex-1 items-center justify-center p-8 font-mono text-meta text-tx4">
           {emptyLabel ?? 'aucun changement dans l’arbre de travail'}
         </div>
-      </div>
+      </AdaptiveSurface>
     )
   }
 
   return (
-    <div data-testid={testid ?? 'verify-diff'} className="flex min-h-0 flex-1 flex-col" dir="ltr">
+    <AdaptiveSurface kind="diff" testId={testid ?? 'verify-diff'} className="flex min-h-0 flex-1 flex-col" dir="ltr">
       {/* toolbar: source caption + bi-mode toggle + change-set toggle + counts */}
-      <div className="flex items-center gap-3 border-b border-bd bg-s1 px-4 py-2 font-mono text-meta text-tx3">
+      <div className="adaptive-surface-toolbar flex items-center gap-3 border-b border-bd bg-s1 px-4 py-2 font-mono text-meta text-tx3">
         {caption ? <span className="truncate text-tx2">{caption}</span> : null}
         <span className="text-ok">+{totalInsertions}</span>
         <span className="text-bad">−{totalDeletions}</span>
@@ -318,7 +319,7 @@ export function DiffViewer({ files, caption, emptyLabel, truncated, onHunkIntent
         {changeSetOpen ? (
           <div
             data-testid="diff-changeset"
-            className="flex w-52 flex-shrink-0 flex-col overflow-auto border-r border-bd bg-s1"
+            className="adaptive-secondary flex w-52 flex-shrink-0 flex-col overflow-auto border-r border-bd bg-s1"
           >
             <div className="border-b border-bd px-3 py-1.5 eyebrow">
               change-set · {files.length}
@@ -413,7 +414,7 @@ export function DiffViewer({ files, caption, emptyLabel, truncated, onHunkIntent
         {/* density minimap (fold V3) — click a file bar to jump to it */}
         <div
           data-testid="diff-minimap"
-          className="flex w-7 flex-shrink-0 flex-col gap-1 overflow-hidden border-l border-bd bg-s1 px-1 py-2"
+          className="adaptive-density-hide flex w-7 flex-shrink-0 flex-col gap-1 overflow-hidden border-l border-bd bg-s1 px-1 py-2"
           aria-label="Densité des changements par fichier"
         >
           {prepared.map((pf) => (
@@ -430,6 +431,6 @@ export function DiffViewer({ files, caption, emptyLabel, truncated, onHunkIntent
           ))}
         </div>
       </div>
-    </div>
+    </AdaptiveSurface>
   )
 }

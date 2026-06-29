@@ -8,16 +8,17 @@
 // The MODE switch is manual (D6); this scene never auto-flips to VERIFY.
 
 import type { Operator } from '../../state/useOperator'
+import { AdaptiveSurface } from '../AdaptiveSurface'
 import { Atelier } from './Atelier'
 import { Composer } from './Composer'
 import { Mur } from './Mur'
 
 function SceneHeader({ subtitle }: { subtitle: string }) {
   return (
-    <div className="flex items-center gap-2.5 border-b border-bd px-5 py-3">
+    <div className="adaptive-surface-header flex items-center gap-2.5 border-b border-bd px-5 py-3">
       <span className="h-1.5 w-1.5 rounded-full bg-tx2" aria-hidden />
-      <h1 className="font-sans text-scene font-semibold text-tx">STEER</h1>
-      <span className="font-sans text-sec text-tx3">— {subtitle}</span>
+      <h1 id="steer-title" className="font-sans text-scene font-semibold text-tx">STEER</h1>
+      <span className="adaptive-secondary font-sans text-sec text-tx3">— {subtitle}</span>
     </div>
   )
 }
@@ -28,7 +29,7 @@ export function SteerScene({ op }: { op: Operator }) {
   // Gated: the sensitive intention is restituted as the MUR; no stream ran.
   if (turn.gate && turn.message) {
     return (
-      <div data-testid="steer-scene" className="flex min-h-0 flex-1 flex-col bg-s0">
+      <AdaptiveSurface kind="steer" testId="steer-scene" labelledBy="steer-title" className="flex min-h-0 flex-1 flex-col bg-s0">
         <SceneHeader subtitle="intention sensible détectée" />
         <div className="border-b border-bd bg-s0 px-5 py-4">
           <div className="mb-2 eyebrow">composeur d'intention</div>
@@ -42,14 +43,14 @@ export function SteerScene({ op }: { op: Operator }) {
             le flux ne démarre pas tant que la barrière tient
           </div>
         </div>
-      </div>
+      </AdaptiveSurface>
     )
   }
 
   // Empty: composer in grand, centred.
   if (!op.hasTurn) {
     return (
-      <div data-testid="steer-scene" className="flex min-h-0 flex-1 flex-col bg-s0">
+      <AdaptiveSurface kind="steer" testId="steer-scene" labelledBy="steer-title" className="flex min-h-0 flex-1 flex-col bg-s0">
         <SceneHeader subtitle="exprimer une intention · observer l'agent" />
         <div className="flex flex-1 flex-col justify-center">
           <Composer
@@ -63,13 +64,13 @@ export function SteerScene({ op }: { op: Operator }) {
             Une intention démarre une session observable — l'agent fabrique, vous vérifiez.
           </p>
         </div>
-      </div>
+      </AdaptiveSurface>
     )
   }
 
   // Active: atelier dominant + composer docked.
   return (
-    <div data-testid="steer-scene" className="flex min-h-0 flex-1 flex-col bg-s0">
+    <AdaptiveSurface kind="steer" testId="steer-scene" labelledBy="steer-title" className="flex min-h-0 flex-1 flex-col bg-s0">
       <SceneHeader subtitle="exprimer une intention · observer l'agent" />
       <Atelier
         turn={turn}
@@ -84,6 +85,6 @@ export function SteerScene({ op }: { op: Operator }) {
         busy={turn.busy}
         onLaunch={op.launch}
       />
-    </div>
+    </AdaptiveSurface>
   )
 }

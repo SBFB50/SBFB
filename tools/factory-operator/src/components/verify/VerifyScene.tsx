@@ -26,6 +26,7 @@ import type { Operator } from '../../state/useOperator'
 import { GateFlip } from '../motion/GateFlip'
 import { MotionProvider } from '../motion/MotionProvider'
 import { Reveal, RevealItem } from '../motion/Reveal'
+import { AdaptiveSurface } from '../AdaptiveSurface'
 
 type Tool = 'diff' | 'terminal'
 
@@ -103,11 +104,11 @@ export function VerifyScene({ op }: { op: Operator }) {
 
   return (
     <MotionProvider>
-      <div data-testid="verify-scene" className="flex min-h-0 flex-1 flex-col bg-s0">
-        <div className="flex items-center gap-2.5 border-b border-bd px-5 py-3">
+      <AdaptiveSurface kind="verify" testId="verify-scene" labelledBy="verify-title" className="flex min-h-0 flex-1 flex-col bg-s0">
+        <div className="adaptive-surface-header flex items-center gap-2.5 border-b border-bd px-5 py-3">
           <span className="h-1.5 w-1.5 rounded-full bg-info" aria-hidden />
-          <h1 className="font-sans text-scene font-semibold text-tx">VERIFY</h1>
-          <span className="font-sans text-sec text-tx3">— examiner le diff · lire les gates · aperçu scellé · preuve</span>
+          <h1 id="verify-title" className="font-sans text-scene font-semibold text-tx">VERIFY</h1>
+          <span className="adaptive-secondary font-sans text-sec text-tx3">— examiner le diff · lire les gates · aperçu scellé · preuve</span>
           <button
             type="button"
             data-testid="verify-tool-toggle"
@@ -122,11 +123,11 @@ export function VerifyScene({ op }: { op: Operator }) {
 
         {tool === 'diff' ? (
           <>
-            <div className="flex items-center gap-4 border-b border-bd px-5">
+            <div className="adaptive-surface-nav flex items-center gap-4 border-b border-bd px-5">
               <Tab label="Diff" active />
               <Tab label="Aperçu scellé" disabled />
               <Tab label="Preuve" disabled />
-              <span className="ml-auto font-mono text-meta text-tx4">la vérité = git diff, pas un buffer</span>
+              <span className="adaptive-secondary ml-auto font-mono text-meta text-tx4">la vérité = git diff, pas un buffer</span>
             </div>
             {diffError ? (
               <div className="flex flex-1 items-center justify-center p-8 font-mono text-meta text-warn">
@@ -177,7 +178,7 @@ export function VerifyScene({ op }: { op: Operator }) {
             </span>
           </RevealItem>
         </Reveal>
-      </div>
+      </AdaptiveSurface>
     </MotionProvider>
   )
 }
