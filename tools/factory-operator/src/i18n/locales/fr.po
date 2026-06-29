@@ -6,8 +6,14 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "X-Generator: @lingui/cli\n"
 "Language: fr\n"
+"Project-Id-Version: \n"
+"Report-Msgid-Bugs-To: \n"
+"PO-Revision-Date: \n"
+"Last-Translator: \n"
+"Language-Team: \n"
+"Plural-Forms: \n"
 
-#: src/App.tsx:57
+#: src/App.tsx:58
 msgid "Aller au contenu"
 msgstr "Aller au contenu"
 
@@ -23,13 +29,17 @@ msgstr "hors périmètre"
 msgid "informatif"
 msgstr "informatif"
 
-#: src/App.tsx:71
+#: src/App.tsx:72
 msgid "Nœud injoignable — l'Operator ne répond pas sur le lien loopback. Les surfaces resteront vides jusqu'au rétablissement."
 msgstr "Nœud injoignable — l'Operator ne répond pas sur le lien loopback. Les surfaces resteront vides jusqu'au rétablissement."
 
 #: src/lib/gateStatus.ts:86
 msgid "non exécutée"
 msgstr "non exécutée"
+
+#: src/App.tsx:96
+msgid "surface focale"
+msgstr "surface focale"
 
 #: src/lib/gateStatus.ts:80
 msgid "tenue"

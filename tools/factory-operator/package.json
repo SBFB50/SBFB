@@ -18,7 +18,9 @@
     "gate:no-radix": "bash scripts/check-no-radix-runtime.sh",
     "gate:no-tw-config": "bash scripts/check-no-tailwind-config.sh",
     "gate:scan-front": "bash scripts/scan-front-discipline.sh",
-    "gates": "npm run gate:no-radix && npm run gate:no-tw-config && npm run gate:scan-front"
+    "gate:i18n-verdict": "bash scripts/check-i18n-verdict-cross-locale.sh",
+    "gate:i18n-parity": "bash scripts/check-i18n-key-parity.sh",
+    "gates": "npm run gate:no-radix && npm run gate:no-tw-config && npm run gate:scan-front && npm run gate:i18n-verdict && npm run gate:i18n-parity"
   },
   "dependencies": {
     "@base-ui/react": "1.6.0",
@@ -56,6 +58,7 @@
     "@vitest/coverage-v8": "^4.1.4",
     "babel-plugin-react-compiler": "^1.0.0",
     "eslint": "^9.39.4",
+    "eslint-plugin-lingui": "^0.14.0",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.4.0",

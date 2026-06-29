@@ -3,6 +3,7 @@ import js from '@eslint/js'
 import globals from 'globals'
 import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
+import pluginLingui from 'eslint-plugin-lingui'
 import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
@@ -90,6 +91,80 @@ export default defineConfig([
           selector: "ImportExpression[source.value='motion/react']",
           message:
             "Sprint 80 D4: import `m` from 'motion/react-m'; never dynamic import('motion/react') (hero budget).",
+        },
+      ],
+    },
+  },
+  // Sprint 80 (front rapid-add) — i18n Gate A (no-literal): in a file already
+  // migrated to i18n, every user-facing string literal MUST be wrapped in a
+  // Lingui macro (`t`` / t()` from '@lingui/core/macro', or `<Trans>` from
+  // '@lingui/react/macro'; `msg`/`plural`/… are recognised too). Enforced by
+  // `npm run lint` (and CI), NOT by the gates aggregate — it is a normal ESLint
+  // rule, not a bash gate. Orthogonal to the cardinal 0-verdict ban (that stays
+  // in scripts/scan-front-discipline.sh — Gate A would happily allow a wrapped
+  // `t`PASS``) and to catalog parity (check-i18n-key-parity.sh).
+  //
+  // SCOPE = the converted files only, WIDENED one extraction slice at a time:
+  // enabling it on all of src/ today would flag the ~250 not-yet-extracted
+  // literals at once. Add a file here in the SAME commit that wraps its strings.
+  //
+  // KNOWN LIMITATION (adversarially confirmed): no-unlocalized-strings only
+  // blacklists placeholder/alt/aria-label/value — it does NOT flag `title=` nor
+  // aria-labelledby/aria-description/aria-valuetext on native DOM tags. A
+  // complementary deterministic scan of those attributes MUST accompany the
+  // eventual src/**-wide widening (no allowlisted file carries a title= today).
+  {
+    files: ['src/App.tsx', 'src/lib/gateStatus.ts'],
+    plugins: { lingui: pluginLingui },
+    rules: {
+      'lingui/no-unlocalized-strings': [
+        'error',
+        {
+          // useTsTypes stays false: the project lints with
+          // tseslint.configs.recommended (not type-checked), so no
+          // parserServices are available.
+          useTsTypes: false,
+          ignore: [
+            '^(?![A-Z])\\S+$', // single lowercase token: ids, slugs, css utils, role/type/url
+            '^[A-Z0-9_-]+$', // SCREAMING_SNAKE constants
+          ],
+          ignoreNames: [
+            { regex: { pattern: 'className', flags: 'i' } }, // Tailwind class strings (+ *ClassName)
+            { regex: { pattern: '^[A-Z0-9_-]+$' } }, // UPPERCASE-named props/vars
+            'styleName',
+            'style',
+            'id',
+            'key',
+            'name',
+            'type',
+            'role',
+            'src',
+            'srcSet',
+            'href',
+            'rel',
+            'target',
+            'htmlFor',
+            'width',
+            'height',
+            'displayName',
+            'data-testid',
+            // NEVER add aria-label / title / placeholder / alt here — they are
+            // user-facing and must stay flagged (a11y i18n).
+          ],
+          ignoreFunctions: [
+            'cn', // src/lib/cn.ts → clsx (class composition)
+            'clsx',
+            'cva',
+            'console.*',
+            'Error',
+            '*.getElementById',
+            '*.querySelector',
+            '*.querySelectorAll',
+            '*.setAttribute',
+            '*.addEventListener',
+            '*.removeEventListener',
+            '*.postMessage',
+          ],
         },
       ],
     },

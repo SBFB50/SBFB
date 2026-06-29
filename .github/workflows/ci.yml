@@ -128,10 +128,10 @@ jobs:
   # ── Factory Operator greenfield front (Sprint 80 Phase B) ──
   # Separate job: its own Node project under tools/factory-operator,
   # plus the Operator Rust binary for the hermetic T1 (cookie boot +
-  # CSP-clean on the BUILT bundle). The 5 discipline gates
+  # CSP-clean on the BUILT bundle). The 8 discipline gates
   # (anti-@radix-ui-runtime, anti-tailwind.config.js-v3, size-limit,
-  # anti-motion.*-nu via eslint, scan-front anti-PASS) run here on
-  # every push.
+  # anti-motion.*-nu + i18n no-literal via eslint, scan-front anti-PASS,
+  # i18n verdict cross-locale, i18n key-parity) run here on every push.
   factory-operator:
     name: Factory Operator front (Sprint 80 Phase B)
     runs-on: ubuntu-latest
@@ -169,10 +169,10 @@ jobs:
       - name: "[1] tsc"
         run: cd tools/factory-operator && npx tsc --noEmit -p tsconfig.app.json
 
-      - name: "[2] eslint (incl. gate 4 anti-motion.*)"
+      - name: "[2] eslint (incl. gate 4 anti-motion.* + i18n no-literal)"
         run: cd tools/factory-operator && npm run lint
 
-      - name: "[3] discipline gates (no-radix / no-tailwind-config / scan-front)"
+      - name: "[3] discipline gates (no-radix / no-tailwind-config / scan-front / i18n-verdict / i18n-parity)"
         run: cd tools/factory-operator && npm run gates
 
       - name: "[4] build (→ bundle)"

@@ -12,6 +12,7 @@
 // + useFocalKeys (keyboard s/v focal switch, D6 manual).
 import { lazy, Suspense } from 'react'
 import { Trans } from '@lingui/react/macro'
+import { t } from '@lingui/core/macro'
 import { OrientationBar } from './components/OrientationBar'
 import { Rail } from './components/Rail'
 import { ErrorBoundary } from './components/ErrorBoundary'
@@ -92,7 +93,7 @@ export function App() {
           {/* A scoped boundary around the focal pane: a throw in a surface
              shows the recoverable fallback there while the rail + orientation
              bar stay alive (the global boundary in main.tsx is the last net). */}
-          <ErrorBoundary scope="surface focale">
+          <ErrorBoundary scope={t`surface focale`}>
             <Suspense fallback={<div className="flex-1 bg-s0" />}>
               {op.surface !== null ? (
                 <SurfaceHost op={op} />
