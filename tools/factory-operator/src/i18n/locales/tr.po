@@ -5,7 +5,7 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "X-Generator: @lingui/cli\n"
-"Language: es\n"
+"Language: tr\n"
 "Project-Id-Version: \n"
 "Report-Msgid-Bugs-To: \n"
 "PO-Revision-Date: \n"
@@ -14,32 +14,32 @@ msgstr ""
 "Plural-Forms: \n"
 #: src/App.tsx:58
 msgid "Aller au contenu"
-msgstr "Ir al contenido"
+msgstr "İçeriğe geç"
 
 #: src/lib/gateStatus.ts:82
 msgid "bloquant"
-msgstr "bloqueante"
+msgstr "Engelleyici"
 
 #: src/lib/gateStatus.ts:88
 msgid "hors périmètre"
-msgstr "fuera de alcance"
+msgstr "Kapsam dışı"
 
 #: src/lib/gateStatus.ts:84
 msgid "informatif"
-msgstr "informativo"
+msgstr "Bilgi amaçlı"
 
 #: src/App.tsx:72
 msgid "Nœud injoignable — l'Operator ne répond pas sur le lien loopback. Les surfaces resteront vides jusqu'au rétablissement."
-msgstr "Nodo inaccesible — Operator no responde en el enlace loopback. Las superficies permanecerán vacías hasta el restablecimiento."
+msgstr "Düğüme ulaşılamıyor — Operator, loopback bağlantısında yanıt vermiyor. Yüzeyler, bağlantı yeniden kurulana kadar boş kalacak."
 
 #: src/lib/gateStatus.ts:86
 msgid "non exécutée"
-msgstr "no ejecutada"
+msgstr "Çalıştırılmadı"
 
 #: src/App.tsx:96
 msgid "surface focale"
-msgstr "superficie focal"
+msgstr "Odak yüzeyi"
 
 #: src/lib/gateStatus.ts:80
 msgid "tenue"
-msgstr "cumplida"
+msgstr "Karşılandı"

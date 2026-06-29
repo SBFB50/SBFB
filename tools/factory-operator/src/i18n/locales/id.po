@@ -5,7 +5,7 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "X-Generator: @lingui/cli\n"
-"Language: es\n"
+"Language: id\n"
 "Project-Id-Version: \n"
 "Report-Msgid-Bugs-To: \n"
 "PO-Revision-Date: \n"
@@ -14,32 +14,32 @@ msgstr ""
 "Plural-Forms: \n"
 #: src/App.tsx:58
 msgid "Aller au contenu"
-msgstr "Ir al contenido"
+msgstr "Lewati ke konten"
 
 #: src/lib/gateStatus.ts:82
 msgid "bloquant"
-msgstr "bloqueante"
+msgstr "Memblokir"
 
 #: src/lib/gateStatus.ts:88
 msgid "hors périmètre"
-msgstr "fuera de alcance"
+msgstr "Di luar cakupan"
 
 #: src/lib/gateStatus.ts:84
 msgid "informatif"
-msgstr "informativo"
+msgstr "Informasi"
 
 #: src/App.tsx:72
 msgid "Nœud injoignable — l'Operator ne répond pas sur le lien loopback. Les surfaces resteront vides jusqu'au rétablissement."
-msgstr "Nodo inaccesible — Operator no responde en el enlace loopback. Las superficies permanecerán vacías hasta el restablecimiento."
+msgstr "Node tidak terjangkau — Operator tidak merespons di tautan loopback. Permukaan akan tetap kosong hingga pulih kembali."
 
 #: src/lib/gateStatus.ts:86
 msgid "non exécutée"
-msgstr "no ejecutada"
+msgstr "Belum dijalankan"
 
 #: src/App.tsx:96
 msgid "surface focale"
-msgstr "superficie focal"
+msgstr "Permukaan fokus"
 
 #: src/lib/gateStatus.ts:80
 msgid "tenue"
-msgstr "cumplida"
+msgstr "Terpenuhi"

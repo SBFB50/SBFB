@@ -5,7 +5,7 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "X-Generator: @lingui/cli\n"
-"Language: es\n"
+"Language: sw\n"
 "Project-Id-Version: \n"
 "Report-Msgid-Bugs-To: \n"
 "PO-Revision-Date: \n"
@@ -14,32 +14,32 @@ msgstr ""
 "Plural-Forms: \n"
 #: src/App.tsx:58
 msgid "Aller au contenu"
-msgstr "Ir al contenido"
+msgstr "Nenda kwa maudhui"
 
 #: src/lib/gateStatus.ts:82
 msgid "bloquant"
-msgstr "bloqueante"
+msgstr "Inazuia"
 
 #: src/lib/gateStatus.ts:88
 msgid "hors périmètre"
-msgstr "fuera de alcance"
+msgstr "Nje ya wigo"
 
 #: src/lib/gateStatus.ts:84
 msgid "informatif"
-msgstr "informativo"
+msgstr "Kwa taarifa"
 
 #: src/App.tsx:72
 msgid "Nœud injoignable — l'Operator ne répond pas sur le lien loopback. Les surfaces resteront vides jusqu'au rétablissement."
-msgstr "Nodo inaccesible — Operator no responde en el enlace loopback. Las superficies permanecerán vacías hasta el restablecimiento."
+msgstr "Nodi haipatikani — Operator haijibu kwenye kiungo cha loopback. Maeneo yatabaki tupu hadi hali irejeshwe."
 
 #: src/lib/gateStatus.ts:86
 msgid "non exécutée"
-msgstr "no ejecutada"
+msgstr "Haijaendeshwa"
 
 #: src/App.tsx:96
 msgid "surface focale"
-msgstr "superficie focal"
+msgstr "Eneo lengwa"
 
 #: src/lib/gateStatus.ts:80
 msgid "tenue"
-msgstr "cumplida"
+msgstr "Imetimizwa"

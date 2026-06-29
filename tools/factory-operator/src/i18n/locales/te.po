@@ -5,7 +5,7 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "X-Generator: @lingui/cli\n"
-"Language: es\n"
+"Language: te\n"
 "Project-Id-Version: \n"
 "Report-Msgid-Bugs-To: \n"
 "PO-Revision-Date: \n"
@@ -14,32 +14,32 @@ msgstr ""
 "Plural-Forms: \n"
 #: src/App.tsx:58
 msgid "Aller au contenu"
-msgstr "Ir al contenido"
+msgstr "విషయానికి వెళ్లండి"
 
 #: src/lib/gateStatus.ts:82
 msgid "bloquant"
-msgstr "bloqueante"
+msgstr "నిరోధిస్తోంది"
 
 #: src/lib/gateStatus.ts:88
 msgid "hors périmètre"
-msgstr "fuera de alcance"
+msgstr "పరిధి వెలుపల"
 
 #: src/lib/gateStatus.ts:84
 msgid "informatif"
-msgstr "informativo"
+msgstr "సమాచారాత్మకం"
 
 #: src/App.tsx:72
 msgid "Nœud injoignable — l'Operator ne répond pas sur le lien loopback. Les surfaces resteront vides jusqu'au rétablissement."
-msgstr "Nodo inaccesible — Operator no responde en el enlace loopback. Las superficies permanecerán vacías hasta el restablecimiento."
+msgstr "నోడ్ అందుబాటులో లేదు — Operator లూప్‌బ్యాక్ లింక్‌లో స్పందించడం లేదు. పునరుద్ధరణ జరిగే వరకు ఉపరితలాలు ఖాళీగానే ఉంటాయి."
 
 #: src/lib/gateStatus.ts:86
 msgid "non exécutée"
-msgstr "no ejecutada"
+msgstr "అమలు కాలేదు"
 
 #: src/App.tsx:96
 msgid "surface focale"
-msgstr "superficie focal"
+msgstr "ప్రధాన పని ఉపరితలం"
 
 #: src/lib/gateStatus.ts:80
 msgid "tenue"
-msgstr "cumplida"
+msgstr "నెరవేరింది"

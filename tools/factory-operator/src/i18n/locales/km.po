@@ -5,7 +5,7 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "X-Generator: @lingui/cli\n"
-"Language: es\n"
+"Language: km\n"
 "Project-Id-Version: \n"
 "Report-Msgid-Bugs-To: \n"
 "PO-Revision-Date: \n"
@@ -14,32 +14,32 @@ msgstr ""
 "Plural-Forms: \n"
 #: src/App.tsx:58
 msgid "Aller au contenu"
-msgstr "Ir al contenido"
+msgstr "រំលងទៅកាន់មាតិកា"
 
 #: src/lib/gateStatus.ts:82
 msgid "bloquant"
-msgstr "bloqueante"
+msgstr "កំពុងរារាំង"
 
 #: src/lib/gateStatus.ts:88
 msgid "hors périmètre"
-msgstr "fuera de alcance"
+msgstr "ក្រៅវិសាលភាព"
 
 #: src/lib/gateStatus.ts:84
 msgid "informatif"
-msgstr "informativo"
+msgstr "ផ្តល់ព័ត៌មាន"
 
 #: src/App.tsx:72
 msgid "Nœud injoignable — l'Operator ne répond pas sur le lien loopback. Les surfaces resteront vides jusqu'au rétablissement."
-msgstr "Nodo inaccesible — Operator no responde en el enlace loopback. Las superficies permanecerán vacías hasta el restablecimiento."
+msgstr "មិនអាចតភ្ជាប់ថ្នាំងបានទេ — Operator មិនឆ្លើយតបនៅលើតំណ loopback ទេ។ ផ្ទៃនានានឹងនៅទទេរហូតដល់ការស្តារឡើងវិញ។"
 
 #: src/lib/gateStatus.ts:86
 msgid "non exécutée"
-msgstr "no ejecutada"
+msgstr "មិនទាន់ដំណើរការ"
 
 #: src/App.tsx:96
 msgid "surface focale"
-msgstr "superficie focal"
+msgstr "ផ្ទៃផ្ដោត"
 
 #: src/lib/gateStatus.ts:80
 msgid "tenue"
-msgstr "cumplida"
+msgstr "បានបំពេញ"

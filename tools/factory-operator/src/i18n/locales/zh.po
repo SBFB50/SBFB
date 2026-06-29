@@ -12,35 +12,34 @@ msgstr ""
 "Last-Translator: \n"
 "Language-Team: \n"
 "Plural-Forms: \n"
-
 #: src/App.tsx:58
 msgid "Aller au contenu"
-msgstr ""
+msgstr "跳转到内容"
 
 #: src/lib/gateStatus.ts:82
 msgid "bloquant"
-msgstr ""
+msgstr "阻塞"
 
 #: src/lib/gateStatus.ts:88
 msgid "hors périmètre"
-msgstr ""
+msgstr "超出范围"
 
 #: src/lib/gateStatus.ts:84
 msgid "informatif"
-msgstr ""
+msgstr "信息"
 
 #: src/App.tsx:72
 msgid "Nœud injoignable — l'Operator ne répond pas sur le lien loopback. Les surfaces resteront vides jusqu'au rétablissement."
-msgstr ""
+msgstr "节点不可达 — Operator 未在回环链接上响应。恢复前各个界面将保持为空。"
 
 #: src/lib/gateStatus.ts:86
 msgid "non exécutée"
-msgstr ""
+msgstr "未运行"
 
 #: src/App.tsx:96
 msgid "surface focale"
-msgstr ""
+msgstr "焦点区域"
 
 #: src/lib/gateStatus.ts:80
 msgid "tenue"
-msgstr ""
+msgstr "已满足"

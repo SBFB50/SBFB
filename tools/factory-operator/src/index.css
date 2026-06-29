@@ -56,9 +56,9 @@
   /* MUR governance — amber = gravity */
   --color-mur: oklch(0.66 0.105 78);
   --color-mur-bg: oklch(0.235 0.030 78);
-  /* Type — Geist dual (proof vs intention) */
-  --font-sans: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
-  --font-mono: 'Geist Mono Variable', ui-monospace, monospace;
+  /* Type — Geist first, then OS script coverage for the 51 curated locales. */
+  --font-sans: 'Geist Variable', 'Noto Sans', 'Noto Sans Arabic', 'Noto Sans Hebrew', 'Noto Sans CJK SC', 'Noto Sans CJK TC', 'Nirmala UI', 'Ebrima', 'Leelawadee UI', 'Khmer UI', 'Myanmar Text', 'Segoe UI', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'Geist Mono Variable', 'Noto Sans Mono', 'Noto Sans Mono CJK SC', 'Cascadia Mono', ui-monospace, monospace;
   /* Échelle typographique tokenisée — audit a11y 2026-06-28 L2 (part 2).
      Rôles, jamais tailles brutes (mémoire feedback_named_constants) : le
      point-source unique remplace les 189 `text-[Npx]` arbitraires (~85% du
@@ -115,6 +115,11 @@
   letter-spacing: 0.01em;
   text-transform: none;
   color: var(--color-tx3);
+}
+
+[dir="rtl"] .eyebrow,
+[dir="rtl"] [class*="tracking-"] {
+  letter-spacing: normal;
 }
 
 /* Sprint 80 Phase E — motion = sens, jamais déco. The CSS-driven signatures

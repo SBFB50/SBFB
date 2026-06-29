@@ -8,7 +8,7 @@ import { I18nProvider } from '@lingui/react'
 import './index.css'
 import { App } from './App'
 import { ErrorBoundary } from './components/ErrorBoundary'
-import { i18n, DEFAULT_LOCALE, dynamicActivate } from './i18n/i18n'
+import { i18n, DEFAULT_LOCALE } from './i18n/i18n'
 
 // Load + activate the default locale's catalog BEFORE the first paint so the
 // shell never flashes message ids. The catalog is a tiny same-origin chunk
@@ -16,6 +16,7 @@ import { i18n, DEFAULT_LOCALE, dynamicActivate } from './i18n/i18n'
 // calls `dynamicActivate` again. <I18nProvider> re-renders subscribers
 // (<Trans>, useLingui) on every activation.
 async function bootstrap() {
+  const { dynamicActivate } = await import('./i18n/catalogs')
   await dynamicActivate(DEFAULT_LOCALE)
   createRoot(document.getElementById('root')!).render(
     <StrictMode>

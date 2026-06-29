@@ -12,35 +12,34 @@ msgstr ""
 "Last-Translator: \n"
 "Language-Team: \n"
 "Plural-Forms: \n"
-
 #: src/App.tsx:58
 msgid "Aller au contenu"
-msgstr ""
+msgstr "الانتقال إلى المحتوى"
 
 #: src/lib/gateStatus.ts:82
 msgid "bloquant"
-msgstr ""
+msgstr "مانع"
 
 #: src/lib/gateStatus.ts:88
 msgid "hors périmètre"
-msgstr ""
+msgstr "خارج النطاق"
 
 #: src/lib/gateStatus.ts:84
 msgid "informatif"
-msgstr ""
+msgstr "معلوماتي"
 
 #: src/App.tsx:72
 msgid "Nœud injoignable — l'Operator ne répond pas sur le lien loopback. Les surfaces resteront vides jusqu'au rétablissement."
-msgstr ""
+msgstr "العقدة غير قابلة للوصول — لا يستجيب Operator على رابط loopback. ستبقى المساحات فارغة حتى تتم الاستعادة."
 
 #: src/lib/gateStatus.ts:86
 msgid "non exécutée"
-msgstr ""
+msgstr "لم تُنفّذ"
 
 #: src/App.tsx:96
 msgid "surface focale"
-msgstr ""
+msgstr "السطح المحوري"
 
 #: src/lib/gateStatus.ts:80
 msgid "tenue"
-msgstr ""
+msgstr "مستوفاة"

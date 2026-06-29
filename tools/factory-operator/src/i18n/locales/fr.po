@@ -12,7 +12,6 @@ msgstr ""
 "Last-Translator: \n"
 "Language-Team: \n"
 "Plural-Forms: \n"
-
 #: src/App.tsx:58
 msgid "Aller au contenu"
 msgstr "Aller au contenu"
