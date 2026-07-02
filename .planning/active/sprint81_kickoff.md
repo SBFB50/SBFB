@@ -1,20 +1,67 @@
-# Sprint 81 — Kickoff : Upgrade iroh 0.98 → 1.0 + sweep deps **(DRAFT DE STAGING)**
+# Sprint 81 — Kickoff : Upgrade iroh 0.98 → 1.0 + sweep deps
 
-> **⚠ STATUT : DRAFT DE STAGING — S80 N'EST PAS ENCORE CLOS.** Ce kickoff est
-> rédigé en avance pour staging S81 ; il ne s'active qu'à la clôture effective de
-> S80. **Phase 0 = audit gate S80** (jouée à l'ouverture réelle, convention
-> permanente) — son verdict figera la liste exacte des carries entrants (cf.
-> §Carries) et la baseline de tests. **Tout ce qui dépend de S80 est marqué
-> *provisoire*.** Sprint de **maintenance d'infrastructure forcing-function-driven**
+> **STATUT : ACTIVÉ le 2026-07-02** (Cas C, après Phase 0 = audit gate S80
+> CONDITIONAL PASS → PASS effectif, findings `dcc3eea`, fix P1 `2c85b28`).
+> Sprint de **maintenance d'infrastructure forcing-function-driven**
 > (insertion roadmap non-planifiée) : migrer toute la pile iroh `0.98 → 1.0` GA
-> avant le cutoff relais N0 du **2026-09-30**, **sans perte** des données live
-> (ancre VPS Hetzner S75, store `iroh-docs` sbfb-ides, pins `keep_online` M18),
-> et prouver la convergence transport cross-machine par un re-jeu **LIVE**.
-> **Décision-grade, pas rubber-stamp** : faits re-vérifiés au code ce jour
-> (2026-06-27) ; corrections du sceptique **intégrées** (claims réfutés retirés) ;
+> avant le cutoff relais N0 du **2026-09-30**, prouver la convergence transport
+> cross-machine par un re-jeu **LIVE**, **et re-certifier le sharding live**
+> (décision PO C1 ci-dessous). **Décision-grade, pas rubber-stamp** : faits
+> re-vérifiés au code le 2026-06-27 ; corrections du sceptique **intégrées** ;
 > contradictions inter-cartes tranchées (cf. §Arbitrages PO + §Day-0).
 
-**Écrit** : 2026-06-27 (staging — pré-clôture S80).
+## Décisions PO à l'activation (2026-07-02) — AUTORITÉ sur tout passage contraire
+
+> Confirmation des arbitrages C1..C7 recueillie à l'activation (procédure
+> README staging §3). Ce bloc SUPERSEDE tout passage du kickoff/plan rédigé
+> sous l'hypothèse de la reco C1.
+
+- **C1 — TRANCHÉ CONTRE la reco : le sharding est INCLUS au T2 de S81.**
+  Le DONE de S81 est **bi-axe** : transport-convergence ET re-cert live
+  sharding. Conséquences structurantes : l'**orchestrateur de session
+  in-vivo (ex-S78)** entre au sprint (nouvelle Phase I) + le **benchmark
+  live 2-machines b3_shard** (nouvelle Phase J) ; le wrap-up devient
+  Phase K. Le verdict T2 axe shard suit le vocabulaire fermé
+  (`PASS`/`BLOCK{diagnosis}`/`RIG-ABSENT` émis par le harness préflight) :
+  le rig nominal (RTX 5080 dev Win + Mac M2) est le MÊME matériel que
+  l'axe transport, et l'orchestrateur n'est plus absent (Phase I le
+  livre) — `RIG-ABSENT` n'est légitime que si une machine est génuinement
+  HS. Cohérent directive PO « sprints ultra-complets » (0 defer du cœur).
+- **C2 — reco confirmée** : fix materializer Phase A in-sprint, AVANT le
+  bump, commit séparé.
+- **C3 — reco confirmée** : `iroh = "=1.0.0"` maintenant + re-pin
+  OBLIGATOIRE sur la 1re 1.0.x publiée AVANT push live ; sinon soak +
+  veille RustSEC.
+- **C4/C5 — ASSOUPLI par le PO : « il n'y a personne sur le réseau pour
+  l'instant ».** Aucun nœud tiers n'existe : la contrainte de
+  préservation ne protège que nos propres données. Le chemin de données
+  le plus SIMPLE est AUTORISÉ (wipe + re-pull toléré au-delà des seuls
+  pins re-fetchables si l'in-place résiste) ; restent recommandés à bas
+  coût : tar snapshot avant 1er boot 0.101 (rollback trivial) +
+  conservation `node_key`/`node_id` VPS. La neutralisation du self-heal
+  (`runtime.rs:2515`) n'est REQUISE que si le chemin in-place est retenu
+  (pas de fenêtre de migration silencieuse sur le chemin wipe). Les
+  préflights des Phases F/H tranchent le chemin final (PLAN-ADAPT) avec
+  cette liberté ; la fixture migration redb 2→4 (T1.3) reste souhaitable
+  comme preuve du chemin d'upgrade pour les futurs nœuds tiers.
+- **C6/C7 — recos confirmées** : MSRV empirique (pas de bump 1.95 sans
+  preuve cargo) ; P2-AUDIT-2 non pré-clôturé (gate `cargo tree -d`).
+- **Carries d'audit S80 actés à l'activation** :
+  LOT-LOOPBACK-DOC (S80-H-1/2/3/4) → livrable additionnel **Phase G**
+  (qui amende déjà les docs sécurité) ; TOOLCHAIN-LABEL (S80-A-2) →
+  décision au préflight **Phase G** (rust-toolchain.toml ou statu quo
+  Docker-canonique) ; DOC-LINT-SEMANTIC (S80-G-1) → **ACCEPT-AND-CLOSE
+  acté** : le doc-lint reste existence-only, la vérification sémantique
+  des claims = revue LLM adversariale par sprint (review de phase +
+  audit gate), non automatisable en shell — exit condition remplie,
+  l'item sort des carries ; TRAILER (S80-I-1) → **accepté, pas
+  d'enforcement hook** (cosmétique) ; DELTA-DISCIPLINE (S80-E-1/E-2) →
+  vigilance comptage delta aux wrap-ups ; S79-P2-1 ancres
+  (task_response.rs:14,:84-85,:93,:95 + PROMISE_RE) → sprint dette
+  nommé (iroh STRICTEMENT SEUL interdit le bundle).
+- **Push** : groupé après le commit d'activation kickoff S81.
+
+**Écrit** : 2026-06-27 (staging) ; **activé** : 2026-07-02 (post-audit S80).
 **Type** : **sprint de maintenance d'infrastructure** (upgrade transport ; orthogonal
 au produit utilisateur — n'ajoute aucune feature).
 Le travail touche **3 crates déclarant iroh en direct** (`nexus-core-rs`,
@@ -22,10 +69,12 @@ Le travail touche **3 crates déclarant iroh en direct** (`nexus-core-rs`,
 `Cargo.toml:37-41`, plus le fix convergence materializer 0-bump dans
 `nexus-coordinator-rs` (Phase A) + 2 migrations on-disk redb 2→4 + une migration
 LIVE de l'ancre VPS.
-**Budget de phases** : Phase 0 (audit gate S80) + **A→I** (le nombre de phases n'est
-jamais plafonné, README §4 ; dimensionné par le travail, JAMAIS par LOC). Rigueur
-per-phase **uniforme** : deep preflight (5 scans) + review + Codex à **CHAQUE** phase.
-**Numéro/version archive** : **S81**, v2.1 (OPEN) — *provisoire, dépend de la clôture S80*.
+**Budget de phases** : Phase 0 (audit gate S80, JOUÉE) + **A→K** (I = orchestrateur
+sharding ex-S78, J = benchmark live shard, K = wrap-up — décision PO C1 ; le nombre
+de phases n'est jamais plafonné, README §4 ; dimensionné par le travail, JAMAIS par
+LOC). Rigueur per-phase **uniforme** : deep preflight (5 scans) + review + Codex à
+**CHAQUE** phase.
+**Numéro/version archive** : **S81**, v2.1 (OPEN).
 
 ---
 
@@ -42,9 +91,9 @@ gossip + blobs + seed/annuaire) survit au bump par un re-jeu **LIVE**.
 C'est une **maintenance d'infrastructure forcing-function-driven** : elle garantit la
 continuité de la découverte/connectivité **avant** le cutoff relais et solde la dette
 de version, **sans rien ajouter** au produit utilisateur. Le **DONE non-PROVISIONAL est
-scopé sur l'axe TRANSPORT-convergence uniquement** (doc-sync/gossip/blobs/seed/annuaire) ;
-l'axe **sharding** (re-cert live `shard.rs` RTT/PathId multipath, rig GPU chroniquement
-absent) est **hors T2 de S81** et reporté S82 (cf. Arbitrage C1/D4).
+BI-AXE** (décision PO C1 à l'activation, 2026-07-02) : axe **TRANSPORT-convergence**
+(doc-sync/gossip/blobs/seed/annuaire) ET axe **SHARDING** (re-cert live `shard.rs`
+RTT/PathId multipath via l'orchestrateur de session in-vivo ex-S78, Phases I/J).
 
 ---
 
@@ -84,9 +133,10 @@ absent) est **hors T2 de S81** et reporté S82 (cf. Arbitrage C1/D4).
 1. **C1 — Scope « non-PROVISIONAL DONE » réaliste en 1 sprint ? (le plus structurant).**
    Le sceptique réfute « S81 = 1 sprint propre vers un DONE non-PROVISIONAL » : le bar
    concentre migration live one-way + re-cert cross-machine + fix materializer + docs
-   sécurité, **sous rigueur per-phase uniforme**. **Reco : scoper le DONE sur l'axe
-   TRANSPORT-convergence uniquement**, **sortir l'axe SHARDING du T2** (re-cert live shard
-   → S82). Sans ce cadrage, S81 finit PROVISIONAL sur l'axe shard exactement comme S77.
+   sécurité, **sous rigueur per-phase uniforme**. Reco initiale : scoper le DONE sur l'axe
+   TRANSPORT-convergence uniquement, sortir l'axe SHARDING du T2 (re-cert live shard
+   → S82). **TRANCHÉ PO 2026-07-02 CONTRE la reco : sharding INCLUS au T2** (bi-axe,
+   Phases I/J ajoutées — cf. bloc Décisions PO à l'activation, qui fait autorité).
 2. **C2 — Scope du fix materializer (wf4).** Contradiction inter-cartes : Carte 1 D8 →
    « sprint séparé postérieur » ; Cartes 3/4 + sceptique → **Phase A DANS S81, AVANT le
    bump, commit propre séparé**. **Reco : Phase A in-sprint.** Raison : le bug est
@@ -102,7 +152,10 @@ absent) est **hors T2 de S81** et reporté S82 (cf. Arbitrage C1/D4).
    push live** ; si aucune patch au code-freeze → soak documenté + veille RustSEC
    (interdiction de pousser la .0 brute si une patch existe). Le runway ~3 mois interdit
    d'attendre passivement.
-4. **C4 — Stratégie données-live.** **Reco (hybride durcie)** : migration **IN-PLACE
+4. **C4 — Stratégie données-live.** *(ASSOUPLI PO 2026-07-02 : « il n'y a personne sur
+   le réseau pour l'instant » — chemin simple autorisé, cf. bloc Décisions PO à
+   l'activation ; le durcissement ci-dessous reste le chemin PRÉFÉRÉ si son coût est
+   raisonnable, les préflights F/H tranchent.)* **Reco (hybride durcie)** : migration **IN-PLACE
    impérative** pour `docs.redb` (saut 0.98→0.101 DIRECT, feature défaut
    `redb-v2-migration`), validée sur **COPIE** du store VPS peuplé AVANT flip ; **self-heal
    `runtime.rs:2515` NEUTRALISÉ/gardé pendant la migration** (cf. C5) ; blobs in-place
@@ -112,7 +165,8 @@ absent) est **hors T2 de S81** et reporté S82 (cf. Arbitrage C1/D4).
    `node_key`/`node_id` (re-install stock S75 **INTERDIT** : régénérerait l'identité →
    casse les locators abonnés).
 5. **C5 — Le self-heal n'est PAS un backstop (correction critique du sceptique, vérifiée
-   au code).** Carte 1 recommandait « garder le self-heal en filet » — **dangereux et
+   au code).** *(Portée ajustée à l'activation : neutralisation REQUISE seulement si le
+   chemin in-place est retenu — cf. bloc Décisions PO C4/C5.)* Carte 1 recommandait « garder le self-heal en filet » — **dangereux et
    REJETÉ**. À `runtime.rs:2515-2528`, la branche `None` appelle `create_doc()` (namespace
    id NEUF) + `set_storage_namespace` qui écrase la ligne M8, **sans `import_ticket` de
    l'ancien ticket** → orpheline les entries sbfb-ides répliquées + casse les DocTicket
@@ -133,11 +187,14 @@ absent) est **hors T2 de S81** et reporté S82 (cf. Arbitrage C1/D4).
 
 ## Scope
 
-### In (Phase 0 + A→I, axe TRANSPORT, 0 defer du cœur transport)
+### In (Phase 0 + A→K, bi-axe transport + sharding, 0 defer du cœur)
 
-- **Phase 0 — Audit gate S80** (jouée à l'ouverture réelle) : absorbe le verdict S80, fige
-  la liste exacte des carries entrants et la baseline de tests. Le corps S81 (A→I) ne
-  démarre qu'**après Phase 0 PASS**.
+- **Phase 0 — Audit gate S80 : JOUÉE le 2026-07-02.** Verdict **CONDITIONAL PASS →
+  PASS effectif** (findings `dcc3eea` ; P1 unique S80-K-1 résolu `2c85b28` — 5e
+  frontière docs-contrat /api/project-documents indexée). Baseline de tests FIGÉE :
+  Rust nextest **2014** Win / **2018** Docker (+4 cfg(unix)) ; Vitest web **411** ;
+  Vitest operator **201** (35 fichiers) ; E2E Playwright operator **10** ; T2 S80
+  JSON PASS committé. Carries entrants figés (cf. §Carries + bloc Décisions PO).
 - **A — Fix convergence materializer (wf4) [0-bump, AVANT le bump]** : éliminer la
   divergence `PublicRegistryView` cross-noeud sur ingest hors-ordre (`feed_materializer.rs:54-58`
   overwrite inconditionnel + `:95-101` fold non-vérifié + `public_feed.rs:588` sans
@@ -179,21 +236,35 @@ absent) est **hors T2 de S81** et reporté S82 (cf. Arbitrage C1/D4).
   AVANT restart ; ordre **dev Win + Mac d'abord, VPS EN DERNIER** ; deploy binaire 1.0.x +
   restart systemd ; vérif 1er boot 0 crash-loop + docs.redb migré + `node_id` INCHANGÉ +
   feed/ides/pins intacts ; rollback = restore tar (one-way).
-- **I — Wrap-up + gate testabilité + roadmap** : T1 hermétique BLOQUANT + CI ; artefact
-  **T2 JSON committé** (transport-convergence) ; re-jeu acceptances S75 (survives-VPS-death)
-  + S76 (b3 quorum) + **b3 PASS fetch blob cross-machine** ; amendement `roadmap_v5`
-  (insertion S81-iroh + Viewer→S82 + orchestrateur sharding après S81) ; `SPRINT_LOG.md` +
-  `CLAUDE.md` + mémoire (`nexus_grid_pivot.md`, `MEMORY.md`) + `PATTERNS.md` +
-  `sprint82_audit_plan.md` (carries reroutés).
+- **I — Orchestrateur de session sharding in-vivo (ex-S78) [décision PO C1]** :
+  construire l'orchestrateur de session in-vivo dont l'absence a rendu S77
+  RIG-ABSENT (référence : `archive/v2.1/sprint78_audit_plan.md` §7/§10) — sur la
+  stack iroh 1.0 migrée (après E : `shard.rs` recompilé + handshake vert). Partie
+  hermétiquement testable (session lifecycle, placement, dispatch shard) couverte
+  T1 ; le préflight de phase (5 scans) précise les livrables exacts depuis le
+  dossier S78.
+- **J — Benchmark live sharding 2-machines + T2 axe shard [décision PO C1]** :
+  re-jeu b3_shard LIVE (RTX 5080 dev Win + Mac M2) via l'orchestrateur (I) sur la
+  stack migrée (après H) ; verdict JSON au vocabulaire fermé
+  (`PASS`/`BLOCK{diagnosis}`/`RIG-ABSENT` émis par le harness préflight —
+  `RIG-ABSENT` légitime UNIQUEMENT si une machine est génuinement HS, le rig
+  nominal étant le même matériel que l'axe transport).
+- **K — Wrap-up + gate testabilité + roadmap** : T1 hermétique BLOQUANT + CI ; artefact
+  **T2 JSON committé BI-AXE** (transport-convergence + sharding) ; re-jeu acceptances
+  S75 (survives-VPS-death) + S76 (b3 quorum) + **b3 PASS fetch blob cross-machine** ;
+  amendement `roadmap_v5` (insertion S81-iroh bi-axe + Viewer→S82 + orchestrateur
+  sharding ABSORBÉ par S81 Phases I/J) ; `SPRINT_LOG.md` + `CLAUDE.md` + mémoire
+  (`nexus_grid_pivot.md`, `MEMORY.md`) + `PATTERNS.md` + `sprint82_audit_plan.md`
+  (carries reroutés) + clôture docs-contrat (DoD (d), invariant #17 : frontières
+  de la fenêtre S81 indexées ou `N-A-no-new-frontier` explicite).
 
 ### Out (reroutés / interdits dans S81)
 
-- **Re-cert LIVE du sharding** (`shard.rs` RTT/PathId multipath noq, RIG-ABSENT,
-  non-hermétique) → **S82** (après orchestrateur ex-S78). On ne « re-joue » PAS une
-  acceptance (S77 b3_shard) qui n'a **jamais** passé.
 - **Viewer fondation** (tools/factory-ui jeté S80) + Aperçu scellé/Proof Card → **S82**.
 - **Dette docs-contract 8 P2 / 11 P3 (S80)** → **sprint dette nommé distinct** (jamais bundlé).
-- **2 P1 in-vivo standing** (sharding S77, app-authoring S79) → restent ouverts, hors corps S81.
+- **P1 in-vivo app-authoring S79** (`Not evidenced`) → reste ouvert, hors corps S81.
+  (Le P1 sharding S77 RIG-ABSENT est désormais ADRESSÉ par les Phases I/J — décision
+  PO C1 ; sa fermeture dépend du verdict T2 axe shard.)
 - **GuardianDB** / toute autre upgrade → séparé et postérieur (bisectabilité, directive
   séquencement D7).
 - **Bump MSRV 1.95** inconditionnel → INTERDIT sans preuve cargo (C6).
@@ -229,12 +300,13 @@ absent) est **hors T2 de S81** et reporté S82 (cf. Arbitrage C1/D4).
 4. **D4 — Stratégie test / convergence** : T1 hermétique convergence in-process
    (`multi_daemon` loopback/`MemoryLookup`) BLOQUANT Win natif + CI Linux (**jamais
    Docker-on-Windows** car `multi_daemon` env-bloqué `create_node` hang) ; T2 acceptance
-   JSON LIVE transport-convergence PASS sur rig VPS+Win+Mac. **Split verdict (sceptique)** :
-   l'axe **transport** (VPS Hetzner + dev Win + Mac M2) existe et PEUT atteindre PASS (S75
-   survives-VPS-death = LIVE PASS, LAN Win↔Mac validé) ; l'axe **sharding** (rig GPU
-   5080+M2 + orchestrateur in-vivo) était **chroniquement absent** (S76 DIFFERE, S77
-   RIG-ABSENT, orchestrateur reporté S78) → **hors T2 de S81**. `RIG-ABSENT` illégitime
-   **sur l'axe transport** ; légitime/inapplicable sur l'axe sharding (reporté S82).
+   JSON LIVE **BI-AXE** (amendé décision PO C1 2026-07-02). **Split verdict** : l'axe
+   **transport** (VPS Hetzner + dev Win + Mac M2) existe et PEUT atteindre PASS (S75
+   survives-VPS-death = LIVE PASS, LAN Win↔Mac validé) — `RIG-ABSENT` ILLÉGITIME sur
+   cet axe ; l'axe **sharding** entre au T2 : l'orchestrateur in-vivo (cause racine des
+   RIG-ABSENT S76/S77) est LIVRÉ en Phase I, le benchmark live joué en Phase J sur le
+   MÊME matériel que l'axe transport (5080 + M2) — `RIG-ABSENT` n'y est légitime que si
+   une machine est génuinement HS (émis par le harness préflight, jamais en prose).
 5. **D5 — Scope fix materializer (wf4)** : **IN S81, Phase A, AVANT le bump, commit propre
    dédié**. Fix = fold APRÈS `verify_chain` + tri topo `prev_hash` + tie-break
    `(timestamp, author, hash)` + garde monotone dans `apply()` (`feed_materializer.rs:54-58`)
@@ -284,15 +356,18 @@ absent) est **hors T2 de S81** et reporté S82 (cf. Arbitrage C1/D4).
      re-parsent post-migration.
   5. **Recompile + handshake shard** : `shard.rs` compile + handshake `sbfb/shard/1`
      in-process (PAS le RTT/multipath live).
-- **T2 — Acceptance JSON cross-machine committé** (`PASS` / `BLOCK{diagnosis}` / `RIG-ABSENT`) :
-  - **Axe transport (DANS S81, PASS obligatoire)** : rig réel VPS Hetzner + dev Win + Mac M2
+- **T2 — Acceptance JSON cross-machine committé** (`PASS` / `BLOCK{diagnosis}` / `RIG-ABSENT`),
+  **BI-AXE (décision PO C1 2026-07-02)** :
+  - **Axe transport (PASS obligatoire)** : rig réel VPS Hetzner + dev Win + Mac M2
     — re-jeu **S75 survives-VPS-death** + **S76 b3 quorum** + **b3 PASS fetch blob
     cross-machine** post-upgrade ; convergence `PublicRegistryView` cross-noeud après
     migration LIVE. **`RIG-ABSENT` illégitime sur cet axe** (rig confirmé dispo,
     `live_acceptance_setup`) ; seul un rig **génuinement HS** le justifie.
-  - **Axe sharding (HORS S81)** : `shard.rs` RTT/PathId multipath noq + orchestrateur
-    in-vivo = **non testable hermétiquement, rig GPU chroniquement absent** → **reporté S82**
-    (après orchestrateur ex-S78). On ne re-joue PAS une acceptance (S77 b3_shard) jamais passée.
+  - **Axe sharding (DANS S81, Phases I/J)** : b3_shard LIVE via l'orchestrateur de
+    session in-vivo (Phase I, ex-S78) sur la stack migrée, rig RTX 5080 + Mac M2
+    (même matériel que l'axe transport). Verdict au vocabulaire fermé émis par le
+    harness préflight ; `RIG-ABSENT` légitime UNIQUEMENT si une machine est
+    génuinement HS — l'excuse « orchestrateur absent » disparaît (Phase I le livre).
 
 ## Invariants
 
@@ -350,10 +425,15 @@ absent) est **hors T2 de S81** et reporté S82 (cf. Arbitrage C1/D4).
 
 ## Carries entrants
 
-> *Liste entrante provisoire — figée à la clôture S80 (Phase 0).*
+> *Liste FIGÉE à la Phase 0 (audit gate S80 joué le 2026-07-02, findings `dcc3eea`).
+> S'y ajoutent les carries d'audit S80 actés au bloc Décisions PO : LOT-LOOPBACK-DOC
+> → Phase G ; TOOLCHAIN-LABEL → préflight Phase G ; DELTA-DISCIPLINE → wrap-up K ;
+> DOC-LINT-SEMANTIC = ACCEPT-AND-CLOSE acté ; TRAILER = accepté ; S79-P2-1 ancres →
+> sprint dette.*
 
-- **2 carries P1 in-vivo OUVERTS** (sharding S77 RIG-ABSENT, app-authoring S79 « Not
-  evidenced ») — **standing**, hors corps S81 (un upgrade transport ne les ferme pas).
+- **2 carries P1 in-vivo OUVERTS** : sharding S77 RIG-ABSENT — **ADRESSÉ par les
+  Phases I/J** (décision PO C1) ; app-authoring S79 « Not evidenced » — standing,
+  hors corps S81.
 - **Viewer fondation + Aperçu scellé/Proof Card** (tools/factory-ui jeté S80) — réservés
   S81 à l'origine, **reroutés S82** (D7).
 - **8 P2 / 11 P3 docs-contract S80** — **sprint dette nommé distinct** (jamais bundlé).
@@ -366,20 +446,19 @@ absent) est **hors T2 de S81** et reporté S82 (cf. Arbitrage C1/D4).
 
 ## Carries sortants (S81 → S82)
 
-- **Re-cert LIVE sharding** (dépend de `shard.rs` re-vérifié sous 1.0 en Phase E) — séquencé
-  APRÈS S81 (après orchestrateur ex-S78).
 - **Viewer fondation** + Aperçu scellé/Proof Card.
 - **P2-AUDIT-2-RESIDUEL** si `cargo tree -d` ne converge pas (sinon CLOSED en Phase G).
 - 8 P2 / 11 P3 docs-contract → sprint dette nommé.
 - 2 P1 in-vivo restent standing.
 - Tout P2/P3 issu des phase-reviews S81 → `sprint82_audit_plan.md`.
 
-## Amendement roadmap (à acter Phase I)
+## Amendement roadmap (à acter Phase K)
 
 - Roadmap v5 (CANON) **s'arrête à S77** ; S78/79/80 sont déjà des amendements. **Insérer
-  S81-iroh** (upgrade transport, non-planifié, forcing-function 2026-09-30).
+  S81-iroh** (upgrade transport bi-axe, non-planifié, forcing-function 2026-09-30).
 - **Viewer → S82.**
-- **Orchestrateur sharding (ex-S78) séquencé APRÈS S81** (re-cert shard live S82).
+- **Orchestrateur sharding (ex-S78) ABSORBÉ par S81** (Phases I/J, décision PO C1
+  2026-07-02) ; le S78 différé se solde dans S81.
 - Tracer : « la pre-launch policy *wire modifiable librement* ne couvre PAS le store
   on-disk iroh-docs/blobs déjà déployé ».
 

@@ -1,13 +1,16 @@
 # Sprint 81 — Design Review Board (G1)
 
-> **STATUT : DRAFT DE STAGING — S80 PAS ENCORE CLOS.** Cet artefact est rédigé en
-> amont depuis le DOSSIER CANONIQUE de staging S81. Tout ce qui dépend du verdict S80
-> (Phase 0, liste exacte des carries entrants, baseline de tests) est *provisoire* et
-> sera figé à la **clôture réelle de S80**. **Phase 0 de S81 = audit gate S80** (convention
-> permanente) — jouée à l'ouverture réelle du sprint ; le corps S81 (A→I) ne démarre
-> qu'après Phase 0 PASS. Tant que S80 n'est pas clos, **aucune des recos PO load-bearing
-> (C1..C7) n'est tranchée** : elles sont intégrées ici comme *recommandations à confirmer
-> par le PO avant le 1er Edit*.
+> **STATUT : ACTIVÉ le 2026-07-02 — les deux conditions du board sont jouées.**
+> (1) Phase 0 = audit gate S80 : **CONDITIONAL PASS → PASS effectif** (findings
+> `dcc3eea`, fix P1 `2c85b28`) ; (2) arbitrages C1..C7 **confirmés par le PO** à
+> l'activation, avec **UNE décision CONTRE la reco évaluée ici : C1 — le sharding
+> est INCLUS au T2** (bi-axe, Phases I/J ajoutées ; le scoring D4 ci-dessous, qui
+> évaluait la reco « sharding hors T2 », est SUPERSEDÉ sur ce point par le bloc
+> « Décisions PO à l'activation » du kickoff, qui fait autorité) ; C4/C5 assoupli
+> (« il n'y a personne sur le réseau ») ; C2/C3/C6/C7 = recos confirmées.
+> **Le verdict board flippe donc CONDITIONAL → PASS** (avec la réserve D4 notée) —
+> le scoring ci-dessous est conservé tel quel comme artefact historique du board
+> (évaluation indépendante du 2026-06-27, non réécrite a posteriori).
 
 > **Méthode (ultracode).** Kickoff S81 orchestré en Workflow : agents recherche D1..D8 →
 > G1 design review board (perspective indépendante, scoring 0-5 par décision) + lentille

@@ -1,14 +1,17 @@
-# Staging — Kickoff S81 « Upgrade iroh 1.0 » (DRAFT, NON ACTIF)
+# Staging — Kickoff S81 « Upgrade iroh 1.0 » (CONSOMMÉ — ACTIVÉ le 2026-07-02)
 
-> Préparé le 2026-06-27 pendant que **S80 est encore en cours** (recherche/planification).
-> Ces fichiers ne sont **PAS** dans `.planning/active/` exprès : y mettre des
-> `sprint81_*` pendant que S80 vit casserait la détection de cas A/B/C du bootstrap.
+> Préparé le 2026-06-27 pendant que S80 était en cours. **ACTIVÉ le 2026-07-02**
+> (Cas C) : `sprint81_kickoff.md` + `sprint81_plan.md` + `sprint81_design_review.md`
+> ont été `git mv` vers `.planning/active/` avec les décisions PO actées
+> (C1 sharding INCLUS au T2 — Phases I/J ; C4/C5 assoupli « personne sur le
+> réseau » ; C2/C3/C6/C7 recos confirmées). Restent ici : ce README (provenance),
+> `sprint81_dossier.md` (dossier canonique de recherche) et
+> `verification_2026-07-02.md` (vérification du staging).
 
-## Contenu
-- `sprint81_kickoff.md` — kickoff (objectif, pourquoi maintenant, arbitrages PO C1..C7, scope In/Out, Day-0 D1..D8).
-- `sprint81_plan.md` — plan de phases (Phase 0 audit S80 + A→I).
-- `sprint81_design_review.md` — Design Review Board G1 (verdict CONDITIONAL, scoring D1..D8).
-- `sprint81_dossier.md` — dossier canonique (source unique des 3 ci-dessus).
+## Contenu (post-activation)
+- `sprint81_dossier.md` — dossier canonique (source de recherche des 3 artefacts activés).
+- `verification_2026-07-02.md` — vérification ultracode du staging.
+- Artefacts actifs : `.planning/active/sprint81_{kickoff,plan,design_review}.md`.
 
 ## Provenance
 Workflow ultracode `wf_523263ad-82e` (11 agents Opus 4.8 1M, ~1,16M tokens) :

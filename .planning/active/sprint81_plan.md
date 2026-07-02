@@ -1,44 +1,44 @@
-# Sprint 81 — Plan : Upgrade iroh 0.98 → 1.0 + sweep deps (migration transport one-way)
+# Sprint 81 — Plan : Upgrade iroh 0.98 → 1.0 + sweep deps (migration transport one-way + re-cert sharding)
 
-> **⚠️ DRAFT DE STAGING — S80 PAS ENCORE CLOS.** Ce plan est un brouillon de pré-positionnement
-> pour S81. Tout ce qui dépend du verdict S80 (Phase 0, liste exacte des carries entrants, totaux
-> de tests baseline) est marqué *provisoire* et sera **figé à la clôture de S80** (rejeu réel de la
-> Phase 0). Le corps S81 (A→I) ne démarre qu'après **Phase 0 PASS** (audit gate S80). Source unique :
-> `sprint81_kickoff.md` + dossier canonique S81 (corrections sceptique intégrées : self-heal
+> **ACTIVÉ le 2026-07-02** (Cas C ; Phase 0 = audit gate S80 JOUÉE : CONDITIONAL PASS →
+> PASS effectif, findings `dcc3eea`, fix P1 `2c85b28`). Source unique :
+> `sprint81_kickoff.md` (+ bloc **Décisions PO à l'activation 2026-07-02**, qui fait
+> AUTORITÉ) + dossier canonique S81 (corrections sceptique intégrées : self-heal
 > `runtime.rs:2515` destructeur, materializer `feed_materializer.rs:54-58`, 3 crates déclarent iroh).
 
-> Phases dimensionnées par le **travail**, JAMAIS par LOC. **Phase 0 = audit gate S80** (joué à
-> l'ouverture réelle, convention permanente). S81 = **iroh STRICTEMENT SEUL** (bisectabilité ;
-> materializer en Phase A commit séparé AVANT le bump ; tout le reste rerouté S82/dette). 1 commit
-> atomique par phase `feat(scope): Sprint 81 Phase X — titre` (ou `fix(...)`/`chore(...)` selon
-> nature) ; **rigueur per-phase uniforme** : deep preflight (5 scans) → review Workflow → Codex avant
-> CHAQUE commit ; T1 hermétique grandit incrémentalement (BLOQUANT au wrap-up + CI chaque push),
-> T2 artefact JSON **committé** (axe transport-convergence). Migration on-disk redb 2→4 = **one-way**
-> (rollback = restore tar).
+> Phases dimensionnées par le **travail**, JAMAIS par LOC. **Phase 0 = audit gate S80** (JOUÉE).
+> S81 = **iroh STRICTEMENT SEUL** (bisectabilité ; materializer en Phase A commit séparé AVANT le
+> bump ; tout le reste rerouté S82/dette — le sharding I/J n'est PAS un bundle : il re-certifie la
+> stack migrée). 1 commit atomique par phase `feat(scope): Sprint 81 Phase X — titre` (ou
+> `fix(...)`/`chore(...)` selon nature) ; **rigueur per-phase uniforme** : deep preflight (5 scans)
+> → review Workflow → Codex avant CHAQUE commit ; T1 hermétique grandit incrémentalement (BLOQUANT
+> au wrap-up + CI chaque push), T2 artefact JSON **committé** (BI-AXE). Migration on-disk redb 2→4 =
+> **one-way** (rollback = restore tar).
 
-> **Cadrage DONE (Arbitrage PO C1/D4).** Le DONE non-PROVISIONAL de S81 est scopé sur l'**axe
-> TRANSPORT-convergence** (doc-sync / gossip / blobs / seed / annuaire). L'**axe SHARDING** (re-cert
-> LIVE `shard.rs` RTT/PathId multipath + orchestrateur in-vivo) est **explicitement hors T2 → S82**
-> (rig GPU chroniquement absent ; on ne re-joue PAS l'acceptance S77 b3_shard jamais passée). Sans ce
-> cadrage, S81 finirait PROVISIONAL sur l'axe shard exactement comme S77.
+> **Cadrage DONE (décision PO C1 à l'activation, 2026-07-02 — CONTRE la reco staging).** Le DONE
+> non-PROVISIONAL de S81 est **BI-AXE** : **TRANSPORT-convergence** (doc-sync / gossip / blobs /
+> seed / annuaire) ET **SHARDING re-cert LIVE** (`shard.rs` RTT/PathId multipath via
+> l'orchestrateur de session in-vivo ex-S78 — Phase I le construit, Phase J joue le benchmark
+> live b3_shard, le wrap-up devient Phase K). Verdict T2 axe shard au vocabulaire fermé émis par
+> le harness préflight ; `RIG-ABSENT` légitime UNIQUEMENT si une machine (5080/M2) est génuinement
+> HS — le rig nominal est le même matériel que l'axe transport.
 
 ---
 
-## Phase 0 — Audit gate S80 (À JOUER À L'OUVERTURE RÉELLE — *provisoire*)
+## Phase 0 — Audit gate S80 : JOUÉE le 2026-07-02
 
-> Placeholder de staging. Rejouée à la clôture de S80 (convention permanente). Absorbe le verdict S80,
-> **fige la liste exacte des carries entrants** (cf. §Carries) et la **baseline de tests**.
-
-- **Verdict** : *à établir à la clôture S80* (attendu : PASS / CONDITIONAL PASS). 0 P0 visé ; les P1
-  nouveaux éventuels sont résolus hors corps avant ouverture du corps S81.
-- **Commits** : *à figer* (findings + routing audit S80 ; note de résolution si P1 nouveau).
-- **Baseline tests à figer** : totaux Rust nextest (Win natif + Docker canonique) + Vitest `web/`
-  post-S80 (intègre le delta de couverture S80 Phase I : re-couverture SSE single-Done + jettison
-  factory-operator/factory-ui acté).
-- **Carries figés** (*provisoire — cf. §Carries entrants*) : 2 P1 in-vivo OUVERTS (sharding S77
-  RIG-ABSENT, app-authoring S79 `Not evidenced`) ; Viewer fondation + Aperçu scellé/Proof Card
-  (réservés S81 à l'origine → **reroutés S82**) ; 8 P2 / 11 P3 docs-contract S80 → **sprint dette
-  nommé distinct** ; **P2-AUDIT-2** (pin transitif iroh) → traité par S81 mais **NON pré-clôturé**.
+- **Verdict** : **CONDITIONAL PASS → PASS effectif** (0 P0, 1 P1 résolu in-gate, 4 P2, 10 P3 ;
+  Workflow ultracode 11 tracks + adversarial, Track I rejouée après stub).
+- **Commits** : `2c85b28` (fix P1 S80-K-1 : 5e frontière docs-contrat
+  `GET /api/project-documents` indexée) + `dcc3eea` (findings + fixes hygiène F-1/A-1/E-3/J-1).
+- **Baseline tests FIGÉE** : Rust nextest **2014** Win natif 0-skip / **2018** Docker canonique
+  (+4 `#[cfg(unix)]`) ; Vitest `web/` **411** (38 fichiers) ; Vitest operator **201** (35
+  fichiers) ; E2E Playwright operator **10** ; doctests 6 ; size-limit operator 8/8.
+- **Carries figés** (cf. §Carries kickoff + bloc Décisions PO à l'activation) : P1 in-vivo
+  app-authoring S79 `Not evidenced` standing ; **P1 sharding S77 RIG-ABSENT adressé par les
+  Phases I/J** (décision PO C1) ; LOT-LOOPBACK-DOC (S80-H-1/2/3/4) → Phase G ; TOOLCHAIN-LABEL
+  → préflight Phase G ; Viewer fondation → S82 ; 8 P2 / 11 P3 docs-contract S80 → **sprint dette
+  nommé distinct** ; **P2-AUDIT-2** → traité par S81 mais **NON pré-clôturé**.
 
 ## Phase A — Fix convergence materializer (wf4) [0-bump, AVANT le bump]
 
@@ -127,13 +127,20 @@
 - **Delta tests attendu** : **+1..2 Rust** (handshake seed 2-noeuds in-process ; pkarr resolver parse).
 - **T1** : alimente le sous-test (5) **recompile + handshake shard** `sbfb/shard/1` in-process (PAS le
   RTT/multipath live) + le sous-test (1) **seed ALPN** `sbfb/seed/0` handshake.
-- **Gate / scope-cut** : **re-cert LIVE shard multipath = OUT → S82** (R5). Provisionner un relais
-  iroh self-hosted **optionnel** pour l'ancre VPS (résilience, D2). Default `presets::N0` conservé.
+- **Gate / scope-cut** : la Phase E ne fait que **compile + handshake** — la re-cert LIVE shard
+  multipath vit en Phases I/J (décision PO C1 ; R5 amendé). Provisionner un relais iroh
+  self-hosted **optionnel** pour l'ancre VPS (résilience, D2). Default `presets::N0` conservé.
 
 ## Phase F — Migration on-disk redb 2→4 validée sur COPIE
 
+> *Assoupli à l'activation (décision PO C4/C5 : « il n'y a personne sur le réseau ») : le chemin
+> le plus simple est AUTORISÉ (wipe + re-pull toléré si l'in-place résiste) ; le préflight de
+> phase tranche (PLAN-ADAPT). La fixture migration reste souhaitable comme preuve du chemin
+> d'upgrade pour les futurs nœuds tiers. La neutralisation self-heal n'est requise que si le
+> chemin in-place est retenu.*
+
 - **But** : prouver **hors-prod** que `docs.redb` + blobs survivent à la migration redb 2→4 ;
-  **neutraliser le self-heal destructeur**.
+  **neutraliser le self-heal destructeur** (si chemin in-place).
 - **Jobs/surfaces** : migration on-disk + fixtures + garde self-heal. Crates `nexus-core-rs`,
   `nexus-shell-daemon`.
 - **Livrables** : fixture de migration redb 2→4 (store peuplé namespace **sbfb-ides**, saut
@@ -189,30 +196,69 @@
   `node_key`/`node_id` → casse les locators abonnés, D3 cond.5/R1). Migration VPS **bloquée tant que
   la validation sur copie (Phase F) n'est pas PASS** (R2).
 
-## Phase I — Wrap-up + gate testabilité + roadmap
+## Phase I — Orchestrateur de session sharding in-vivo (ex-S78) [décision PO C1]
 
-- **But** : T1 BLOQUANT + T2 JSON LIVE (axe transport) + clôture documentaire + carries figés.
+- **But** : livrer l'orchestrateur de session in-vivo dont l'absence a rendu S77/S76
+  RIG-ABSENT/DIFFERE — sur la stack iroh 1.0 migrée (dépend de E : `shard.rs` recompilé +
+  handshake `sbfb/shard/1` vert ; et de B-D : stack bumpée).
+- **Jobs/surfaces** : session lifecycle sharding (annonce/placement/dispatch/collecte)
+  côté daemon/coordinator ; référence de scope : `archive/v2.1/sprint78_audit_plan.md`
+  §7/§10 (le cœur du S78 différé Factory-first). Le préflight de phase (5 scans) précise
+  les livrables exacts depuis le dossier S78 + l'état réel du code shard (N0-N3 S77).
+- **Livrables** : orchestrateur runnable par l'opérateur (CLI/harness) qui monte une session
+  shard 2-machines réelle (placement Parallax + routing + data-plane `sbfb/shard/1`) ;
+  partie hermétiquement testable couverte T1 (session lifecycle in-process 2-nœuds loopback).
+- **Delta tests attendu** : **+4..8 Rust** (lifecycle in-process, placement, dispatch, erreurs).
+- **T1** : nouveau sous-test (6) **session shard in-process** via l'orchestrateur (loopback,
+  sans GPU réel).
+- **Gate / scope-cut** : 0 bump wire SBFB (`sbfb/shard/1` inchangé) ; l'orchestrateur est un
+  OUTIL opérateur, pas une feature produit nouvelle (re-cert d'un livrable S77 PROVISIONAL).
+
+## Phase J — Benchmark live sharding 2-machines + T2 axe shard [décision PO C1]
+
+- **But** : jouer b3_shard LIVE (RTX 5080 dev Win + Mac M2) via l'orchestrateur (I) sur la
+  stack migrée finale (après H) ; solder le carry P1 sharding S77.
+- **Jobs/surfaces** : acceptance live + artefact T2 axe shard. Harness `b3_shard`/scripts live
+  (memory `live_acceptance_setup`).
+- **Livrables** : run b3_shard cross-machine documenté ; verdict JSON au vocabulaire fermé
+  (`PASS`/`BLOCK{diagnosis}`/`RIG-ABSENT` émis par le harness préflight) intégré à l'artefact
+  T2 bi-axe ; si PASS → carry P1 sharding S77 CLOSED ; si BLOCK → diagnostic machine-lisible
+  + carry re-routé avec cause racine (jamais de prose DIFFERE-*).
+- **Delta tests attendu** : **0 Rust** (acceptance live) ; le harness lui-même peut gagner des
+  checks préflight.
+- **T1** : aucun (live) ; alimente **T2 axe shard**.
+- **Gate / scope-cut** : `RIG-ABSENT` légitime UNIQUEMENT si une machine est génuinement HS
+  (même matériel que l'axe transport) ; le benchmark tourne sur la stack POST-migration
+  (après H) — jamais un mélange 0.98/1.0.
+
+## Phase K — Wrap-up + gate testabilité + roadmap
+
+- **But** : T1 BLOQUANT + T2 JSON LIVE **BI-AXE** + clôture documentaire + carries figés.
 - **Jobs/surfaces** : test infra + verification + docs/mémoire + roadmap.
-- **Livrables** : **T1 hermétique** (5 sous-tests, cf. §Gate de testabilité) câblé **BLOQUANT** + CI
+- **Livrables** : **T1 hermétique** (6 sous-tests, cf. §Gate de testabilité) câblé **BLOQUANT** + CI
   chaque push (Win natif + CI Linux Woodpecker/GHA ; **JAMAIS Docker-on-Windows** — `multi_daemon`
-  env-bloqué `create_node` hang) ; artefact **T2 JSON committé** (transport-convergence,
-  `PASS`/`BLOCK{diagnosis}`/`RIG-ABSENT`) ; re-jeu acceptances **S75 survives-VPS-death** + **S76 b3
-  quorum** + **b3 PASS fetch blob cross-machine** post-upgrade ; convergence `PublicRegistryView`
-  cross-noeud après migration LIVE ; amendement `roadmap_v5` (**insertion S81-iroh** + **Viewer →
-  S82** + **orchestrateur sharding ex-S78 séquencé APRÈS S81** ; tracer « la pre-launch policy *wire
-  modifiable librement* ne couvre PAS le store on-disk iroh-docs/blobs déjà déployé ») ; pipeline
-  **fail-fast 3 blocs** (Rust dual-platform Win + Docker `sbfb-ci` rust:1.94 + frontend
+  env-bloqué `create_node` hang) ; artefact **T2 JSON committé BI-AXE** (transport-convergence +
+  sharding, `PASS`/`BLOCK{diagnosis}`/`RIG-ABSENT`) ; re-jeu acceptances **S75 survives-VPS-death** +
+  **S76 b3 quorum** + **b3 PASS fetch blob cross-machine** post-upgrade ; convergence
+  `PublicRegistryView` cross-noeud après migration LIVE ; amendement `roadmap_v5` (**insertion
+  S81-iroh bi-axe** + **Viewer → S82** + **orchestrateur sharding ex-S78 ABSORBÉ par S81 I/J** ;
+  tracer « la pre-launch policy *wire modifiable librement* ne couvre PAS le store on-disk
+  iroh-docs/blobs déjà déployé ») ; **clôture docs-contrat** (DoD (d) : frontières de la fenêtre
+  S81 indexées ou `N-A-no-new-frontier` explicite — leçon S80-K-1 : l'inventaire couvre TOUTE la
+  fenêtre du sprint, pas seulement les phases) + **LOT-LOOPBACK-DOC soldé en Phase G vérifié ici** ;
+  pipeline **fail-fast 3 blocs** (Rust dual-platform Win + Docker `sbfb-ci` rust:1.94 + frontend
   lint/tsc/vitest/coverage/build/`size`/`scan-en-strings`) ; `SPRINT_LOG.md` row 81 + `CLAUDE.md`
   S81 DONE + `nexus_grid_pivot.md` + `MEMORY.md` + `PATTERNS.md` ; `sprint82_audit_plan.md` (carries
   reroutés).
-- **Delta tests attendu** : **+ tests T1** consolidés (convergence in-process + fixture redb) ;
-  **delta net global attendu +10..20 Rust** (deletions zombies actées en Phase C ; **total interdit de
-  descendre silencieusement**, R11).
-- **T1/T2** : **T1 BLOQUANT-vert complet** (5 sous-tests) ; **T2 JSON `PASS` committé** (axe
-  transport).
-- **Gate / scope-cut** : T1 BLOQUANT non négociable ; **T2 LIVE PASS — `RIG-ABSENT` ILLÉGITIME sur
+- **Delta tests attendu** : **+ tests T1** consolidés (convergence in-process + fixture redb +
+  session shard I) ; **delta net global attendu +14..28 Rust** (deletions zombies actées en Phase C ;
+  **total interdit de descendre silencieusement**, R11).
+- **T1/T2** : **T1 BLOQUANT-vert complet** (6 sous-tests) ; **T2 JSON committé BI-AXE** (transport
+  `PASS` obligatoire ; shard au vocabulaire fermé, `PASS` visé).
+- **Gate / scope-cut** : T1 BLOQUANT non négociable ; **T2 LIVE — `RIG-ABSENT` ILLÉGITIME sur
   l'axe transport** (rig VPS Hetzner + dev Win + Mac M2 confirmé dispo, `live_acceptance_setup` ; seul
-  un rig génuinement HS le justifie). **Axe sharding hors T2 → S82** (R12).
+  un rig génuinement HS le justifie) ; **axe shard : verdict fermé émis par le harness (R12 amendé
+  décision PO C1)**.
 
 ---
 
@@ -228,7 +274,9 @@
 | F | fixture migration (dev-dep test) + garde self-heal — `nexus-core-rs` / `nexus-shell-daemon` |
 | G | **`deny.toml:107` flip-or-carry** (convergence `cargo tree -d`) ; `Cargo.toml:24` rust-version **si** D6 l'exige |
 | H | binaire release VPS (deploy) — aucun changement deps |
-| I | — (consolidation T1/T2 + docs) |
+| I | **aucun** — orchestrateur session shard (code sur stack déjà bumpée) |
+| J | **aucun** — benchmark live b3_shard (acceptance) |
+| K | — (consolidation T1/T2 bi-axe + docs) |
 
 Le bump est un **point unique** ; les **call-sites API débordent côté daemon** (`seed_protocol` impl
 `ProtocolHandler`) → re-scan des 3 crates obligatoire (D7). Déclarations vérifiées :
@@ -243,20 +291,21 @@ Le bump est un **point unique** ; les **call-sites API débordent côté daemon*
   couvre Phase A) ; (3) fixture migration redb 2→4 (entries survivent, namespace id inchangé,
   self-heal non déclenché ; blobs redb2 sous 0.103) ; (4) parse tickets persistés (`DocTicket` DB +
   `BlobTicket` `anchors.json`) ; (5) recompile + handshake shard `sbfb/shard/1` in-process (PAS le
-  RTT/multipath live).
-- **T2 acceptance JSON committé — AXE TRANSPORT (PASS obligatoire DANS S81)** : rig réel VPS + dev Win
-  + Mac M2 — re-jeu S75 survives-VPS-death + S76 b3 quorum + b3 PASS fetch blob cross-machine +
-  convergence `PublicRegistryView` cross-noeud après migration LIVE.
-- **AXE SHARDING — HORS S81** : `shard.rs` RTT/PathId multipath + orchestrateur in-vivo = non testable
-  hermétiquement, rig GPU chroniquement absent → **reporté S82** (après orchestrateur ex-S78).
+  RTT/multipath live) ; (6) session shard in-process via l'orchestrateur Phase I (loopback, sans
+  GPU réel).
+- **T2 acceptance JSON committé — BI-AXE (décision PO C1)** :
+  **axe TRANSPORT (PASS obligatoire)** : rig réel VPS + dev Win + Mac M2 — re-jeu S75
+  survives-VPS-death + S76 b3 quorum + b3 PASS fetch blob cross-machine + convergence
+  `PublicRegistryView` cross-noeud après migration LIVE ;
+  **axe SHARDING (Phases I/J)** : b3_shard LIVE 5080+M2 via l'orchestrateur, verdict fermé émis
+  par le harness préflight (`RIG-ABSENT` = machine génuinement HS uniquement).
 
-## Scope cuts (rappel — cf. kickoff §Out)
+## Scope cuts (rappel — cf. kickoff §Out ; amendé décision PO C1 : le sharding N'EST PLUS un cut)
 
-Re-cert LIVE du **sharding** (→ S82, après orchestrateur ex-S78 ; on ne re-joue PAS S77 b3_shard
-jamais passée) · **Viewer fondation** + Aperçu scellé/Proof Card (→ S82) · dette docs-contract
-**8 P2 / 11 P3** S80 (→ sprint dette nommé distinct, jamais bundlé) · **2 P1 in-vivo** standing
-(sharding S77, app-authoring S79) · **GuardianDB** / toute autre upgrade (séparé et postérieur,
-bisectabilité) · **bump MSRV 1.95 inconditionnel** (INTERDIT sans preuve cargo) · pagination
-app-storage + features produit non liées à iroh (backlog) · **clôture pré-annoncée P2-AUDIT-2**
-(INTERDITE sans `cargo tree -d` convergent) · **bundler le materializer dans le commit de bump**
-(INTERDIT — Phase A est un commit séparé AVANT le bump).
+**Viewer fondation** + Aperçu scellé/Proof Card (→ S82) · dette docs-contract
+**8 P2 / 11 P3** S80 (→ sprint dette nommé distinct, jamais bundlé) · **P1 in-vivo app-authoring
+S79** standing (le P1 sharding S77 est ADRESSÉ par I/J) · **GuardianDB** / toute autre upgrade
+(séparé et postérieur, bisectabilité) · **bump MSRV 1.95 inconditionnel** (INTERDIT sans preuve
+cargo) · pagination app-storage + features produit non liées à iroh (backlog) · **clôture
+pré-annoncée P2-AUDIT-2** (INTERDITE sans `cargo tree -d` convergent) · **bundler le materializer
+dans le commit de bump** (INTERDIT — Phase A est un commit séparé AVANT le bump).
