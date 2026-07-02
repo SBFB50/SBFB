@@ -146,6 +146,28 @@ words (`PROVISIONAL`/`Not evidenced`/`RIG-ABSENT`) are NOT in the enum. Each
 issue = `{message, file, line}`; `line` is **null as of S80** (fine-grained
 line anchor is tracked debt). Anchors: `gates_live_data`, `GateStatus`.
 
+### GET /api/project-documents (documents inventory) — shipped `94eb030` (off-sprint arc)
+
+*Shipped by the rapid-add off-sprint arc (not an S80 phase); indexed at the
+S80 audit gate — the arc's grouped review + Codex stay due post-S82.*
+Read-only inventory of the repo's documents feeding the adaptive Documents
+surface (`DocumentsSurface.tsx`). One optional query param `?session=<chat
+id>`: when present, the response carries a `session` view `{id, provider,
+model, messages, chat_history_authoritative}` of that live chat and the
+session's context-pack refs are merged into the roles (source `session LLM
+active`); `session` is `null` otherwise. Envelope `{branch, head,
+generated_at, total, truncated, session, pinned, documents}`: each
+`documents[]` card = `{path, name, dir, ext, kind, status, tracked,
+size_bytes, modified_ms, roles, sources}` where `kind` derives from the
+path (`project_document_kind`), `status` is the raw `git status` code
+(`??` = untracked, empty = clean) and `tracked` mirrors `git ls-files`;
+`pinned[]` = role-pinned entries `{path, role, label, source, detail}`
+(git inventory, working-tree status, fresh context-pack refs, gate refs).
+The card list is capped at `MAX_PROJECT_DOCUMENTS` (5 000):
+`truncated=true` past the cap while `total` keeps the uncapped count. Zero
+write (git is only read); same `auth_required` layer as every `/api`
+route. Anchors: `project_documents_data`, `ProjectDocumentsResult`.
+
 ### Chat SSE contract — shipped `6991d51`
 
 `POST /api/chat/session` → `{id, context_pack}`, then `POST
