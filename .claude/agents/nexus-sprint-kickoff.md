@@ -941,7 +941,7 @@ pour que l'agent executeur n'ait pas a switcher de fichier.}
 
 ### Step 9 â€” Verification coherence croisee
 
-Avant de livrer, verifier ces 16 invariants :
+Avant de livrer, verifier ces 17 invariants :
 
 1. **Tous les items 3/3 MANDATORY** du Step 4.1 sont dans une phase
    du plan (pas en carry).
@@ -983,6 +983,20 @@ Avant de livrer, verifier ces 16 invariants :
     feature cross-machine ; la Fail-fast checklist a une row T1 et une
     row T2 ; le Â§10 exige que le wrap-up inscrive la track
     Testabilite dans l'audit_plan S{N+1}.
+17. **Cloture docs-contrat (README Â§6.12, amendement 2026-07-02)** :
+    si >= 1 phase du plan touche une primitive de FRONTIERE au sens du
+    TEST-ACTEUR (« qui LIT cette primitive ? » : autre noeud = wire,
+    client externe = API — Y COMPRIS une API loopback lue par un
+    runtime distinct, ex. front Operator —, app reseau = contrat/CSP,
+    autre LLM = prompt-kind/knowledge ; JAMAIS le test « 0 wire
+    bump »), alors le plan DOIT contenir une etape de CLOTURE
+    docs-contrat NOMMEE (GUIDE + llms.txt + WIRING_SPEC si concerne),
+    soit en phase dediee (modele S79 Phase I), soit comme livrable
+    explicite du wrap-up. Si AUCUNE phase ne touche de frontiere, le
+    plan consigne `N-A-no-new-frontier`. Un plan qui liste des routes/
+    contrats neufs dans son recap backend SANS etape de cloture est
+    INCOHERENT (root-cause S80 : 4 frontieres au recap, 0 cloture
+    planifiee).
 
 ---
 

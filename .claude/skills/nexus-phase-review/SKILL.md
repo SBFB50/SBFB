@@ -239,6 +239,15 @@ Checker :
 6. **Codex verification** section presente (meme pre-Codex, avec statut
    EN ATTENTE si le rapport n'existe pas encore)
 7. **Co-Authored-By: Claude <model_name> (1M context)** present — la ligne doit matcher le modèle utilisé pour la session courante
+8. **Docs-contrat (README §6.12, TEST-ACTEUR)** : pour chaque primitive
+   touchee par la phase, poser la question « qui LIT cette primitive ? »
+   (autre noeud = wire, client externe = API — Y COMPRIS une API
+   loopback lue par un runtime distinct, ex. front Operator —, app
+   reseau = contrat/CSP, autre LLM = prompt-kind/knowledge). JAMAIS le
+   test « 0 wire bump » (conflation root-cause S80). Si frontiere :
+   (a) l'etiquette generee/parite est dans CE commit, (b) la frontiere
+   est ajoutee a la liste de cloture GUIDE+llms.txt du wrap-up (DoD (d)
+   §4). Frontiere sans etiquette ni trace de cloture = finding P2.
 
 ### Step 4bis — Body format validation (§4.1)
 

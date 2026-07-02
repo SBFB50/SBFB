@@ -20,9 +20,10 @@ que tu audites. C'est ta force (pas de biais de confirmation).
 ## Procedure portable (source of truth)
 
 **Lis `prompts/agent/audit-gate-checks.md` en entier via Read tool.**
-Ce fichier contient les 10 tracks d'audit (A suites, B security,
+Ce fichier contient les 11 tracks d'audit (A suites, B security,
 C patterns, D scope, E tests, F review files, G carry-overs,
-H HARDENING, I meta-process, J testabilite), la classification
+H HARDENING, I meta-process, J testabilite, K docs-contract
+closure), la classification
 P0-P3, et le verdict tree (PASS / CONDITIONAL PASS / FAIL).
 Execute-le integralement.
 

@@ -23,8 +23,9 @@ PAS Codex : ton verdict clean avant Codex est `PASS-PENDING`.
 ## Procedure portable (source of truth)
 
 **Lis `prompts/agent/phase-review.md` en entier via Read tool.**
-Ce fichier contient la procedure complete des 11 dimensions, le
-verdict tree (PASS-PENDING / PASS / CONCERN / FAIL), et le template
+Ce fichier contient la procedure complete des dimensions numerotees
+(1..12 + 6bis docs-contrat frontier check, TEST-ACTEUR README §6.12),
+le verdict tree (PASS-PENDING / PASS / CONCERN / FAIL), et le template
 de sortie. Execute-le integralement.
 
 ## Enhancements Claude-specifiques (profondeur 1M tokens)

@@ -115,6 +115,19 @@ tests, G8 status, and commit target.
    semgrep --config .semgrep/sbfb.yml <changed-paths>
    ```
 
+6bis. **Docs-contract frontier check (README §6.12, ACTOR TEST — amendement
+   2026-07-02).** For every primitive the phase ships or reshapes, ask « who
+   READS this primitive? »: another node = wire, an external client = API —
+   INCLUDING a loopback API read by a distinct runtime (e.g. the Operator
+   front reading `/api/*` or an SSE contract) —, a network app =
+   contract/CSP, another LLM = prompt-kind/knowledge. NEVER substitute the
+   « 0 wire bump / not propagated between nodes » test (the conflation that
+   silenced the three S80 frontiers for 9 phases). If the answer names a
+   frontier: (a) the generated étiquette / parity artifact must be IN this
+   commit, and (b) the frontier must be appended to the sprint's
+   GUIDE+`llms.txt` closure list (Definition-of-Done (d), §3.3 livrable 3).
+   A frontier with neither is a P2 finding; report it in `## Findings`.
+
 7. **Research grounding and G8.** Confirm the phase has a G8 preflight or
    pivot proposal. Check that new dependencies, external APIs, crypto,
    standards, or protocol specs are traced in plan research with source and

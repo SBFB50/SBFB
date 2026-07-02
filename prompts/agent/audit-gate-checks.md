@@ -220,6 +220,41 @@ absent, emitted by the harness preflight as JSON `status`) or a justified
 `N-A-no-cross-machine-feature` is NOT a finding — these are closed,
 authorized verdicts. Minor count/wording incoherence is P2.
 
+### Track K — Docs-Contract Closure (standing, amendement 2026-07-02)
+
+Verify the audited sprint N-1 delivered the docs-contract closure required
+by `docs/claude/README.md` §6.12 + §3.3 livrable 3 + Definition-of-Done (d).
+Do NOT redefine the cadence here — only verify the wrap-up honored it. The
+judge is the ACTOR TEST (« who READS this primitive? » — another node =
+wire, an external client = API **including a loopback API read by a
+distinct runtime** such as the Operator front, a network app =
+contract/CSP, another LLM = prompt-kind/knowledge), NEVER the « 0 wire
+bump » test (the conflation that silenced S80).
+
+```bash
+# New frontier primitives shipped by the audited sprint (routes, wire
+# structs, SSE/app contracts, prompt-kinds, knowledge packs)
+git diff <sprint_start_sha>..HEAD --stat -- 'crates/' 'tools/' | head -40
+rg -n "\.route\(" crates/ --type rust -l
+# Closure evidence: GUIDE + llms.txt must index the NEW frontiers
+git log --oneline <sprint_start_sha>..HEAD -- docs/factory/llms.txt docs/factory/ docs/agent/
+rg -n "N-A-no-new-frontier" .planning/active/sprint{N-1}_verification.md
+```
+
+For the audited sprint:
+- Did any phase ship a NEW frontier primitive (actor test)? If yes: is it
+  indexed in `docs/factory/llms.txt` + the GUIDE (+ `WIRING_SPEC.md` when
+  applicable), via a dedicated closure phase or an explicit wrap-up
+  deliverable?
+- If no frontier was shipped: does `verification.md` carry the explicit
+  `N-A-no-new-frontier` verdict (never silent omission)?
+
+A NEW frontier primitive left unindexed by GUIDE/llms.txt at sprint close
+is **P1** (carry to the next sprint with the frontier list). A missing
+`N-A-no-new-frontier` line when nothing shipped is P2 (honesty gap, not a
+doc gap). Per-phase generated étiquettes (schema snapshots, Rust↔TS
+parity) missing on a frontier COMMIT are P2 per occurrence.
+
 ## Verdict
 
 Aggregate findings:
@@ -294,6 +329,13 @@ Verdict: **PASS | CONDITIONAL PASS | FAIL**
 - T2 acceptance JSON status: <PASS/BLOCK/RIG-ABSENT/N-A-no-cross-machine-feature/absent>
 - DIFFERE-* prose verdict detected: <yes/no>
 - Cross-machine convergence test + b3 PASS (if applicable): <yes/no/N-A>
+- Findings: <list or none>
+
+## Track K — Docs-Contract Closure
+- New frontier primitives shipped (actor test): <list or none>
+- GUIDE + llms.txt index the new frontiers: <yes/no/N-A-no-new-frontier>
+- N-A-no-new-frontier consigned in verification.md (if none): <yes/no/N-A>
+- Per-phase generated étiquettes on frontier commits: <ok/missing list>
 - Findings: <list or none>
 
 ## Summary

@@ -526,18 +526,26 @@ atomique feat. Pattern Sprint 6/7 :
 - (optionnel, une phase supplémentaire si scope complexe, ex
   Sprint 6 où D a été split en D+E)
 
-### 3.3 Phase de sortie — deux livrables obligatoires
+### 3.3 Phase de sortie — trois livrables obligatoires
 
 Dans le même commit `docs(sprint{N}): verification + audit
-plan for Sprint N+1` :
+plan for Sprint N+1` (la clôture docs-contrat peut aussi être
+une phase dédiée juste avant, façon S79 Phase I) :
 
 1. `sprint{N}_verification.md` — self-report fail-fast
 2. `sprint{N}_audit_plan.md` — plan que Sprint N+1 Phase 0
    jouera + update de `docs/shell/PATTERNS.md` +
    `docs/rust/PATTERNS.md` avec les nouveaux patterns et
    tech debt items
+3. **Clôture docs-contrat (§6.12)** — GUIDE + `llms.txt`
+   (+ `WIRING_SPEC.md` si concerné) indexent chaque primitive
+   de **frontière NEUVE** du sprint (test-acteur §6.12 : wire,
+   API — y compris loopback lue par un runtime distinct —,
+   contrat d'app, prompt-kind, knowledge). Si le sprint n'a
+   créé aucune frontière : consigner `N-A-no-new-frontier`
+   dans `verification.md`, jamais l'omettre en silence.
 
-**Sans ces deux fichiers, le sprint ne peut pas être fermé.**
+**Sans ces trois livrables, le sprint ne peut pas être fermé.**
 
 **Lecture obligatoire avant d'écrire ces livrables** : §2.3
 (9 sections canoniques verification.md), §2.4 (6 sections
@@ -597,10 +605,14 @@ le validateur). Le regex de phase est `Phase [A-Z]+[0-9]?` partout
 
 **Definition of done d'un sprint.** Un sprint est DONE quand (a) chaque
 objectif roadmap a une phase atterrie, (b) chaque carry d'audit routé
-est CLOSED ou re-routé avec rationale, ET (c) le **gate de testabilité
+est CLOSED ou re-routé avec rationale, (c) le **gate de testabilité
 par-sprint** ci-dessous est VERT (ou `RIG-ABSENT` machine-lisible pour
-le seul tier multi-machine). Tant que (c) n'est pas satisfait, le sprint
-n'est pas fermable, peu importe le nombre de phases déjà livrées.
+le seul tier multi-machine), ET (d) la **clôture docs-contrat** (§6.12,
+§3.3 livrable 3) est livrée : GUIDE + `llms.txt` à jour pour chaque
+primitive de frontière neuve du sprint, ou `N-A-no-new-frontier`
+consigné dans `verification.md`. Tant que (c) ou (d) n'est pas
+satisfait, le sprint n'est pas fermable, peu importe le nombre de
+phases déjà livrées.
 
 **Gate de testabilité par-sprint** (évalué à la phase de wrap-up,
 consigné dans `sprint{N}_verification.md` sous `## Acceptance`). Trois
@@ -2009,6 +2021,23 @@ source-ancré, drift-gaté**. Un helper purement interne n'est PAS une frontièr
 2. **GUIDE + `llms.txt` (synthèse) → UNE phase de clôture** (l'image complète
    n'est figeable qu'à la fin ; miroir S77 Phase N). Ni « une phase de doc par
    phase », ni « tout à la fin ».
+
+   **Porteurs de la cadence (amendement 2026-07-02, root-cause S80)** — sans
+   propriétaire, l'obligation flotte et personne ne la produit :
+   - le **kickoff PLANIFIE** la phase de clôture quand ≥1 phase du plan touche
+     une frontière (invariant #17 de `nexus-sprint-kickoff`) ;
+   - le **wrap-up la LIVRE** (Definition-of-Done (d) §4 + §3.3 livrable 3) ;
+   - l'**audit gate du sprint suivant la VÉRIFIE** (Track K standing,
+     `prompts/agent/audit-gate-checks.md`) — frontière neuve non indexée = P1.
+
+   **Zone grise TRANCHÉE (2026-07-02)** : une API loopback consommée par un
+   runtime DISTINCT (ex. le front Operator React qui lit les routes `/api/*`
+   du serveur Rust ; le contrat SSE `StreamChunk` lu par `streamChunk.ts`)
+   **EST une frontière §6.12**. Le juge est le **test-acteur** (« qui LIT
+   cette primitive ? un acteur qui n'est pas le code Rust lui-même »), JAMAIS
+   le test « 0 wire bump / pas propagé entre nœuds » — cette conflation a
+   auto-certifié à tort les 3 frontières S80 (auth cookie, /api/git/diff,
+   /api/gates) pendant 9 phases.
 3. **Arête de provenance in-code (rang-1)** : un commentaire `// Sprint N Phase X
    · …` pointe UNIQUEMENT vers du **passé immuable**, JAMAIS une promesse future
    (le motif « phase/sprint + verbe futur » ADJACENT). Anti STALE-PHASE-K
@@ -2239,16 +2268,19 @@ procédure lui-même (sauf Cas D hotfix).
              archive/v{X}/).
     ACTION : INVOQUER agent `nexus-audit-gate`.
              L'agent lit audit_plan, ingère le diff complet du
-             sprint N-1, joue les 9 tracks (suites, security,
-             patterns, scope, tests, review files, carry-overs,
-             HARDENING, meta-process), produit
+             sprint N-1, joue les 11 tracks du canon
+             `prompts/agent/audit-gate-checks.md` (A suites,
+             B security, C patterns, D scope, E tests delta,
+             F review files, G carry-overs, H HARDENING,
+             I meta-process, J testabilite standing,
+             K docs-contract closure standing), produit
              `.planning/active/sprint{N-1}_audit_findings.md` avec
              verdict PASS / CONDITIONAL PASS / FAIL, et ecrit les
              commits fix(sprint{N-1}) pour les P0/P1.
     Verdict G4 (rigor signal) : 0 P0/P1 ET 0 P2+ = CONCERN
              (pas PASS). PASS exige >=1 P2+ documente.
     Variante ultracode : jouer l'audit gate en Workflow (fan-out
-             des 9 tracks + verification adversariale + synthese du
+             des 11 tracks + verification adversariale + synthese du
              verdict) plutot qu'un agent unique. Fallback : si ni
              Workflow ni l'agent ne sont disponibles, le main thread
              joue manuellement la procedure §3 + §8.
@@ -2473,15 +2505,24 @@ Avant d'écrire du code :
   5. Avant chaque commit : verifier toutes les suites pertinentes
      (cf. §7.4 ci-dessous)
   6. Cadence docs-contrat (§6.12, canon S79 Phase B) : toute
-     primitive de FRONTIÈRE (wire/API/contrat d'app/prompt-kind/
-     knowledge) porte son étiquette générée PAR PHASE (dans le
-     commit de la primitive) ; GUIDE + llms.txt en UNE phase de
-     clôture ; commentaires de provenance in-code vers le PASSÉ
-     immuable seulement — JAMAIS une promesse future (« Phase X
-     will/adds/ships », « lands in Phase K », « Sprint N will » ;
-     anti STALE-PHASE-K). Gate BLOQUANT
-     `scripts/check-frontier-contracts.sh` (câblé CI 3 surfaces +
-     backstop commit). Détail : §6.12 + `docs/rust/PATTERNS.md`
+     primitive de FRONTIÈRE porte son étiquette générée PAR PHASE
+     (dans le commit de la primitive) ; GUIDE + llms.txt en UNE
+     phase de clôture (livrable de fermabilité : DoD (d) §4 +
+     §3.3 livrable 3). Le juge est le TEST-ACTEUR : « qui LIT
+     cette primitive ? » (autre nœud = wire, client externe = API
+     — Y COMPRIS une API loopback lue par un runtime distinct
+     comme le front Operator —, app réseau = contrat/CSP, autre
+     LLM = prompt-kind/knowledge). JAMAIS le test « 0 wire bump »
+     (conflation qui a fait taire S80). À CHAQUE phase touchant
+     une frontière : étiquette dans le commit + la frontière
+     s'ajoute à la liste de clôture du wrap-up. Commentaires de
+     provenance in-code vers le PASSÉ immuable seulement — JAMAIS
+     une promesse future (anti STALE-PHASE-K). Gate BLOQUANT
+     `scripts/check-frontier-contracts.sh` (câblé CI 3 surfaces ;
+     OPT-IN — il ne détecte PAS une frontière neuve jamais
+     annotée, et il n'y a PAS de backstop au commit : la
+     détection des frontières neuves est portée par le preflight/
+     review de phase, pas par un gate). Détail : §6.12 + `docs/rust/PATTERNS.md`
      §P70 + `docs/agent/AGENT_SYSTEM.md` §7.
 
 Langue : français pour réponses utilisateur, docs planning,
@@ -2746,8 +2787,9 @@ session Sprint 7 Phase F. Résumé :
    kickoff → plan → verification → audit_plan
 3. **Ne pas lire** `PATTERNS.md` correspondants avant
    d'avoir formé une opinion track par track
-4. Jouer les 9 tracks (A..I typiquement) avec la méthode
-   concrète du audit_plan
+4. Jouer les 11 tracks (A..K, canon `prompts/agent/
+   audit-gate-checks.md` ; J testabilité + K docs-contract =
+   standing) avec la méthode concrète du audit_plan
 5. Écrire `sprint{N-1}_audit_findings.md` avec findings
    ventilés P0 / P1 / P2 / P3
 6. Si P0 ou P1 : produire les commits `fix(sprint{N-1}):
