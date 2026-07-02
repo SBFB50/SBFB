@@ -163,17 +163,24 @@ are signed and hashed at write time — the local process is the
 sole writer and the chain is maintained atomically (BEGIN
 IMMEDIATE transaction). The materializer MAY skip verification
 for local entries (performance optimization), though
-`materialize_verified()` always verifies.
+`materialize_verified()` always verifies. Verification is
+orthogonal to ordering: whichever regime applies, the fold
+always uses the deterministic projection order of §6.
 
 **Remote sync (entries received from peers):**
 Trust nothing — verify everything. For each received entry:
 
 1. **Ed25519 signature** over canonical bytes (reject if invalid)
 2. **entry_hash** recomputation from canonical (reject if mismatch)
-3. **Per-author prev_hash** chain linkage (each author's entries
-   form an independent chain, verified separately)
+3. **Per-author prev_hash** chain linkage, verified over the
+   AVAILABLE entry set (replay `verify_chain()` / materializer
+   fold) — NOT per received entry at ingest: an entry whose
+   predecessor has not arrived yet is accepted and stored
+   (out-of-order sync is the normal case); its effect on the
+   projection is deferred until the gap fills (§6)
 4. **Field format validation** (project_id hex-64, repo_url
-   HTTPS, commit_sha hex-40, artifact_hash hex-64)
+   HTTPS, commit_sha hex-40, artifact_hash hex-64, prev_hash
+   `"genesis"` or lowercase hex-64)
 5. **Deduplication** by entry_hash (skip if already present)
 
 This is the SSB model: per-feed (per-author) append-only
@@ -197,8 +204,36 @@ chain ordering.
 
 ### Ordering
 
-Entries are ordered by `seq` (auto-increment). Within the same
-seq, only one entry exists (enforced by SQLite PRIMARY KEY).
+**Storage order** and **projection (fold) order** are distinct
+(wf4 fix, Sprint 81 Phase A):
+
+- **Storage**: entries are stored under a local `seq`
+  (auto-increment; unique per row, enforced by SQLite PRIMARY
+  KEY). `seq` reflects the LOCAL arrival order — remote entries
+  ingested by `feed_sync` get whatever `seq` is next locally, so
+  two nodes holding the same entry set may store it under
+  different `seq`. `seq` is NOT part of the signed canonical form
+  and carries no cross-node meaning.
+- **Projection**: the materializer folds entries in a
+  deterministic, content-derived order over the per-author chain
+  forest:
+  1. *Intra-author*: the authoritative order is the `prev_hash`
+     chain walked from genesis (never the wall-clock timestamp,
+     which is backdatable). Each author contributes its longest
+     reachable prefix; a gap (missing predecessor) leaves the
+     suffix unapplied until the gap fills; an intra-author fork
+     (equivocation) hard-stops that author's chain at the fork
+     point — in per-author isolation, never a global error.
+  2. *Inter-author*: concurrent chain heads are k-way merged
+     with the tie-break key
+     `(timestamp, author_pubkey, entry_hash)`. Every component
+     is part of the signed canonical form, so the resulting
+     total order — and therefore the materialized view — is
+     identical on every node, whatever the arrival order.
+
+  Last-write-wins within that order is the monotonic guarantee:
+  a backdated entry cannot veto a causally later update, and the
+  same entry set always folds to the same `PublicRegistryView`.
 
 ### Idempotence
 
@@ -250,6 +285,15 @@ When resuming from a cursor:
 
 The safety fallback (step 4) handles corruption or feed
 truncation.
+
+**Reordering fallback (wf4)**: because the fold order is
+content-derived (§6), a late arrival may sort BEFORE entries
+already applied. Incremental append is only performed when every
+new entry provably extends the applied frontier (extends its
+author's applied tip AND sorts strictly after everything
+applied). Otherwise the materializer detects the reordering and
+performs a deterministic full rebuild from genesis — incremental
+materialization is an optimization, never a source of divergence.
 
 ---
 
@@ -364,7 +408,7 @@ defense layer that rejects the attack.
 | 11 | **Forged signature on chain** | `test_verify_chain_forged_signature` | `verify_chain()` validates every entry signature during replay. |
 | 12 | **Tampered hash in chain** | `test_verify_chain_tampered_hash` | `verify_chain()` recomputes and compares every `entry_hash`. |
 | 13 | **Multi-author interleaving** | `test_verify_chain_multi_author` | Per-author chain tracking (SSB model): each author's `prev_hash` links to their own last entry. |
-| 14 | **Out-of-order insertion** | `test_verify_chain_out_of_order_insertion` | `verify_chain()` detects seq ordering violations. |
+| 14 | **Out-of-order insertion** | `test_verify_chain_out_of_order_insertion`, `test_out_of_order_ingest_converges_full` | `verify_chain()` rebuilds per-author chains via `prev_hash` linkage (order-independent); the materializer folds in the deterministic content-derived order (§6), so the view converges cross-node. |
 | 15 | **Cursor hash mismatch** | `test_cursor_hash_mismatch_triggers_full_rebuild` | Materializer detects corrupt cursor and triggers full replay from `seq = 0`. |
 
 ### 10.4 Not covered (scope-cut)

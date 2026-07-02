@@ -557,7 +557,7 @@ jours futur (spec §10.2 #10).
 | Severite | M |
 | Likelihood | L (detectable, limited impact) |
 | Mitigation | 30-day future timestamp gate |
-| Residual | L (past timestamps accepted, ordering by seq) |
+| Residual | M (S81 wf4 : le fold materializer ordonne par chaine prev_hash intra-auteur + tie-break (timestamp, author, hash) inter-auteurs — l'antidatage intra-auteur ne reordonne plus rien ; RESIDUEL : un auteur post-datant jusqu'a +30j gagne le tie-break inter-auteurs de facon convergente sur un project_id partage, tant que le binding author→project_id n'existe pas — vrai correctif carry §10) |
 
 ### Residual risks feed
 

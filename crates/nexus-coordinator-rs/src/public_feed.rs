@@ -584,15 +584,34 @@ pub fn replay_all(db: &CoordinatorDb) -> Result<Vec<FeedEntry>, String> {
 
 /// Verify entry_hash and Ed25519 signature for a single entry.
 ///
-/// Rejects entries with `version != FEED_FORMAT_VERSION`.
-/// Does NOT check prev_hash linkage — use [`verify_chain`] for
-/// full chain verification. Useful for incremental verification
-/// of newly received entries.
+/// Rejects entries with `version != FEED_FORMAT_VERSION`, and
+/// enforces the `prev_hash` FORMAT (genesis sentinel or lowercase
+/// hex-64). Does NOT check prev_hash linkage or existence — this
+/// function runs on freshly received entries BEFORE insert
+/// (`feed_sync` ingest), where the predecessor may legitimately not
+/// have arrived yet (out-of-order iroh-docs sync). Linkage is the job
+/// of [`verify_chain`] / the materializer fold over the full set.
+/// Note the format guard is a minor hardening only: `prev_hash` is
+/// part of the signed canonical form, so any post-signature tampering
+/// is already caught by the entry_hash recomputation below.
 pub fn verify_entry(entry: &FeedEntry) -> Result<(), String> {
     if entry.version != FEED_FORMAT_VERSION {
         return Err(format!(
             "unsupported feed version {}, expected {}",
             entry.version, FEED_FORMAT_VERSION
+        ));
+    }
+
+    if entry.prev_hash != GENESIS_PREV_HASH
+        && (entry.prev_hash.len() != 64
+            || !entry
+                .prev_hash
+                .bytes()
+                .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')))
+    {
+        return Err(format!(
+            "entry seq {}: malformed prev_hash (expected \"genesis\" or lowercase hex-64)",
+            entry.seq
         ));
     }
 
@@ -1351,6 +1370,53 @@ mod tests {
             verify_chain(&entries).is_ok(),
             "verify_chain must handle out-of-order entries via chain linkage"
         );
+    }
+
+    #[test]
+    fn test_verify_entry_prev_hash_format() {
+        let kp = nexus_core_rs::KeyPair::from_secret_bytes(&[9u8; 32]);
+        let pk = hex::encode(kp.public_bytes());
+
+        let signed_with_prev = |prev_hash: &str| -> FeedEntry {
+            let canonical = FeedEntryCanonical {
+                version: FEED_FORMAT_VERSION,
+                op: sample_release_published(),
+                author_pubkey: pk.clone(),
+                timestamp: 1000,
+                prev_hash: prev_hash.to_string(),
+            };
+            let bytes = compute_feed_canonical_bytes(&canonical).unwrap();
+            FeedEntry {
+                version: FEED_FORMAT_VERSION,
+                seq: 1,
+                op: sample_release_published(),
+                author_pubkey: pk.clone(),
+                timestamp: 1000,
+                entry_hash: compute_feed_entry_hash(&canonical).unwrap(),
+                prev_hash: prev_hash.to_string(),
+                signature: hex::encode(kp.sign(&bytes)),
+                pow_nonce: None,
+            }
+        };
+
+        // Malformed prev_hash is rejected even when signed coherently
+        // (wf4 format guard: genesis sentinel or lowercase hex-64).
+        let upper = "A".repeat(64);
+        let short = "a".repeat(63);
+        for bad in ["", "xyz", upper.as_str(), short.as_str()] {
+            let err = verify_entry(&signed_with_prev(bad)).unwrap_err();
+            assert!(
+                err.contains("malformed prev_hash"),
+                "prev_hash {bad:?} must be rejected as malformed, got: {err}"
+            );
+        }
+
+        // An out-of-order entry (well-formed prev_hash whose
+        // predecessor has NOT arrived yet) must be ACCEPTED —
+        // verify_entry never checks existence/linkage, otherwise the
+        // out-of-order iroh-docs ingest path would break.
+        let unknown_predecessor = "c".repeat(64);
+        assert!(verify_entry(&signed_with_prev(&unknown_predecessor)).is_ok());
     }
 
     #[test]
