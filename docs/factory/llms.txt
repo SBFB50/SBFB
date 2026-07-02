@@ -3,7 +3,9 @@
 > The Factory app-authoring capability: master anime.js (motion) + daisyUI (on
 > Tailwind v4) inside the sealed SBFB iframe, gated by a deterministic CSP scan.
 > This index points an agent at the rank-1 sources it must read to author or
-> review a sealed-iframe app **without hallucinating**.
+> review a sealed-iframe app **without hallucinating**. Since Sprint 80 it also
+> indexes the **Operator control-plane API** (loopback, outside the sealed
+> iframe) — a distinct sub-domain with its own section below.
 >
 > **Status: PROVISIONAL where it counts.** The CSP gate, the two knowledge packs,
 > and the daisyUI starter template are LIVE and hermetically tested; the
@@ -39,6 +41,21 @@
 ## The fiche an agent receives
 
 - [app-authoring.md](../../prompts/agent/app-authoring.md): the CSP-safe authoring doctrine (consumed and displayed, never authoritative) distilled from the two packs.
+
+## Operator control-plane API (loopback, hors sealed-iframe)
+
+*The Operator front (Sprint 80 greenfield, `tools/factory-operator/`) is a
+distinct runtime that READS these loopback routes — that makes them §6.12
+frontier primitives, indexed here since the S80 closure. They are NOT part of
+the sealed-iframe contract (the Operator serves outside `BLOB_SERVE_CSP`).
+Human-readable contract summaries: [REFERENCE.md §Operator control-plane API](./REFERENCE.md).*
+
+- [auth.rs](../../crates/sbfb-factory/src/auth.rs): bearer root of trust `crates/sbfb-factory/src/auth.rs:AUTH_HEADER` (`x-sbfb-token`); browser fallback cookie `crates/sbfb-factory/src/auth.rs:OPERATOR_COOKIE` (`sbfb_operator`, HttpOnly, SameSite=Strict) carrying the per-boot `crates/sbfb-factory/src/auth.rs:session_secret` — never the bearer.
+- [operator_server.rs](../../crates/sbfb-factory/src/operator_server.rs): cookie bootstrap `crates/sbfb-factory/src/operator_server.rs:handle_bootstrap` (GET `/?token=<hex>` → Set-Cookie + 303, shipped `a5ace8d`); working-tree diff route `crates/sbfb-factory/src/operator_server.rs:handle_git_diff` (shipped `bb35d39`); live gates route `crates/sbfb-factory/src/operator_server.rs:handle_gates` (shipped `ed00b4a`); chat SSE route `crates/sbfb-factory/src/operator_server.rs:handle_chat_stream` and the hand-forged sixth wire event `crates/sbfb-factory/src/operator_server.rs:sse_gate` (shipped `6991d51`).
+- [sprint_history.rs](../../crates/sbfb-factory/src/sprint_history.rs): the Rust-computed diff producer `crates/sbfb-factory/src/sprint_history.rs:working_tree_diff_data` — envelope `{head, unstaged, staged, truncated}`; the diff is NEVER recomputed in JS.
+- [gates.rs](../../crates/sbfb-factory/src/gates.rs): idempotent producer `crates/sbfb-factory/src/gates.rs:gates_live_data` (no publish scan on GET); status enum `crates/sbfb-factory/src/gates.rs:GateStatus` (exactly five snake_case values, no aggregate); view structs `crates/sbfb-factory/src/gates.rs:GatesView`, `crates/sbfb-factory/src/gates.rs:GateEntryView` (key = (gate, status)), `crates/sbfb-factory/src/gates.rs:GateIssueView` (`line` is null as of S80).
+- [llm_bridge.rs](../../crates/sbfb-factory/src/llm_bridge.rs): the five serde SSE variants `crates/sbfb-factory/src/llm_bridge.rs:StreamChunk` (tag `"type"`); with the forged `requires_gate` that makes SIX wire event types.
+- TS consumers (linked, outside the rank-1 source-ref scope): [streamChunk.ts](../../tools/factory-operator/src/lib/streamChunk.ts) (hardcoded 6-type union), [useTokenStream.ts](../../tools/factory-operator/src/lib/useTokenStream.ts) (fetch+ReadableStream, first-terminal latch, never EventSource), [operator.ts](../../tools/factory-operator/src/api/operator.ts) (session/send/stream client).
 
 ## Human docs (Diátaxis, French)
 

@@ -165,7 +165,7 @@ Runtime isolation roadmap dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
 ## Etat actuel
-- **Sprints 0-77 CLOSED + S79 DONE** (S78 différé, Factory-first) (Arc 3.5 Factory
+- **Sprints 0-77 CLOSED + S79-S80 DONE** (S78 différé, Factory-first) (Arc 3.5 Factory
   Complete Vision **6/6 COMPLET** ; S77 = **sharding pipeline** LIVRE —
   coeur teste hermetiquement [primitives wire C, placement Parallax D,
   routing+churn E, fork llama.cpp F1/F2, data-plane `sbfb/shard/1`,
@@ -187,10 +187,40 @@ Runtime isolation roadmap dans
   §P70 + AGENT_SYSTEM §7 + `check-frontier-contracts.sh` générique). **PROVISIONAL
   là où ça compte** : gate + packs + template + self-check LIVE-testés ; parcours
   in-vivo bout-en-bout + efficacité générative = `Not evidenced` -> carry P1
-  `sprint80_audit_plan.md`. Audit gate S79 = Phase 0 de S80. **Arbitrage ordre
+  `sprint80_audit_plan.md`. Audit gate S79 = Phase 0 de S80 (joué : PASS
+  effectif, P1-1 résolu `c0a2ffe`). **Arbitrage ordre
   Factory-vs-S78 sharding (carry P1) RESOLU : Factory-first** (sharding S78 differe
   + tracke). v2.1 ouverte. **Tag v1.0 pose et pousse (LT-2 ARME, dry-run
   Radicle prive fait).**
+  **S80 DONE — refonte GREENFIELD front Factory Operator** (établi bi-focal
+  STEER/VERIFY) : 10 phases A-J. Auth cookie HttpOnly + bootstrap `GET /?token`
+  (A `a5ace8d`) ; scaffold React 19 + Compiler + Tailwind v4 oklch + Base UI
+  seule dep + jettison ancien front/factory-ui + 5 gates discipline (B) ;
+  STEER + rail + SSE `useTokenStream` fetch+ReadableStream jamais-EventSource
+  (C) ; VERIFY-bootstrap PTY + 3 inspecteurs restitution-pure (D) ;
+  design-system oklch + 5 signatures motion (E) ; `GET /api/git/diff`
+  working-tree Rust (F) ; `GET /api/gates` registre 1:1 GateStatus 5 valeurs
+  (G) ; VERIFY-plein diff-viewer maison + panneau gates + bascule MANUELLE D6
+  (H) ; testabilité T1/T2 — workspace hermétique cwd-fixture (ferme
+  TEST-ISOLATION-SBFB-HOME), fixture daemon SSE déterministe, T2 JSON COMMITTÉ
+  PASS, CI vitest chaque push, scan anti-score self-testé, §P72 (I `782796c`) ;
+  clôture docs-contrat 4 frontières → llms.txt/REFERENCE/EXPLANATION +
+  verification 9 sections + sprint81_audit_plan 11 tracks (J). **Canon process
+  amendé `a6b4ca4`** : clôture docs-contrat = livrable de fermabilité (DoD (d)
+  §4 + §3.3 livrable 3 + kickoff invariant #17 + audit Track K standing +
+  review dimension 6bis test-acteur §6.12 — une API loopback lue par un
+  runtime distinct EST une frontière, jamais le test « 0 wire bump »).
+  **Arc off-sprint rapid-add committé sur master** (19 commits : lots UX,
+  a11y WCAG U1+L3, i18n Lingui OVERRIDE PO socle+3 gates+51 locales) —
+  review groupée + Codex groupé DUS à la reprise post-S82 ; l'arc INACHEVÉ
+  (87 fichiers) reste parqué sur `wip/factory-front-arc-post-s82`.
+  Invariants tenus : MUR jamais bouton, 0 verdict calculé UI, diff = vérité
+  Rust, Factory hors daemon (0 route daemon), 0 bump wire, 0 dep runtime
+  ajoutée hors Lingui-OVERRIDE. Carries P1 standing : sharding S77 RIG-ABSENT
+  + app-authoring in-vivo `Not evidenced` ; fondation Viewer S81. Séquencement
+  PO acté : **S81 = upgrade iroh 0.98→1.0** (relais N0 EOL 2026-09-30,
+  kickoff DRAFT en staging `.planning/research/sprint81_iroh_upgrade/`) →
+  S82 workflow-engine → reprise arc front.
   Projet Rust+Frontend pur depuis S50-S51.
   S70 DONE : 7 phases A-G (A AGENT_SYSTEM.md canon portable + B
   dette pair P2-I-3 3/3 + P2 audit absorbes + C prompt portability
@@ -343,13 +373,23 @@ Runtime isolation roadmap dans
   S69 audit PASS (0 P0, 0 P1, 3 P2, 2 P3) — `c6c135f`.
   P2P valide cross-machine : LAN Win↔Mac, WAN dev↔VPS Helsinki.
   CI operationnel : Woodpecker ci.sbfb.world + GHA.
-- **~2370 tests total** (1949 Rust nextest Windows natif 0-skip /
-  1953 canonique Docker Linux [+4 `#[cfg(unix)]`] / 411 Vitest `web/` /
-  41+1skip E2E `compute-shard` / 7 Vitest factory-operator / 6/6
-  size-limit) — Win + Docker fmt/clippy/doctest verts ; les tests
-  iroh-networked `multi_daemon` sont env-bloques en Docker-on-Windows
-  (reseau hote degrade `create_node`, verts sur Win natif + le CI Linux
-  Woodpecker/GHA). S77 delta : +145 Rust Win (1804→1949) / +13 Vitest
+- **~2650 tests total** (2014 Rust nextest Windows natif 0-skip /
+  2018 canonique Docker Linux [+4 `#[cfg(unix)]`] / 411 Vitest `web/` /
+  41+1skip E2E web `compute-shard` / **201 Vitest factory-operator
+  (35 fichiers) + 10 E2E Playwright operator hermétiques** / size-limit
+  web 6/6 + operator budgets verts) — Win + Docker fmt/clippy/doctest
+  verts ; les tests iroh-networked `multi_daemon` sont env-bloques en
+  Docker-on-Windows (reseau hote degrade `create_node`, verts sur Win
+  natif + le CI Linux Woodpecker/GHA) ; **classe env voisine S80** : les
+  tests HTTP loopback `operator_server` depassent 30s sous
+  Docker-on-Windows (verts <1s natif) → toujours passer
+  `SBFB_TEST_HTTP_TIMEOUT_SECS=120` au run `sbfb-ci` local (echappatoire
+  documentee `crates/sbfb-factory/tests/operator_server.rs`).
+  S80 delta : +20 Rust Win (1994→2014, fin S79 = 1994 ; 1949 = fin S77) /
+  +20 Docker (1998→2018) /
+  Vitest operator 7→201 suite REBÂTIE de 0 (greenfield ; C 52 → D 77 →
+  E 92 → H 137 → I 201) / E2E operator 0→10 / web 411 inchangé.
+  S77 delta : +145 Rust Win (1804→1949) / +13 Vitest
   (398→411). S76
   delta : +41 Rust Windows depuis l'entree phases 1763 (A +4 [→1767],
   B +8, C +10, D +4, E +10, F +5, G +0 [fmt-fix whitespace seul] ;

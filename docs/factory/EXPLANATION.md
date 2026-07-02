@@ -83,3 +83,17 @@ import distant impossible, et une **origine opaque sous COEP `require-corp`** ne
 peut pas satisfaire le CORS d'un module ESM. daisyUI/Tailwind sont compilés
 **build-time** en un seul `app.css` same-origin — l'archive runtime n'embarque
 **aucune** dépendance et ne fait **aucune** requête sortante.
+
+## L'API de pilotage de l'Operator — un sous-domaine distinct
+
+Depuis le Sprint 80, le poste de pilotage (front greenfield
+`tools/factory-operator/`) lit quatre routes loopback du serveur Rust :
+amorçage cookie, diff d'arbre de travail calculé côté Rust, registre de
+gates restitué 1:1, et flux de conversation. Ce sont des **frontières au
+sens du test-acteur** (un runtime distinct les lit), mais elles vivent
+**hors** de l'iframe scellée et de sa politique `BLOB_SERVE_CSP` — les
+mélanger au contrat de scellage serait une erreur de catégorie. Leur
+référence contractuelle vit dans
+[`REFERENCE.md` §Operator control-plane API](./REFERENCE.md) ; les
+mitigations de cette surface restent dans le
+[modèle de menace](../security/THREAT_MODEL.md), source unique.

@@ -86,6 +86,89 @@ under the real served CSP and captures browser-level violations. **Static lint �
 runtime guarantee.** The self-check `status` is a *test* verdict, never a publish
 authority (Day-0 "0 verdict PASS").
 
+## Operator control-plane API (loopback)
+
+*Sprint 80 frontier closure. The Operator control-center (greenfield front,
+`tools/factory-operator/`) is a DISTINCT runtime that reads these loopback
+routes over `127.0.0.1` — that actor makes them §6.12 frontier primitives.
+They are NOT part of the sealed-iframe contract above: the Operator serves
+outside `BLOB_SERVE_CSP` (its own minimal self-origin CSP). Mitigations for
+this surface (T-OPERATOR-CSRF and friends) live in the
+[threat model](../security/THREAT_MODEL.md) — single source, not duplicated
+here. TS consumers:
+[`streamChunk.ts`](../../tools/factory-operator/src/lib/streamChunk.ts),
+[`useTokenStream.ts`](../../tools/factory-operator/src/lib/useTokenStream.ts),
+[`operator.ts`](../../tools/factory-operator/src/api/operator.ts).*
+
+### Auth bootstrap (cookie transport) — shipped `a5ace8d`
+
+GET `/?token=<hex>` sits OUTSIDE `auth_required` (chicken-and-egg: reachable
+before any cookie exists). It validates the bearer in constant time, then
+mints `Set-Cookie: sbfb_operator=<session secret>; HttpOnly; SameSite=Strict;
+Path=/` and answers **303 See Other** to `/` with `Referrer-Policy:
+no-referrer` (the token leaves the address bar). The cookie carries a
+**per-boot session secret** (`session_secret`) — **never the bearer**: the
+root of trust stays the `x-sbfb-token` header (`AUTH_HEADER`). The cookie is
+only accepted as a browser fallback transport (SSE/WS cannot set headers)
+when `Sec-Fetch-Site: same-origin` is present (cross-port CSRF guard —
+cookies are not port-scoped, RFC 6265). The response is IDENTICAL for
+absent and wrong tokens (no oracle). The front never sets an auth header
+itself (`credentials: 'same-origin'` lets the browser attach the cookie).
+Anchors: `handle_bootstrap`, `OPERATOR_COOKIE`.
+
+### GET /api/git/diff (working-tree) — shipped `bb35d39`
+
+Restitutes the working tree computed **IN RUST** — never a JS-side diff
+(kickoff invariant: one source of diff truth). Read-only, zero user input.
+Envelope `{head, unstaged, staged, truncated}`: `head` = short HEAD sha (the
+`run@<rev>` freshness anchor); `unstaged` = `git diff`, `staged` = `git diff
+--cached` (a partially staged file legitimately appears in BOTH arrays — git
+semantics); `truncated=true` past the line cap (cut at a line boundary).
+Each file diff = `{path, insertions, deletions, hunks[]}`; each hunk =
+`{header, lines[]}`; each line = `{kind: "add"|"del"|"ctx", content,
+old_lineno, new_lineno}` where `old_lineno`/`new_lineno` serialize to
+**null** when absent (the front Zod contract is `.nullable()`). Untracked
+files are absent (not part of `git diff`). Anchor: `working_tree_diff_data`.
+
+### GET /api/gates (live gate registry) — shipped `ed00b4a`
+
+**1:1 read-only and idempotent** diagnostic: NO publish scan runs on this
+GET (a side effect would break idempotence). Envelope `{gates: [...]}` with
+**no aggregate root field** — no `overall`, no `all_passed`, no score. Each
+entry = `{gate, status, issues[]}`; `status` is the `GateStatus` enum with
+**exactly five** snake_case values: `not_run` / `not_applicable` / `passed`
+/ `informational` / `blocking`. One gate can appear under SEVERAL statuses
+(`lint-planning` splits errors→`blocking` and warnings→`informational`):
+index by the **(gate, status)** key, never by gate alone. Cardinal
+invariant: the Operator computes **no aggregate verdict** (0 UI-computed
+verdict); the front restitutes 1:1 and never fabricates a PASS — acceptance
+words (`PROVISIONAL`/`Not evidenced`/`RIG-ABSENT`) are NOT in the enum. Each
+issue = `{message, file, line}`; `line` is **null as of S80** (fine-grained
+line anchor is tracked debt). Anchors: `gates_live_data`, `GateStatus`.
+
+### Chat SSE contract — shipped `6991d51`
+
+`POST /api/chat/session` → `{id, context_pack}`, then `POST
+/api/chat/{id}/send` (persists the turn's provider + model and applies the
+MUR), then `GET /api/chat/{id}/stream` (bodyless; auth rides the same-origin
+cookie). The stream emits `data: <compact json>\n\n` frames ONLY — no
+`event:`/`id:`/heartbeat/keep-alive: **EOF is the end signal**. **Six wire
+event types**: the five serde variants of `StreamChunk` (`delta`,
+`thinking`, `done`, `error`, `debug`; tag `"type"`) plus **`requires_gate`,
+hand-forged outside serde by `sse_gate`**. The MUR (`SENSITIVE_ACTIONS`)
+runs BEFORE any dispatch: a sensitive message answers `requires_gate` and
+never spawns an agent — a structural refusal (0 spawn), never a button.
+PO-14 invariant: **exactly ONE `done`** (the Network arm carries a single
+`done`, zero `delta`); the front latches the FIRST terminal event
+`{done|error|requires_gate}` and ignores the rest, via `fetch +
+ReadableStream + AbortController` — **never EventSource** (which would
+reconnect and replay the turn). Seven front statuses (`StreamStatus`:
+`idle`, `streaming`, `done`, `aborted`, `error`, `gate`, `ended` — a
+front-internal state machine, one hop from the six wire types). The `debug` variant's `content` may carry the
+assembled prompt verbatim — this page documents the SHAPE
+(`{type:"debug", label, content}`), intentionally without a dump. Anchors:
+`handle_chat_stream`, `sse_gate`, `StreamChunk`.
+
 ## See also
 
 - Agent wiring spec: [`WIRING_SPEC.md`](./WIRING_SPEC.md).
