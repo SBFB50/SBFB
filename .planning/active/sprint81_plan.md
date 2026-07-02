@@ -3,8 +3,11 @@
 > **ACTIVÉ le 2026-07-02** (Cas C ; Phase 0 = audit gate S80 JOUÉE : CONDITIONAL PASS →
 > PASS effectif, findings `dcc3eea`, fix P1 `2c85b28`). Source unique :
 > `sprint81_kickoff.md` (+ bloc **Décisions PO à l'activation 2026-07-02**, qui fait
-> AUTORITÉ) + dossier canonique S81 (corrections sceptique intégrées : self-heal
-> `runtime.rs:2515` destructeur, materializer `feed_materializer.rs:54-58`, 3 crates déclarent iroh).
+> AUTORITÉ — intègre le registre de la **vérification ultracode 02/07**
+> `verification_2026-07-02.md` : pin `=1.0.1`, auto-migration redb #105, self-heal ×2
+> `:2518`/`:2606`, MSRV tranchée 1.91, phases A2/A3, C8/C9/C10) + dossier canonique S81
+> (corrections sceptique intégrées : materializer `feed_materializer.rs:54-58`,
+> 3 crates déclarent iroh). **14 phases : 0 + A, A2, A3, B→K.**
 
 > Phases dimensionnées par le **travail**, JAMAIS par LOC. **Phase 0 = audit gate S80** (JOUÉE).
 > S81 = **iroh STRICTEMENT SEUL** (bisectabilité ; materializer en Phase A commit séparé AVANT le
@@ -58,26 +61,63 @@
 - **Gate / scope-cut** : **commit propre dédié, JAMAIS dans le commit de bump** (R10). 0-bump wire
   SBFB (JCS / `DOMAIN_*_V1` / `FEED_FORMAT_VERSION` intacts).
 
-## Phase B — Bump deps workspace + recompile mécanique + MSRV empirique
+## Phase A2 — Self-heal root-cause ×2 [0-bump, AVANT le bump — vérification 02/07]
 
-- **But** : `cargo build --workspace` vert sous iroh 1.0 ; corriger l'unique cassure compile connue ;
-  fixer la MSRV **réelle** (empirique, pas budgétée).
+- **But** : fermer à la racine la classe « perte silencieuse warn-only » des DEUX sites
+  self-heal destructeurs AVANT toute migration (un échec de migration doit être un crash
+  diagnostiquable, jamais une re-création silencieuse de namespace).
+- **Jobs/surfaces** : `crates/nexus-shell-daemon/src/runtime.rs` — `boot_storage_namespace`
+  `:2456-2549` (recreate `:2518`) ET miroir `boot_feed_namespace` `:2555-2633` (recreate
+  `:2606`).
+- **Livrables** : sur les 2 sites, `Err` → **fail-fast diagnostiquable** (plus jamais
+  `warn` + recreate) ; seul `Ok(None)` (cas légitime : DB importée d'un autre data-dir)
+  recrée un namespace neuf.
+- **Delta tests attendu** : **+2..4 Rust** (Err fail-fast ×2, Ok(None) recrée ×2).
+- **T1** : durcit le sous-test (3) — « self-heal non déclenché » couvre les 2 sites.
+- **Gate / scope-cut** : 0-bump, indépendant d'iroh ; commit séparé (bisectabilité).
+
+## Phase A3 — Baseline transport LIVE 0.98 + fix WAN task-delivery (C10) [0-bump]
+
+- **But** : mesurer la baseline transport LIVE réelle sous 0.98 AVANT le bump (jamais
+  mesurée : les 5 tests `multi_daemon` relay-gated early-returnent verts EN SILENCE en
+  CI — ni Woodpecker ni GHA ne posent `SBFB_INTEGRATION=1`) ET fermer le blocker WAN
+  task-delivery S77 (C10 ratifié) pour que le palier quorum b3 ait un PASS atteignable.
+- **Jobs/surfaces** : harness b3 par palier + run relay-gated Win + Ollama Mac + blocker
+  WAN task-delivery (0-bump). Split de phase possible si le préflight juge le fix WAN
+  trop gros (précédent : split E').
+- **Livrables** : artefact **JSON b3 par palier COMMITTÉ** (baseline 0.98 : à re-jouer à
+  l'identique post-bump = différentiel propre) ; run Win `SBFB_INTEGRATION=1` archivé ;
+  **Ollama installé sur le Mac** ; **copie du store VPS rapatriée** (ressource Phase F) ;
+  **fix WAN task-delivery** (root-cause S77, 0-bump).
+- **Delta tests attendu** : **+1..4 Rust** (selon la forme du fix WAN ; le harness gagne
+  des checks préflight).
+- **T1** : aucun nouveau sous-test hermétique (baseline live) ; le fix WAN peut ajouter
+  une assertion in-process.
+- **Gate / scope-cut** : 0-bump strict ; la baseline b3 0.98 est COMMITTÉE avant tout
+  bump (différentiel avant/après = preuve de non-régression transport).
+
+## Phase B — Bump deps workspace + recompile mécanique
+
+- **But** : `cargo build --workspace` vert sous iroh 1.0.1 ; corriger l'unique cassure compile
+  connue.
 - **Jobs/surfaces** : point unique de bump + recompile mécanique des 3 crates déclarant iroh. Crates
   `nexus-core-rs`, `nexus-shell-daemon`, `nexus-shell-daemon-core` (dev-deps).
-- **Livrables** : `Cargo.toml:37-41` → `iroh "=1.0.0"` / `iroh-docs "0.101.0"` / `iroh-gossip
-  "0.101.0"` / `iroh-blobs "0.103.0"` (pin exact, D1) ; `pkarr_resolver.rs:40,109`
+- **Livrables** : `Cargo.toml:37-41` → `iroh "=1.0.1"` / `iroh-docs "=0.101.0"` / `iroh-gossip
+  "=0.101.0"` / `iroh-blobs "=0.103.0"` (pins exacts, D1 amendée — 1.0.1 re-checkée jour J) ;
+  deps relogées éventuelles (`iroh-tickets`/`iroh-metrics`) + `irpc` 0.14→0.17 ;
+  `pkarr_resolver.rs:40,109`
   `CaRootsConfig→CaTlsConfig` (#4300) + re-vérif `PkarrRelayClient::new(url, tls)` (`:114`) ;
   commentaires de version (`Cargo.toml:33-35`, `node.rs:24`, `blobs.rs:87`, `docs.rs:54`,
   `discovery.rs:6-8`) ; `Cargo.lock` figé et **capturé** pour `cargo tree -d` (Phase G) ; checkpoint
   gossip (pur recompile, aucun changement attendu).
-- **Deps / build** : **bump iroh = point unique** ; vérif `cargo +1.94 build` Docker canonique
-  (décision MSRV, D6) — **rester 1.94 sauf preuve cargo qu'une feuille exige plus**.
+- **Deps / build** : **bump iroh = point unique** ; MSRV **tranchée 1.91** (vérification
+  02/07 : rust_version crates.io ×5 — toolchain 1.94 suffit, confirmation au build, pas
+  de re-débat).
 - **Delta tests attendu** : **0 net** (recompile ; les tests existants doivent rester verts).
-- **T1** : aucune nouvelle assertion ; la **baseline T1 0.98 (Phase A)** doit rester verte sous le
-  nouveau lock (filet de non-régression du bump).
-- **Gate / scope-cut** : iroh SEUL. **Bump MSRV 1.95 INTERDIT sans preuve cargo** (R7). `iroh =
-  "=1.0.0"` provisoire → **re-pin OBLIGATOIRE sur la 1re 1.0.x patch AVANT push live** (D1/C3) ;
-  interdiction de pousser la `.0` brute si une patch existe.
+- **T1** : aucune nouvelle assertion ; la **baseline T1 0.98 (Phases A/A2)** doit rester verte sous
+  le nouveau lock (filet de non-régression du bump).
+- **Gate / scope-cut** : iroh SEUL. **Bump toolchain 1.95 INTERDIT** (D6 tranchée). Veille
+  **1.0.2**/RustSEC jusqu'au push live (re-check code-freeze).
 
 ## Phase C — iroh-docs deep (wire + types iroh-base)
 
@@ -119,17 +159,24 @@
   `nexus-shell-daemon` (`seed_protocol` impl `ProtocolHandler`), `nexus-shell-daemon-core`.
 - **Livrables** : `shard.rs:60-63,171-181,299-327` (`Connection::rtt(PathId::ZERO)`, `closed` /
   `close` / `remote_id` — **traité UNVERIFIED-high-risk, jamais « SAUVE/stable verbatim »**, cf. R5) ;
+  **liste canonique des retraits rc.0 re-ancrée au préflight** (vérification 02/07 :
+  `Connection::to_info()`→`weak_handle()`, `PathWatcher/PathInfo`→`paths()/PathList` +
+  `PathEvent #[non_exhaustive]`, `Incoming::local_ip`→`local_addr`, ClientBuilder
+  `query_param`→`auth_token`) ;
   `seed_protocol.rs:44-48,263-264` (`ProtocolHandler` / `AcceptError`, crate `nexus-shell-daemon`) ;
   `pkarr_resolver.rs:38-41,54,107-115` (+ **survie URL `dns.iroh.link/pkarr`** `:54` — check nommé,
   jamais plié dans « recompile ») ; `relay_config.rs:17-20,46` + `node.rs:318,329,348` (`RelayMode::
   Custom`, `default_relay_map` URLs, `presets::N0`) ; **re-scan des call-sites** sur
-  `nexus-shell-daemon` + `nexus-shell-daemon-core` (pas seulement `nexus-core-rs`, D7).
+  `nexus-shell-daemon` + `nexus-shell-daemon-core` (pas seulement `nexus-core-rs`, D7) ;
+  **PLAN B C8 PRÉ-PROVISIONNÉ (2-4 j)** : relais iroh self-hosted wire-compat + pkarr
+  self-hosted + **acceptance zéro-n0** (le réseau tient sans aucun service n0).
 - **Delta tests attendu** : **+1..2 Rust** (handshake seed 2-noeuds in-process ; pkarr resolver parse).
 - **T1** : alimente le sous-test (5) **recompile + handshake shard** `sbfb/shard/1` in-process (PAS le
   RTT/multipath live) + le sous-test (1) **seed ALPN** `sbfb/seed/0` handshake.
 - **Gate / scope-cut** : la Phase E ne fait que **compile + handshake** — la re-cert LIVE shard
-  multipath vit en Phases I/J (décision PO C1 ; R5 amendé). Provisionner un relais iroh
-  self-hosted **optionnel** pour l'ancre VPS (résilience, D2). Default `presets::N0` conservé.
+  multipath vit en Phases I/J (décision PO C1 ; R5 amendé). **Split E' possible** si le portage
+  shard dépasse le mécanique. Default `presets::N0` conservé ; le plan B C8 est OBLIGATOIRE
+  (gates calendaires 01/08 / 25/08 / 15/09 au kickoff).
 
 ## Phase F — Migration on-disk redb 2→4 validée sur COPIE
 
@@ -143,12 +190,14 @@
   **neutraliser le self-heal destructeur** (si chemin in-place).
 - **Jobs/surfaces** : migration on-disk + fixtures + garde self-heal. Crates `nexus-core-rs`,
   `nexus-shell-daemon`.
-- **Livrables** : fixture de migration redb 2→4 (store peuplé namespace **sbfb-ides**, saut
-  **0.98→0.101 DIRECT** — jamais 0.99/0.100 contre l'ancien store, D3 cond.1) ; test ouverture store
-  blobs redb2 sous 0.103 (staging) ; **garde explicite autour de `runtime.rs:2515-2528`** : le
-  self-heal (branche `None` → `create_doc()` namespace id NEUF + `set_storage_namespace` écrasant la
-  ligne M8 **sans `import_ticket`**) est **NON déclenché en fenêtre de migration** — ce n'est **PAS un
-  backstop**, c'est une perte silencieuse `warn`-only (correction critique sceptique, D3 cond.7) ;
+- **Livrables** : fixture de migration redb 2→4 (store peuplé namespace **sbfb-ides** — trancher
+  l'incohérence `sbfb-ides`/`sbfb-ideas` AU CODE au préflight —, saut
+  **0.98→0.101 DIRECT** — jamais 0.99/0.100 contre l'ancien store, D3 cond.1 ; la migration est
+  **AUTOMATIQUE à l'ouverture**, iroh-docs PR #105 : le préflight LIT le code upstream —
+  atomicité, comportement crash mid-migration — la fixture VALIDE, elle n'active rien) ; test
+  ouverture store blobs redb2 sous 0.103 (staging) ; **garde vérifiée sur les DEUX sites
+  self-heal** (`:2518` + miroir `:2606`, fixés root-cause en A2) : NON déclenchés en fenêtre de
+  migration (D3 cond.7) ;
   inventaire « pins re-fetchables ailleurs ? » avant toute tolérance wipe blobs ; vérif parse
   `DocTicket` (DB) + `BlobTicket` (`anchors.json`) post-migration.
 - **Delta tests attendu** : **+3..5 Rust** (fixture migration in-place, survie entries + namespace id
@@ -167,12 +216,16 @@
 - **Livrables** : `cargo tree -d` (gate de convergence : **un seul** arbre `ed25519-dalek` + **0
   `*-pre`/`*-rc` dupliqués**) → **flip `deny.toml:107` `multiple-versions warn→deny`** OU lever
   **P2-AUDIT-2-RESIDUEL** (carry S82) ; vérif que le `ed25519-dalek 2.x` SBFB ne s'effondre PAS sur
-  l'arbre RC d'iroh (`Cargo.toml:58`) ; image CI / Docker canonique + `Cargo.toml:24` rust-version
-  **seulement si** D6 l'exige (preuve cargo) ; `cargo-deny` / `cargo-audit` verts ; amendements
-  `THREAT_MODEL.md:22,128,195` (0.98→1.0.0 + rationale wire-freeze réduit le churn désérialisation,
+  l'arbre RC d'iroh (`Cargo.toml:58`) ; **rust-version DÉCLARÉE `Cargo.toml:24` 1.85→1.91** (D6
+  tranchée — image CI/Docker INCHANGÉE, toolchain 1.94 suffit) ; **trigger de veille iroh-docs
+  0.102+** (wire pré-1.0, 2 casses en 6 semaines) ; `cargo-deny` / `cargo-audit` verts ; amendements
+  `THREAT_MODEL.md:22,128,195` (0.98→1.0.1 + rationale wire-freeze réduit le churn désérialisation,
   **résiduel reste M**), `EXTERNAL_AUDIT_SCOPE.md §2.4/§2.7` (note R-iroh-audit **reconfirmée
   verbatim**, rejouer checklist `cargo tree`), `HARDENING_ROADMAP.md:5` (trigger iroh **FIRED** + bump
-  `last_validated`).
+  `last_validated`) ; **LOT-LOOPBACK-DOC (audit S80 H-1/2/3/4)** : revalidation
+  `LOOPBACK_ENDPOINTS_TRUST_TIERS` §3.1 (routes git/diff+gates + double transport cookie +
+  description terminal/ws PTY) + nit §14 EventSource + `last_validated` ; TOOLCHAIN-LABEL
+  (décision pin rust-toolchain.toml au préflight).
 - **Delta tests attendu** : **0** (gates supply-chain + docs).
 - **T1** : aucun nouveau sous-test (gates supply-chain + docs).
 - **Gate / scope-cut** : **NE PAS marquer P2-AUDIT-2 CLOSED si le lock ne converge pas** (R6/C7).
@@ -182,19 +235,25 @@
 
 ## Phase H — Migration LIVE ancre VPS + acceptance
 
-- **But** : migrer le matériel live **sans perte**, dans l'ordre sûr.
+- **But** : migrer le matériel live **sans perte**, dans l'ordre sûr, avec une **fenêtre
+  d'incompatibilité BORNÉE** (vérification 02/07 : les flottes relais 0.98/1.0 diffèrent →
+  partition possiblement totale pendant la fenêtre).
 - **Jobs/surfaces** : runbook opérationnel + déploiement VPS. `deploy/`, ancre Hetzner S75.
-- **Livrables** : runbook (`docs/` ou planning) : **tar snapshot** `NEXUS_GRID_ROOT` (`docs.redb` +
-  `blobs/`) AVANT restart (one-way → rollback = restore tar) ; **ordre codifié : dev Win + Mac
-  d'abord, VPS EN DERNIER** (wire docs/gossip non-rétrocompat intra-rollout, R4) ; deploy binaire
-  1.0.x + restart systemd ; vérif 1er boot **0 crash-loop** + `docs.redb` migré + **`node_id`
+- **Livrables** : runbook (`docs/` ou planning) : **tar snapshot sur les 3 NŒUDS**
+  (`NEXUS_GRID_ROOT` : `docs.redb` + `blobs/`) AVANT restart (one-way → rollback = restore tar) ;
+  **flip same-day en UNE session** : ordre codifié dev Win + Mac puis **VPS EN DERNIER** (wire
+  docs/gossip non-rétrocompat intra-rollout, R4) + **gel publish/ingest pendant la fenêtre** +
+  **convergence vérifiée après CHAQUE nœud** + re-annonce post-flip ; deploy binaire
+  1.0.1 + restart systemd ; vérif 1er boot **0 crash-loop** + `docs.redb` migré + **`node_id`
   INCHANGÉ** + feed / ides / pins intacts ; `deploy/nexus-shell-daemon.service` inchangé
   (`start --headless`).
 - **Delta tests attendu** : **0** (acceptance opérationnelle).
 - **T1** : aucun (acceptance live) ; alimente **T2** (axe transport).
 - **Gate / scope-cut** : **re-install stock S75 INTERDIT sur l'ancre live** (régénérerait
-  `node_key`/`node_id` → casse les locators abonnés, D3 cond.5/R1). Migration VPS **bloquée tant que
-  la validation sur copie (Phase F) n'est pas PASS** (R2).
+  `node_key`/`node_id` → casse les locators abonnés, D3 cond.5/R1 — conservé même sous C4/C5
+  assoupli : coût nul). Migration VPS **bloquée tant que
+  la validation sur copie (Phase F) n'est pas PASS** (R2). Gate calendaire C8 : **15/09** —
+  Phase H pas faite → plan B ACTIF.
 
 ## Phase I — Orchestrateur de session sharding in-vivo (ex-S78) [décision PO C1]
 
@@ -247,7 +306,11 @@
   S81 indexées ou `N-A-no-new-frontier` explicite — leçon S80-K-1 : l'inventaire couvre TOUTE la
   fenêtre du sprint, pas seulement les phases) + **LOT-LOOPBACK-DOC soldé en Phase G vérifié ici** ;
   pipeline **fail-fast 3 blocs** (Rust dual-platform Win + Docker `sbfb-ci` rust:1.94 + frontend
-  lint/tsc/vitest/coverage/build/`size`/`scan-en-strings`) ; `SPRINT_LOG.md` row 81 + `CLAUDE.md`
+  lint/tsc/vitest/coverage/build/`size`/`scan-en-strings`) ; **libellé T1 corrigé**
+  (vérification 02/07 : distinguer hermétique-CI vs relay-gated-local ; câbler un job
+  `SBFB_INTEGRATION=1` nightly/manuel OU acter la couverture T2-live — plus jamais de
+  early-return vert silencieux non documenté) ; **arbitrage slot S82 BLOQUANT** (C9) ;
+  `SPRINT_LOG.md` row 81 + `CLAUDE.md`
   S81 DONE + `nexus_grid_pivot.md` + `MEMORY.md` + `PATTERNS.md` ; `sprint82_audit_plan.md` (carries
   reroutés).
 - **Delta tests attendu** : **+ tests T1** consolidés (convergence in-process + fixture redb +
@@ -267,7 +330,9 @@
 | Phase | Acte deps / build Rust |
 |---|---|
 | A | **aucun** — fix coordinator SQLite 0-bump, **AVANT** le bump (commit séparé, bisectabilité) |
-| B | **bump point unique** : iroh `=1.0.0` / docs `0.101.0` / gossip `0.101.0` / blobs `0.103.0` ; `pkarr` `CaRootsConfig→CaTlsConfig` ; `Cargo.lock` figé ; **MSRV empirique** (`cargo +1.94 build` Docker) |
+| A2 | **aucun** — self-heal ×2 fail-fast (`runtime.rs:2518`/`:2606`), 0-bump |
+| A3 | **aucun** — baseline b3 LIVE 0.98 committée + fix WAN task-delivery, 0-bump |
+| B | **bump point unique** : iroh `=1.0.1` / docs `=0.101.0` / gossip `=0.101.0` / blobs `=0.103.0` (+ `iroh-tickets`/`iroh-metrics` si relogement, `irpc` 0.14→0.17) ; `pkarr` `CaRootsConfig→CaTlsConfig` ; `Cargo.lock` figé ; MSRV 1.91 tranchée |
 | C | recompile + migration **iroh-docs** (wire + types iroh-base) — `nexus-core-rs` (+ `runtime.rs`) |
 | D | recompile **iroh-blobs** + redb4 — `nexus-core-rs` |
 | E | recompile call-sites **3 crates** (core + `nexus-shell-daemon` `ProtocolHandler` + dev-deps core) |
@@ -285,11 +350,15 @@ Le bump est un **point unique** ; les **call-sites API débordent côté daemon*
 
 ## Gate de testabilité (rappel — cf. kickoff §Gate de testabilité)
 
-- **T1 hermétique BLOQUANT** (Win natif + CI Linux ; jamais Docker-on-Windows) : (1) convergence
+- **T1 hermétique BLOQUANT** (Win natif + CI Linux ; jamais Docker-on-Windows ; **libellé
+  honnête** : les tests relay-gated `SBFB_INTEGRATION=1` sont une classe SÉPARÉE, jamais
+  comptée « CI-verte » sans run réel — Phase K câble le job ou acte la couverture T2) :
+  (1) convergence
   in-process `multi_daemon` 2-noeuds loopback/`MemoryLookup` (doc-sync + gossip + blobs + seed ALPN +
   ingest annuaire) ; (2) convergence ingest hors-ordre (`PublicRegistryView` identique cross-fold,
   couvre Phase A) ; (3) fixture migration redb 2→4 (entries survivent, namespace id inchangé,
-  self-heal non déclenché ; blobs redb2 sous 0.103) ; (4) parse tickets persistés (`DocTicket` DB +
+  self-heal non déclenché — **les 2 sites A2** ; blobs redb2 sous 0.103) ; (4) parse tickets
+  persistés (`DocTicket` DB +
   `BlobTicket` `anchors.json`) ; (5) recompile + handshake shard `sbfb/shard/1` in-process (PAS le
   RTT/multipath live) ; (6) session shard in-process via l'orchestrateur Phase I (loopback, sans
   GPU réel).

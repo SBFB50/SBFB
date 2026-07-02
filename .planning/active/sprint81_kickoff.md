@@ -12,9 +12,18 @@
 
 ## Décisions PO à l'activation (2026-07-02) — AUTORITÉ sur tout passage contraire
 
-> Confirmation des arbitrages C1..C7 recueillie à l'activation (procédure
-> README staging §3). Ce bloc SUPERSEDE tout passage du kickoff/plan rédigé
-> sous l'hypothèse de la reco C1.
+> Confirmation des arbitrages C1..C10 recueillie à l'activation (procédure
+> README staging §3). Ce bloc intègre AUSSI le **registre d'amendements de la
+> vérification ultracode du 2026-07-02**
+> (`.planning/research/sprint81_iroh_upgrade/verification_2026-07-02.md`,
+> `wf_8ef303fb-526`) : plan 12→14 phases (A2/A3 + I/J sharding), pin `=1.0.1`,
+> auto-migration redb #105, self-heal ×2, MSRV tranchée 1.91. Ce bloc SUPERSEDE
+> tout passage du kickoff/plan rédigé sous une hypothèse antérieure.
+> **Re-check crates.io jour J (prérequis #6, 2026-07-02)** : iroh max_stable =
+> **1.0.1** (29/06, pas de 1.0.2) ; iroh-docs 0.101.0 ; iroh-gossip 0.101.0 ;
+> iroh-blobs 0.103.0 — la vérification est CONFIRMÉE fraîche. (Attention outil :
+> `cargo info` local lisait un index caché périmé « 1.0.0-rc.1 » — toujours
+> vérifier via l'API crates.io.)
 
 - **C1 — TRANCHÉ CONTRE la reco : le sharding est INCLUS au T2 de S81.**
   Le DONE de S81 est **bi-axe** : transport-convergence ET re-cert live
@@ -28,10 +37,20 @@
   livre) — `RIG-ABSENT` n'est légitime que si une machine est génuinement
   HS. Cohérent directive PO « sprints ultra-complets » (0 defer du cœur).
 - **C2 — reco confirmée** : fix materializer Phase A in-sprint, AVANT le
-  bump, commit séparé.
-- **C3 — reco confirmée** : `iroh = "=1.0.0"` maintenant + re-pin
-  OBLIGATOIRE sur la 1re 1.0.x publiée AVANT push live ; sinon soak +
-  veille RustSEC.
+  bump, commit séparé. La vérification 02/07 ajoute **Phase A2** (self-heal
+  root-cause **×2** : `boot_storage_namespace` :2456-2549/recreate :2518 ET
+  le miroir `boot_feed_namespace` :2555-2633/recreate :2606 — Err→fail-fast
+  diagnostiquable, Ok(None) seul recrée) et **Phase A3** (baseline transport
+  LIVE 0.98 : artefact JSON b3 par palier committé + run Win
+  `SBFB_INTEGRATION=1` archivé — les 5 tests multi_daemon relay-gated
+  early-returnent verts EN SILENCE en CI depuis toujours — + Ollama sur le
+  Mac + copie store VPS rapatriée + **fix WAN task-delivery C10**).
+- **C3 — confirmée puis AMENDÉE par la vérification 02/07** : la 1re 1.0.x
+  EST publiée (iroh **1.0.1**, 29/06, re-checkée jour J) → coder directement
+  sur `iroh = "=1.0.1"` + compagnons exacts `=0.101.0`/`=0.101.0`/`=0.103.0` ;
+  veille 1.0.2 + RustSEC jusqu'au push live. Pins EXACTS délibérés
+  (reproductibilité + bisectabilité ; iroh-docs pré-1.0 wire-instable,
+  2 casses en 6 semaines → trigger de veille 0.102+).
 - **C4/C5 — ASSOUPLI par le PO : « il n'y a personne sur le réseau pour
   l'instant ».** Aucun nœud tiers n'existe : la contrainte de
   préservation ne protège que nos propres données. Le chemin de données
@@ -44,8 +63,31 @@
   préflights des Phases F/H tranchent le chemin final (PLAN-ADAPT) avec
   cette liberté ; la fixture migration redb 2→4 (T1.3) reste souhaitable
   comme preuve du chemin d'upgrade pour les futurs nœuds tiers.
-- **C6/C7 — recos confirmées** : MSRV empirique (pas de bump 1.95 sans
-  preuve cargo) ; P2-AUDIT-2 non pré-clôturé (gate `cargo tree -d`).
+- **C6 — TRANCHÉE par la vérification 02/07** : `rust_version=1.91` confirmé
+  crates.io pour les 5 crates → toolchain 1.94 SUFFIT, image CI inchangée ;
+  résiduel = bump de la rust-version DÉCLARÉE `Cargo.toml:24` 1.85→1.91
+  (Phase G). **C7 — reco confirmée** : P2-AUDIT-2 non pré-clôturé (gate
+  `cargo tree -d` flip-or-carry).
+- **C4-bis (vérification 02/07)** : la « feature défaut `redb-v2-migration` »
+  **N'EXISTE PAS** — la migration redb est AUTOMATIQUE à l'ouverture
+  (iroh-docs PR #105 ; saut réel redb ^2.6.3→^4.1). La fixture Phase F
+  VALIDE l'auto-migration (atomicité, crash mid-migration : préflight F lit
+  le code upstream), elle n'active rien.
+- **C8 — RATIFIÉ PO 2026-07-02 : plan B relais/discovery self-hosted
+  PRÉ-PROVISIONNÉ** (Phase E, 2-4 j : relais iroh self-hosted wire-compat +
+  pkarr self-hosted + acceptance zéro-n0) + **3 gates calendaires** :
+  **01/08** corps S81 pas ouvert → provisionner immédiatement ; **25/08**
+  Phase F pas PASS → basculer la flotte sur le plan B ; **15/09** Phase H
+  pas faite → plan B ACTIF (2 semaines de vérification zéro-n0 avant l'EOL
+  30/09).
+- **C9 — arbitrage slot S82** : séquencement PO acté (S82 = workflow-engine)
+  re-confirmé BLOQUANT en Phase K (les prétendants restants : fondation
+  Viewer, dette docs-contract — le sharding live est absorbé par S81 C1).
+- **C10 — RATIFIÉ PO 2026-07-02 : fixer le blocker WAN task-delivery en
+  0-bump AVANT le bump** (logé en Phase A3, split possible si le préflight
+  le juge trop gros) + Ollama installé sur le Mac → le palier quorum b3
+  RESTE dans le T2 transport avec un PASS atteignable (aucun b3 quorum
+  PASS complet n'a jamais existé — S81 vise le premier).
 - **Carries d'audit S80 actés à l'activation** :
   LOT-LOOPBACK-DOC (S80-H-1/2/3/4) → livrable additionnel **Phase G**
   (qui amende déjà les docs sécurité) ; TOOLCHAIN-LABEL (S80-A-2) →
@@ -69,10 +111,12 @@ Le travail touche **3 crates déclarant iroh en direct** (`nexus-core-rs`,
 `Cargo.toml:37-41`, plus le fix convergence materializer 0-bump dans
 `nexus-coordinator-rs` (Phase A) + 2 migrations on-disk redb 2→4 + une migration
 LIVE de l'ancre VPS.
-**Budget de phases** : Phase 0 (audit gate S80, JOUÉE) + **A→K** (I = orchestrateur
-sharding ex-S78, J = benchmark live shard, K = wrap-up — décision PO C1 ; le nombre
-de phases n'est jamais plafonné, README §4 ; dimensionné par le travail, JAMAIS par
-LOC). Rigueur per-phase **uniforme** : deep preflight (5 scans) + review + Codex à
+**Budget de phases** : Phase 0 (audit gate S80, JOUÉE) + **A, A2, A3, B→K**
+(A2 = self-heal ×2 + A3 = baseline live 0.98 + WAN C10, ajouts vérification
+02/07 ; I = orchestrateur sharding ex-S78, J = benchmark live shard, K =
+wrap-up — décision PO C1 ; 14 phases au total ; le nombre de phases n'est
+jamais plafonné, README §4 ; dimensionné par le travail, JAMAIS par LOC).
+Rigueur per-phase **uniforme** : deep preflight (5 scans) + review + Codex à
 **CHAQUE** phase.
 **Numéro/version archive** : **S81**, v2.1 (OPEN).
 
@@ -145,7 +189,10 @@ RTT/PathId multipath via l'orchestrateur de session in-vivo ex-S78, Phases I/J).
    AVANT le bump établit une baseline 0.98 verte → préserve la bisectabilité (un échec
    post-bump = iroh, pas le materializer). **Discipline imposée** : jamais dans le commit
    de bump.
-3. **C3 — Version cible.** **Correction intégrée (carte 3 + sceptique)** : « viser la
+3. **C3 — Version cible.** *(PÉRIMÉE-RÉSOLUE à l'activation : iroh 1.0.1 publiée le
+   29/06 et re-checkée jour J → coder directement `=1.0.1`, cf. bloc Décisions PO.
+   Texte historique du 27/06 conservé ci-dessous.)* **Correction intégrée (carte 3 +
+   sceptique)** : « viser la
    dernière 1.0.x » est **actuellement insatisfiable** — au 2026-06-27, `1.0.0` (12 j)
    est la **seule** stable, **aucune 1.0.x patch n'existe**. **Reco : coder sur
    `iroh = "=1.0.0"` maintenant + re-pin OBLIGATOIRE sur la 1re 1.0.x publiée AVANT le
@@ -155,10 +202,12 @@ RTT/PathId multipath via l'orchestrateur de session in-vivo ex-S78, Phases I/J).
 4. **C4 — Stratégie données-live.** *(ASSOUPLI PO 2026-07-02 : « il n'y a personne sur
    le réseau pour l'instant » — chemin simple autorisé, cf. bloc Décisions PO à
    l'activation ; le durcissement ci-dessous reste le chemin PRÉFÉRÉ si son coût est
-   raisonnable, les préflights F/H tranchent.)* **Reco (hybride durcie)** : migration **IN-PLACE
+   raisonnable, les préflights F/H tranchent. NOTE vérification 02/07 : la « feature
+   défaut redb-v2-migration » citée ci-dessous N'EXISTE PAS — auto-migration à
+   l'ouverture, PR #105, cf. C4-bis.)* **Reco (hybride durcie)** : migration **IN-PLACE
    impérative** pour `docs.redb` (saut 0.98→0.101 DIRECT, feature défaut
    `redb-v2-migration`), validée sur **COPIE** du store VPS peuplé AVANT flip ; **self-heal
-   `runtime.rs:2515` NEUTRALISÉ/gardé pendant la migration** (cf. C5) ; blobs in-place
+   `runtime.rs:2515` NEUTRALISÉ/gardé pendant la migration** (cf. C5, ×2 depuis A2) ; blobs in-place
    **avec test staging préalable** (pas un pari) + filet wipe **uniquement** pour les pins
    re-fetchables ; **tar snapshot** de `NEXUS_GRID_ROOT` avant 1er boot 0.101 (one-way →
    rollback = restore tar) ; **ancre VPS migrée EN DERNIER**, in-place, gardant
@@ -201,12 +250,24 @@ RTT/PathId multipath via l'orchestrateur de session in-vivo ex-S78, Phases I/J).
   `prev_hash`). Fold APRÈS `verify_chain` + tri topo `prev_hash` + tie-break
   `(timestamp, author, hash)` + garde monotone dans `apply()`. **Établit une baseline
   0.98 verte = bisectabilité.** Commit propre dédié, **JAMAIS** dans le commit de bump.
-- **B — Bump deps workspace + recompile mécanique + MSRV empirique** : `Cargo.toml:37-41`
-  → `iroh 1.0.0` / `iroh-docs 0.101.0` / `iroh-gossip 0.101.0` / `iroh-blobs 0.103.0` ;
+- **A2 — Self-heal root-cause ×2 [0-bump, vérification 02/07]** : les DEUX sites
+  destructeurs (`boot_storage_namespace` `runtime.rs:2456-2549`/recreate :2518 ET le
+  miroir `boot_feed_namespace` :2555-2633/recreate :2606) passent en Err→fail-fast
+  diagnostiquable ; seul `Ok(None)` (cas légitime : DB importée d'un autre data-dir)
+  recrée. Ferme la classe « perte silencieuse warn-only » à la racine.
+- **A3 — Baseline transport LIVE 0.98 + fix WAN task-delivery (C10) [0-bump]** :
+  artefact JSON b3 par palier COMMITTÉ + run Win `SBFB_INTEGRATION=1` archivé (les 5
+  tests multi_daemon relay-gated early-returnent verts EN SILENCE en CI — baseline
+  relais jamais mesurée) + Ollama installé sur le Mac + copie du store VPS rapatriée
+  (ressource Phase F) + **fix du blocker WAN task-delivery S77** (C10 ratifié — split
+  de phase possible si le préflight le juge trop gros).
+- **B — Bump deps workspace + recompile mécanique** : `Cargo.toml:37-41`
+  → `iroh =1.0.1` / `iroh-docs =0.101.0` / `iroh-gossip =0.101.0` / `iroh-blobs =0.103.0` ;
   cassure compile connue `pkarr_resolver.rs:40,109` `CaRootsConfig→CaTlsConfig` (#4300) +
-  re-vérif `PkarrRelayClient::new(url, tls)` ; commentaires version ; `Cargo.lock` figé ;
-  vérif `cargo +1.94 build` Docker canonique (décision MSRV, C6). Checkpoint gossip (pur
-  recompile).
+  re-vérif `PkarrRelayClient::new(url, tls)` ; deps relogées éventuelles
+  (`iroh-tickets`/`iroh-metrics`) + `irpc` 0.14→0.17 ; commentaires version ;
+  `Cargo.lock` figé ; MSRV : 1.91 tranchée (toolchain 1.94 suffit — confirmation au
+  build, pas de re-débat). Checkpoint gossip (pur recompile).
 - **C — iroh-docs deep (wire + types iroh-base)** : wire `EntrySignature→iroh::Signature`
   (0.99.1) + types `ed25519_dalek→iroh-base` (0.100.0) + reconstruction raw-bytes
   `DocsNamespaceId::from` (`runtime.rs:2479`) ; surface `docs.rs` (AuthorId/NamespaceId/
@@ -216,12 +277,18 @@ RTT/PathId multipath via l'orchestrateur de session in-vivo ex-S78, Phases I/J).
 - **D — iroh-blobs cascade + redb4** : recompiler `blobs.rs:85-252` sous 0.103
   (`FsStore`/`BlobsProtocol::new`/`Downloader`/tags/`HashAndFormat`/`BlobTicket`) +
   `node.rs:47-50,375-398` + valider l'ouverture du store redb4.
-- **E — Surfaces fragiles transport re-cert (3 crates)** : `shard.rs` (RTT/PathId —
-  traité **UNVERIFIED-high-risk**, pas « SAUVE ») compile + handshake ; `seed_protocol.rs`
+- **E — Surfaces fragiles transport re-cert (3 crates) + PLAN B pré-provisionné (C8)** :
+  `shard.rs` (RTT/PathId — traité **UNVERIFIED-high-risk**, pas « SAUVE ») compile +
+  handshake ; liste canonique des retraits rc.0 re-ancrée au préflight
+  (`Connection::to_info()`→`weak_handle()`, `PathWatcher/PathInfo`→`paths()/PathList` +
+  `PathEvent #[non_exhaustive]`, `Incoming::local_ip`→`local_addr`, ClientBuilder
+  `query_param`→`auth_token`) ; `seed_protocol.rs`
   (`ProtocolHandler`/`AcceptError`, crate nexus-shell-daemon) ; relais (`relay_config.rs`,
   `node.rs RelayMode::Custom`, default_relay_map URLs) ; **check nommé de survie URL pkarr**
   `pkarr_resolver.rs:54` (`dns.iroh.link/pkarr`) ; re-scan call-sites sur `nexus-shell-daemon`
-  + `nexus-shell-daemon-core`.
+  + `nexus-shell-daemon-core` ; **PLAN B C8** : relais iroh self-hosted wire-compat +
+  pkarr self-hosted + acceptance zéro-n0 (2-4 j) — split E' possible si le portage shard
+  dépasse le mécanique.
 - **F — Migration on-disk redb 2→4 validée sur COPIE** : fixture migration (store peuplé
   namespace sbfb-ides) + test ouverture blobs redb2 sous 0.103 (staging) + **garde explicite
   autour de `runtime.rs:2515-2528`** (self-heal NON déclenché en fenêtre de migration) +
@@ -229,13 +296,22 @@ RTT/PathId multipath via l'orchestrateur de session in-vivo ex-S78, Phases I/J).
   `DocTicket` (DB) + `BlobTicket` (`anchors.json`). Aucune migration LIVE ici.
 - **G — CI / MSRV / convergence crypto + docs sécurité** : `cargo tree -d` (gate convergence :
   un seul arbre ed25519-dalek + 0 `*-pre`/`*-rc`) → **flip `deny.toml:107` warn→deny** OU
-  carry **P2-AUDIT-2-RESIDUEL** ; image CI/Docker + `Cargo.toml:24` rust-version **seulement
-  si** D6 l'exige ; `cargo-deny`/`cargo-audit` verts ; amendements `THREAT_MODEL.md:22,128,195`,
-  `EXTERNAL_AUDIT_SCOPE.md §2.4/§2.7`, `HARDENING_ROADMAP.md:5` (trigger iroh FIRED).
-- **H — Migration LIVE ancre VPS + acceptance** : runbook **tar snapshot** `NEXUS_GRID_ROOT`
-  AVANT restart ; ordre **dev Win + Mac d'abord, VPS EN DERNIER** ; deploy binaire 1.0.x +
-  restart systemd ; vérif 1er boot 0 crash-loop + docs.redb migré + `node_id` INCHANGÉ +
-  feed/ides/pins intacts ; rollback = restore tar (one-way).
+  carry **P2-AUDIT-2-RESIDUEL** ; rust-version DÉCLARÉE `Cargo.toml:24` 1.85→1.91 (D6
+  tranchée, image CI/Docker inchangée) ; trigger de veille iroh-docs 0.102+ (wire pré-1.0
+  instable) ; `cargo-deny`/`cargo-audit` verts ; amendements `THREAT_MODEL.md:22,128,195`,
+  `EXTERNAL_AUDIT_SCOPE.md §2.4/§2.7`, `HARDENING_ROADMAP.md:5` (trigger iroh FIRED) ;
+  **LOT-LOOPBACK-DOC (audit S80 H-1/2/3/4)** : revalidation `LOOPBACK_ENDPOINTS_TRUST_TIERS`
+  §3.1 (2 routes S80 git/diff+gates + double transport cookie + description terminal/ws PTY)
+  + nit §14 EventSource + `last_validated` bump ; TOOLCHAIN-LABEL (décision pin
+  rust-toolchain.toml Windows ou statu quo).
+- **H — Migration LIVE ancre VPS + acceptance** : runbook **tar snapshot sur les 3
+  NŒUDS** AVANT restart ; **fenêtre d'incompatibilité BORNÉE** (vérification 02/07 :
+  les flottes relais 0.98/1.0 diffèrent → partition possiblement totale pendant la
+  fenêtre) : **flip same-day en UNE session** (ordre dev Win + Mac puis VPS) + gel
+  publish/ingest + convergence vérifiée après CHAQUE nœud + re-annonce post-flip ;
+  deploy binaire 1.0.1 + restart systemd ; vérif 1er boot 0 crash-loop + docs.redb
+  migré + `node_id` INCHANGÉ + feed/ides/pins intacts ; rollback = restore tar
+  (one-way).
 - **I — Orchestrateur de session sharding in-vivo (ex-S78) [décision PO C1]** :
   construire l'orchestrateur de session in-vivo dont l'absence a rendu S77
   RIG-ABSENT (référence : `archive/v2.1/sprint78_audit_plan.md` §7/§10) — sur la
@@ -256,7 +332,11 @@ RTT/PathId multipath via l'orchestrateur de session in-vivo ex-S78, Phases I/J).
   sharding ABSORBÉ par S81 Phases I/J) ; `SPRINT_LOG.md` + `CLAUDE.md` + mémoire
   (`nexus_grid_pivot.md`, `MEMORY.md`) + `PATTERNS.md` + `sprint82_audit_plan.md`
   (carries reroutés) + clôture docs-contrat (DoD (d), invariant #17 : frontières
-  de la fenêtre S81 indexées ou `N-A-no-new-frontier` explicite).
+  de la fenêtre S81 indexées ou `N-A-no-new-frontier` explicite) ; **libellé T1
+  corrigé** (vérification 02/07 : distinguer hermétique-CI vs relay-gated-local ;
+  job `SBFB_INTEGRATION=1` nightly/manuel OU couverture T2-live actée) ; **T2 par
+  paliers** (C10 : quorum DANS le T2, WAN fixé en A3) ; **arbitrage slot S82
+  BLOQUANT** (C9 : re-confirmer S82 = workflow-engine vs Viewer/dette).
 
 ### Out (reroutés / interdits dans S81)
 
@@ -276,27 +356,33 @@ RTT/PathId multipath via l'orchestrateur de session in-vivo ex-S78, Phases I/J).
 > Décisions D1..D8 **tranchées** (corrections sceptique intégrées). Le scoring G1
 > (perspective indépendante, 0-5 par décision) vit dans `sprint81_design_review.md`.
 
-1. **D1 — Version cible** : coder sur `iroh = "=1.0.0"` maintenant ; re-pin sur la 1re
-   1.0.x patch **AVANT push live** ; sinon soak + veille RustSEC documentés. Quatuor :
-   iroh 1.0.0 / docs 0.101.0 / gossip 0.101.0 / blobs 0.103.0, bump en point unique
-   `Cargo.toml:37-41`. « Viser la dernière 1.0.x » est insatisfiable (0 patch publiée) →
-   reco réécrite en « 1.0.0 + re-pin conditionnel ». Risque .0-fraîche (12 j) réel → pin
-   exact, re-pin obligatoire.
+1. **D1 — Version cible** *(amendée vérification 02/07 + re-check jour J)* : coder sur
+   `iroh = "=1.0.1"` (publiée 29/06 — la condition « re-pin sur la 1re 1.0.x » de la
+   reco initiale est déjà remplie). Quatuor : iroh **=1.0.1** / docs =0.101.0 /
+   gossip =0.101.0 / blobs =0.103.0, bump en point unique `Cargo.toml:37-41`. Pins
+   EXACTS (reproductibilité + bisectabilité ; iroh-docs pré-1.0 wire-instable) ;
+   veille 1.0.2 + RustSEC jusqu'au push live.
 2. **D2 — Relais / discovery post-EOL N0** : `presets::N0` par défaut (mis à jour <24 h
    après release par n0) + relais iroh self-hosted **OPTIONNEL** pour l'ancre VPS comme
    résilience. Escape-hatch déjà câblé (`node.rs:329,348`, `SBFB_CUSTOM_RELAYS`). **Note
    BLOQUANTE** : vérifier explicitement la survie de l'URL pkarr `pkarr_resolver.rs:54`
    (le blog n0 avertit « wire-breaking relay changes get new URLs ») — sinon discovery
    casse **silencieusement** (pas de crash). Check nommé, jamais plié dans « recompile ».
-3. **D3 — Migration données on-disk redb 2→4** : **hybride durci**. docs.redb = IN-PLACE
-   impérative (saut 0.98→0.101 DIRECT) ; coordinator SQLite (M18, public_feed) intact ;
-   blobs in-place **avec test staging** ; wipe blobs toléré **uniquement** pour pins
-   re-fetchables. Conditions cumulatives : (1) saut direct, jamais 0.99/0.100 contre
-   l'ancien store ; (2) wipe docs INTERDIT ; (3) tar snapshot avant 1er boot 0.101
+3. **D3 — Migration données on-disk redb 2→4** *(assouplie C4/C5 PO « personne sur le
+   réseau » — les conditions ci-dessous restent le chemin PRÉFÉRÉ, les préflights F/H
+   tranchent ; amendée vérification 02/07 : la migration est AUTOMATIQUE à l'ouverture,
+   iroh-docs PR #105, saut réel redb ^2.6.3→^4.1 — aucune « feature redb-v2-migration »
+   n'existe)* : **hybride durci**. docs.redb = IN-PLACE préférée (saut 0.98→0.101
+   DIRECT) ; coordinator SQLite (M18, public_feed) intact ; blobs in-place **avec test
+   staging** ; wipe toléré au-delà des pins re-fetchables si l'in-place résiste (C4/C5).
+   Conditions (chemin in-place) : (1) saut direct, jamais 0.99/0.100 contre
+   l'ancien store ; (2) wipe docs évité ; (3) tar snapshot avant 1er boot 0.101
    (one-way) ; (4) validation sur COPIE du store VPS peuplé ; (5) ancre VPS in-place
-   gardant node_key/node_id (re-install stock S75 INTERDIT) ; (6) fixture redb 2→4 dans
-   T1 ; **(7, ajout sceptique) self-heal `runtime.rs:2515` neutralisé/gardé pendant la
-   migration — ce n'est PAS un backstop.**
+   gardant node_key/node_id ; (6) fixture redb 2→4 dans
+   T1 ; **(7, ajout sceptique + vérification ×2) self-heal neutralisé/gardé pendant la
+   migration — ce n'est PAS un backstop, et il y a DEUX sites : `boot_storage_namespace`
+   `runtime.rs:2456-2549` (recreate :2518) ET le miroir `boot_feed_namespace`
+   :2555-2633 (recreate :2606), traités root-cause en Phase A2.**
 4. **D4 — Stratégie test / convergence** : T1 hermétique convergence in-process
    (`multi_daemon` loopback/`MemoryLookup`) BLOQUANT Win natif + CI Linux (**jamais
    Docker-on-Windows** car `multi_daemon` env-bloqué `create_node` hang) ; T2 acceptance
@@ -313,12 +399,12 @@ RTT/PathId multipath via l'orchestrateur de session in-vivo ex-S78, Phases I/J).
    + `verify_entry` check `prev_hash` (`public_feed.rs:588`). Tranche le conflit Carte 1
    (sprint séparé) vs cartes 3/4 (in-sprint) **en faveur de l'in-sprint** ; baseline 0.98
    verte = bisectabilité préservée. Jamais mélangé au commit de migration.
-6. **D6 — MSRV + sweep deps feuilles** : vérifier MSRV empiriquement (`cargo +1.94 build`
-   Docker) ; rester 1.94 sauf preuve cargo qu'une feuille exige plus ; **P2-AUDIT-2 reste
-   OUVERT (résiduel)** jusqu'à `cargo tree -d` convergent. Tranche la contradiction Carte 4
-   (1.95 inconditionnel) vs cartes 1/3 (plancher 1.91 déjà franchi) **en faveur de
-   l'empirique**. Gate convergence crypto = `deny.toml:107` flip si un seul arbre
-   ed25519-dalek + 0 `*-pre`/`*-rc` ; sinon carry **P2-AUDIT-2-RESIDUEL**.
+6. **D6 — MSRV + sweep deps feuilles** *(TRANCHÉE vérification 02/07)* :
+   `rust_version=1.91` confirmé crates.io pour les 5 crates → toolchain 1.94 SUFFIT,
+   image CI/Docker inchangée ; résiduel Phase G = bump de la rust-version DÉCLARÉE
+   `Cargo.toml:24` 1.85→1.91. **P2-AUDIT-2 reste OUVERT (résiduel)** jusqu'à
+   `cargo tree -d` convergent. Gate convergence crypto = `deny.toml:107` flip si un
+   seul arbre ed25519-dalek + 0 `*-pre`/`*-rc` ; sinon carry **P2-AUDIT-2-RESIDUEL**.
 7. **D7 — Carries + roadmap (séquencement)** : S81 = iroh **STRICTEMENT SEUL** ; re-scanner
    les call-sites sur les 3 crates (core + 2 daemon), pas seulement nexus-core-rs ; amender
    roadmap_v5 (insertion S81-iroh + Viewer→S82) ; orchestrateur sharding séquencé APRÈS
@@ -399,24 +485,24 @@ RTT/PathId multipath via l'orchestrateur de session in-vivo ex-S78, Phases I/J).
 
 ## Questions ouvertes — à trancher au preflight de phase (défauts recommandés)
 
-> Les arbitrages load-bearing (C1..C7) sont TRANCHÉS ci-dessus (Day-0 D1..D8). Les points
-> suivants sont des détails de preflight ; défaut recommandé entre parenthèses.
+> Les arbitrages load-bearing (C1..C10) sont TRANCHÉS ci-dessus (bloc Décisions PO +
+> Day-0 D1..D8). Les points suivants sont des détails de preflight ; défaut recommandé
+> entre parenthèses. *(3 questions du staging sont RÉSOLUES par la vérification 02/07 :
+> MSRV → tranchée 1.91 [D6] ; feature redb → n'existe pas, auto-migration #105 [C4-bis] ;
+> re-pin 1.0.x → 1.0.1 publiée, pinnée d'entrée [C3/D1].)*
 
-- **[B/D6]** Plancher MSRV réel après bump (`cargo +1.94 build` Docker canonique) — *à
-  mesurer AVANT de budgéter Phase G ; rester 1.94 si la preuve cargo le permet, bump 1.95
-  INTERDIT sans feuille qui l'exige.*
 - **[D]** Changelog iroh-blobs 0.101→0.103 non détaillé côté signatures — *découvrir au
   compile, documenter tout break ; valider l'ouverture redb4 sur store dev existant.*
 - **[E]** Survie de l'URL pkarr `dns.iroh.link/pkarr` + default_relay_map sous 1.0 — *check
-  nommé pré-flip ; provisionner un relais iroh self-hosted optionnel pour l'ancre (résilience).*
-- **[F]** Feature flag de migration redb (`redb-v2-migration` défaut on ?) + ressource
-  staging (pull du store VPS live vers dev + fixture namespace peuplée) — *provisionner le
-  pull du store + fixture comme pré-requis explicite de Phase F.*
-- **[F]** Tolérance wipe blobs : inventaire « ce pin est-il re-fetchable ailleurs ? » —
-  *wipe toléré UNIQUEMENT pour les pins re-fetchables ; jamais pour docs.*
-- **[C3]** Re-pin 1.0.x : existe-t-il une patch au code-freeze ? — *si oui re-pin
-  obligatoire AVANT push live ; si non, soak + veille RustSEC documentés (interdiction de
-  pousser la .0 brute si une patch existe).*
+  nommé pré-flip ; le plan B C8 (relais + pkarr self-hosted) est désormais OBLIGATOIRE,
+  plus optionnel.*
+- **[F]** Préflight F lit le CODE upstream de l'auto-migration (iroh-docs PR #105 :
+  atomicité, comportement crash mid-migration) + ressource staging (pull du store VPS
+  live vers dev + fixture namespace peuplée, rapatriée dès A3) — *pré-requis explicites.*
+- **[F]** Tolérance wipe : inventaire « ce pin est-il re-fetchable ailleurs ? » —
+  *chemin simple autorisé (C4/C5 PO) ; préférence in-place si coût raisonnable.*
+- **[F]** Trancher l'incohérence de nommage `sbfb-ides` vs `sbfb-ideas` AU CODE
+  (héritée du staging, jamais tranchée).
 - **[G/C7]** `cargo tree -d` converge-t-il (un seul arbre ed25519-dalek, 0 `*-pre`/`*-rc`) ?
   — *si oui flip `deny.toml:107` warn→deny ; sinon carry P2-AUDIT-2-RESIDUEL, NE PAS annoncer
   CLOSED ; vérifier que le 2.x SBFB ne s'effondre pas sur l'arbre RC d'iroh.*
@@ -470,8 +556,9 @@ RTT/PathId multipath via l'orchestrateur de session in-vivo ex-S78, Phases I/J).
   `crates\nexus-shell-daemon\Cargo.toml:78,84` (iroh-blobs + iroh, **PAS wrapper-only** —
   `seed_protocol` impl `ProtocolHandler`),
   `crates\nexus-shell-daemon-core\Cargo.toml:179,186` (dev-deps).
-- **Self-heal destructeur (NON backstop)** :
-  `crates\nexus-shell-daemon\src\runtime.rs:2479-2541` (branche `None` `:2515-2528`).
+- **Self-heal destructeur (NON backstop, ×2 — vérification 02/07)** :
+  `crates\nexus-shell-daemon\src\runtime.rs` — `boot_storage_namespace` `:2456-2549`
+  (recreate `:2518`) ET miroir `boot_feed_namespace` `:2555-2633` (recreate `:2606`).
 - **Bug materializer (Phase A)** :
   `crates\nexus-coordinator-rs\src\feed_materializer.rs:45-115` (overwrite `:54-58`, fold
   `:95-101`),
