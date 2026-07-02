@@ -388,7 +388,7 @@ Runtime isolation roadmap dans
   S80 delta : +20 Rust Win (1994→2014, fin S79 = 1994 ; 1949 = fin S77) /
   +20 Docker (1998→2018) /
   Vitest operator 7→201 suite REBÂTIE de 0 (greenfield ; C 52 → D 77 →
-  E 92 → H 137 → I 201) / E2E operator 0→10 / web 411 inchangé.
+  E 94 → H 137 → I 201) / E2E operator 0→10 / web 411 inchangé.
   S77 delta : +145 Rust Win (1804→1949) / +13 Vitest
   (398→411). S76
   delta : +41 Rust Windows depuis l'entree phases 1763 (A +4 [→1767],

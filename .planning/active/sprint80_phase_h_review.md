@@ -12,7 +12,7 @@
 
 ---
 
-## Verdict (initial) : CONCERN
+## Évaluation initiale (pré-fix, pré-Codex) : CONCERN
 
 Correctness solide, invariant cardinal 0-verdict-UI TENU de bout en bout, 0 dep runtime nouvelle, 0 sink XSS, 5 adaptations PLAN-ADAPT honorÃ©es, dÃ©gradations V5/V6 visibles+honnÃªtes. **2 P1 bloquent le PASS-PENDING** : (1) un vrai dÃ©faut fonctionnel â€” la rÃ©fÃ©rence de fraÃ®cheur est gelÃ©e au mount â†’ l'indicateur Â« obsolÃ¨te Â» ment et son remÃ¨de est inopÃ©rant aprÃ¨s le 1er commit de session ; (2) une lacune de couverture â€” le hook net-neuf `useVerifyData.ts` n'a aucun test unitaire. ConformÃ©ment au critÃ¨re (CONCERN si 1-2 P1 non triviaux). Rien ne casse, rien ne fabrique un verdict ; les 2 P1 sont corrigeables rapidement avant le gate Codex.
 
@@ -101,7 +101,7 @@ Correctness solide, invariant cardinal 0-verdict-UI TENU de bout en bout, 0 dep 
 3. **Discipline commit** : 1 commit `feat(factory-operator): Sprint 80 Phase H â€” <titre>`, body 9 sections, delta tests cumulÃ© (+Vitest, suppression DiffView), **chiffrer les bumps size-limit (P3-g)**, scope cuts respectÃ©s (V5/V6/per-fichierâ†’carry S81, scellÃ©/Preuveâ†’S81).
 4. **VÃ©rifications lourdes** : Vitest + build tsc/vite + lint + gates discipline + size-limit + T1 e2e BLOQUANT-vert au wrap-up (gate de testabilitÃ© par-sprint) ; dual-platform Docker AVANT push.
 
-## Verdict (initial) : CONCERN
+## Évaluation initiale (pré-fix, pré-Codex) : CONCERN
 
 ---
 

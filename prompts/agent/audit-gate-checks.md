@@ -189,21 +189,26 @@ instead of a JSON `status`.
 
 ```bash
 # T1 — hermetic E2E Playwright spec must exist and be referenced
-ls web/e2e/*.spec.ts
-rg -n "test:e2e" web/package.json
+# (cover EVERY frontend surface, not just web/ — the operator front
+# lives under tools/*/e2e/ since the S80 greenfield; audit finding
+# S80-J-1 generalized these globs)
+ls web/e2e/*.spec.ts tools/*/e2e/*.spec.ts
+rg -n "test:e2e" web/package.json tools/*/package.json
 rg -n "GREEN|RED|N-A-no-frontend-change|test:e2e|Playwright" .planning/active/sprint{N-1}_verification.md
 # T2 — acceptance JSON artifact verdict vocabulary
 rg -n "PASS|BLOCK|RIG-ABSENT|N-A-no-cross-machine-feature|b3_live" .planning/active/sprint{N-1}_verification.md
 # Forbidden hand-typed prose verdict (cardinal anti-pattern)
 rg -n "DIFFERE-materiel|DIFFERE-trace-user|DIFFERE-materiel-operateur" .planning/active/sprint{N-1}_verification.md CLAUDE.md docs/claude/SPRINT_LOG.md
-# Frontend surface touched this sprint?
-git diff --name-only <sprint_start_sha>..HEAD -- 'web/'
+# Frontend surface touched this sprint? (any frontend, not just web/)
+git diff --name-only <sprint_start_sha>..HEAD -- 'web/' 'tools/'
 ```
 
 For the audited sprint:
-- Did a sprint that touched `web/` create or extend at least one
-  `web/e2e/*.spec.ts` spec, AND does `verification.md` §Acceptance carry a
-  T1 verdict from the closed set {`GREEN`, `RED`, `N-A-no-frontend-change`}?
+- Did a sprint that touched a frontend surface (`web/` or a `tools/*`
+  front like `tools/factory-operator/`) create or extend at least one
+  `*/e2e/*.spec.ts` spec ON THAT SURFACE, AND does `verification.md`
+  §Acceptance carry a T1 verdict from the closed set {`GREEN`, `RED`,
+  `N-A-no-frontend-change`}?
 - Is the T2 acceptance JSON artifact present and parsable, with a `status`
   from {`PASS`, `BLOCK`, `RIG-ABSENT`, `N-A-no-cross-machine-feature`}?
 - For a claimed cross-machine feature (e.g. sharding): is there a GREEN
@@ -211,7 +216,7 @@ For the audited sprint:
   propagation post-subscribe) AND `b3 status: PASS`? If either is missing,
   the feature MUST be marked PROVISIONAL + carry P1 in verification.md.
 
-Missing T1 spec when `web/` was touched without a documented
+Missing T1 spec when a frontend surface was touched without a documented
 `N-A-no-frontend-change` is P1. A hand-typed `DIFFERE-*` prose substituted
 for a verdict is P1 (cf. README §4 invariant d'honnêteté). T2 artifact
 absent or unparsable is P1. Cross-machine feature marked DONE without

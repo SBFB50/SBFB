@@ -72,7 +72,7 @@ bash scripts/check-frontier-contracts.sh
 | cargo nextest (Docker sbfb-ci) | **2018/2018 passed** avec `SBFB_TEST_HTTP_TIMEOUT_SECS=120` ; 2 runs SANS échappatoire = 2016/2018 (2 TimedOut 30s reproductibles, verts natif → classe env-lenteur Docker-on-Windows, carry 19 audit_plan S81) | ✅ (env-note) |
 | factory-operator lint+tsc | verts | ✅ |
 | Vitest factory-operator | **201/201 (35 fichiers)** | ✅ |
-| build + size-limit | verts (hero 37.16/40, verify-surface ≤96, diff-viewer ≤22) | ✅ |
+| build + size-limit | verts (8/8 budgets ; app 46.28/47, verify-surface ≤96, diff-viewer ≤22) [corrigé audit S80 : « 6/6 + hero 37.16/40 » était périmé post-arc, S80-A-1] | ✅ |
 | gates discipline (7 : no-radix / no-tw-config / scan-front+anti-score self-testé / i18n-verdict / i18n-parity / accessibility-system) | tous verts | ✅ |
 | T1 E2E Playwright hermétique | **10/10** (workspace fixture scellé, 0 lecture du vrai repo, 0 spawn réel claude) | ✅ **GREEN** |
 | T2 acceptance | `sprint80_t2_acceptance.json` **PASS** (9 gates + 10 scénarios), COMMITTÉ `782796c` | ✅ **PASS** |
@@ -86,10 +86,10 @@ bash scripts/check-frontier-contracts.sh
 |---|---|---|---|
 | Rust nextest Windows | **1994** (fin S79, `SPRINT_LOG` row 79 : 1991→1994) | **2014** | **+20** (routes sbfb-factory A/F/G ; S80 front-dominant ; 1949 = fin S77, pas S79) |
 | Rust nextest Docker Linux | 1998 (fin S79 = Win+4) | **2018** | **+20** (+4 `#[cfg(unix)]` vs Win, invariant conservé) |
-| Vitest factory-operator | 7 (ancien front, jeté Phase B) | **201** (35 fichiers) | suite REBÂTIE de 0 : C 52 → D 77 → E 92 → H 137 → I 201 (+ arc off-sprint) |
+| Vitest factory-operator | 7 (ancien front, jeté Phase B) | **201** (35 fichiers) | suite REBÂTIE de 0 : C 52 → D 77 → E 94 → H 137 → I 201 (+ arc off-sprint) [E 94, pas 92 — corrigé audit S80, S80-E-3] |
 | E2E Playwright operator | 0 | **10** | +10 (T1 hermétique) |
 | Vitest web/ | 411 | **411** | 0 (shell non touché) |
-| size-limit operator | n/a (greenfield) | 6/6 budgets verts | hero 37.16/40 KB |
+| size-limit operator | n/a (greenfield) | 8/8 budgets verts | app 46.28/47 KB [corrigé audit S80, S80-A-1] |
 
 ## 6. Surface nouvelle livrée (LOC par module)
 
@@ -151,6 +151,11 @@ bash scripts/check-frontier-contracts.sh
       (§Operator control-plane API, 4 contrats) + `EXPLANATION.md`
       (pointeur FR) ; `WIRING_SPEC.md` NON concerné (sous-domaine
       sealed-iframe distinct) ; `check-factory-docs.sh` clean.
+      **Note audit S80 (Phase 0 S81, finding S80-K-1)** : une 5e
+      frontière issue de l'arc off-sprint (`GET /api/project-documents`,
+      `94eb030`, consommée live par le front Operator) manquait à cette
+      clôture — indexée post-clôture par `fix(sprint80)` `2c85b28` ; le
+      compte « 4 » ne couvrait que les frontières de phase.
 - [x] Dual-platform : fmt 0 sous les 2 toolchains ; nextest Win 2014 +
       Docker 2018 verts (échappatoire 120s documentée §4).
 - [x] verification.md + sprint81_audit_plan.md écrits (ce commit).
