@@ -725,7 +725,13 @@ impl DaemonRuntime {
                             .insert(app_name.to_string(), ns_arc);
                     }
                     Err(e) => {
-                        warn!(app = %app_name, error = %e, "failed to boot storage namespace");
+                        // S81 Phase A2: a non-NotFound docs error is a corrupted
+                        // store — abort the boot (diagnosable crash) instead of
+                        // degrading to "storage namespace not initialized" for
+                        // the whole session.
+                        return Err(e.context(format!(
+                            "failed to boot storage namespace for app {app_name}"
+                        )));
                     }
                 }
             }
@@ -760,8 +766,9 @@ impl DaemonRuntime {
                     (Some(fs_arc), Some(handle))
                 }
                 Err(e) => {
-                    warn!(error = %e, "failed to boot feed sync namespace");
-                    (None, None)
+                    // S81 Phase A2: same fail-fast rationale as the storage
+                    // namespace call-site above.
+                    return Err(e.context("failed to boot feed sync namespace"));
                 }
             };
 
@@ -2477,22 +2484,26 @@ async fn boot_storage_namespace(
                 .try_into()
                 .map_err(|_| anyhow!("invalid namespace_id length in DB"))?;
             let ns_id = nexus_core_rs::docs::DocsNamespaceId::from(bytes);
-            // Self-heal: the M8 row may point at a namespace whose iroh-docs
-            // replica is gone (store reset, redb format migration, a DB carried
-            // over from another data dir). `open_doc` then returns `Ok(None)` OR
-            // an `Err` ("Replica not found"). Treat BOTH as "missing → recreate"
-            // instead of propagating the error, which used to leave the namespace
-            // uninitialized for the whole session (storage_set →
-            // "storage namespace not initialized").
+            // Self-heal boundary (S81 Phase A2). The M8 row may point at a
+            // namespace whose iroh-docs replica is gone (store reset, a DB
+            // carried over from another data dir). In iroh-docs 0.98
+            // `open_doc` NEVER returns `Ok(None)`: a legitimately absent
+            // replica surfaces as `Err(OpenError::NotFound)` whose message
+            // contains "Replica not found" (the typed variant is erased to a
+            // string by the RPC layer, so a message match is the only
+            // discriminator available here). Only that absence may recreate;
+            // any other error (redb/IO/actor) means the store is corrupted
+            // and the boot must fail loudly instead of silently orphaning the
+            // replicated entries under a fresh namespace id.
             let opened = match docs_client.open_doc(ns_id).await {
                 Ok(opt) => opt,
+                Err(e) if e.to_string().contains("Replica not found") => None,
                 Err(e) => {
-                    warn!(
-                        app = %app_name,
-                        error = %e,
-                        "storage namespace open failed (stale DB pointer) — recreating"
-                    );
-                    None
+                    return Err(anyhow!(
+                        "storage namespace open failed for app {app_name} (ns {ns_id}): {e} \
+                         — refusing to silently recreate; restore the iroh store or clear \
+                         the M8 storage_namespaces row"
+                    ));
                 }
             };
             match opened {
@@ -2515,7 +2526,8 @@ async fn boot_storage_namespace(
                 None => {
                     warn!(
                         app = %app_name,
-                        "storage namespace missing from iroh — recreating"
+                        ns = %ns_id,
+                        "previous replica absent from local store — recreating fresh storage namespace"
                     );
                     let doc = docs_client.create_doc().await?;
                     let ticket = doc.share_write().await?;
@@ -2575,14 +2587,18 @@ async fn boot_feed_namespace(
                 .try_into()
                 .map_err(|_| anyhow!("invalid namespace_id length in DB"))?;
             let ns_id = nexus_core_rs::docs::DocsNamespaceId::from(bytes);
-            // Self-heal on a stale DB pointer (see boot_storage_namespace): an
-            // `Err` from open_doc ("Replica not found") is recovered like
-            // `Ok(None)` rather than failing the boot.
+            // Self-heal boundary (S81 Phase A2, mirrors boot_storage_namespace):
+            // only a legitimately absent replica ("Replica not found") may
+            // recreate; any other docs error fails the boot loudly.
             let opened = match docs_client.open_doc(ns_id).await {
                 Ok(opt) => opt,
+                Err(e) if e.to_string().contains("Replica not found") => None,
                 Err(e) => {
-                    warn!(error = %e, "feed namespace open failed (stale DB pointer) — recreating");
-                    None
+                    return Err(anyhow!(
+                        "feed namespace open failed (ns {ns_id}): {e} — refusing to \
+                         silently recreate; restore the iroh store or clear the M8 \
+                         storage_namespaces row for key {feed_key}"
+                    ));
                 }
             };
             match opened {
@@ -2603,7 +2619,10 @@ async fn boot_feed_namespace(
                     (doc, ticket_str)
                 }
                 None => {
-                    warn!("feed namespace missing from iroh — recreating");
+                    warn!(
+                        ns = %ns_id,
+                        "previous replica absent from local store — recreating fresh feed namespace"
+                    );
                     let doc = docs_client.create_doc().await?;
                     let ticket = doc.share_write().await?;
                     let ticket_str = ticket.to_string();
@@ -4147,6 +4166,153 @@ mod tests {
         let rt2 = DaemonRuntime::start(opts2).await.unwrap();
         assert!(rt2.feed_handle.is_some());
         rt2.shutdown().await.unwrap();
+    }
+
+    // S81 Phase A2: the self-heal boundary is "Replica not found" (legitimate
+    // absence -> recreate loudly) vs any other docs error (fail fast, M8 row
+    // untouched). In iroh-docs 0.98 open_doc never returns Ok(None), so the
+    // absence path is exercised through the Err(NotFound) discriminator.
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn boot_storage_namespace_recreates_loud_on_absent_replica() {
+        let node = nexus_core_rs::create_node().await.unwrap();
+        let docs_client = nexus_core_rs::docs::DocsClient::new(node.docs());
+        let author = docs_client.author_create().await.unwrap();
+        let db = std::sync::Arc::new(std::sync::Mutex::new(
+            nexus_coordinator_rs::db::CoordinatorDb::open_in_memory().unwrap(),
+        ));
+        // M8 row pointing at a namespace that was never created in this store
+        // (DB carried over from another data dir) -> Err("Replica not found").
+        let stale: [u8; 32] = [0xAB; 32];
+        db.lock()
+            .unwrap()
+            .set_storage_namespace("sbfb-ideas", &stale, None)
+            .unwrap();
+
+        let state = boot_storage_namespace(&docs_client, &db, "sbfb-ideas", author)
+            .await
+            .expect("absent replica (NotFound) must self-heal, not fail fast");
+
+        let row = db
+            .lock()
+            .unwrap()
+            .get_storage_namespace("sbfb-ideas")
+            .unwrap()
+            .expect("M8 row must still exist");
+        assert_ne!(
+            row.namespace_id,
+            stale.to_vec(),
+            "stale pointer must be overwritten by the recreated namespace"
+        );
+        assert_eq!(row.namespace_id, state.doc.id().as_bytes().to_vec());
+        node.shutdown().await.unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn boot_feed_namespace_recreates_loud_on_absent_replica() {
+        let node = nexus_core_rs::create_node().await.unwrap();
+        let docs_client = nexus_core_rs::docs::DocsClient::new(node.docs());
+        let author = docs_client.author_create().await.unwrap();
+        let db = std::sync::Arc::new(std::sync::Mutex::new(
+            nexus_coordinator_rs::db::CoordinatorDb::open_in_memory().unwrap(),
+        ));
+        let feed_key = crate::feed_sync::FEED_NAMESPACE_KEY;
+        let stale: [u8; 32] = [0xCD; 32];
+        db.lock()
+            .unwrap()
+            .set_storage_namespace(feed_key, &stale, None)
+            .unwrap();
+
+        let state = boot_feed_namespace(&docs_client, &db, author)
+            .await
+            .expect("absent replica (NotFound) must self-heal, not fail fast");
+
+        let row = db
+            .lock()
+            .unwrap()
+            .get_storage_namespace(feed_key)
+            .unwrap()
+            .expect("M8 row must still exist");
+        assert_ne!(row.namespace_id, stale.to_vec());
+        assert_eq!(row.namespace_id, state.doc.id().as_bytes().to_vec());
+        node.shutdown().await.unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn boot_storage_namespace_fail_fast_on_docs_error() {
+        let node = nexus_core_rs::create_node().await.unwrap();
+        let docs_client = nexus_core_rs::docs::DocsClient::new(node.docs());
+        let author = docs_client.author_create().await.unwrap();
+        let db = std::sync::Arc::new(std::sync::Mutex::new(
+            nexus_coordinator_rs::db::CoordinatorDb::open_in_memory().unwrap(),
+        ));
+        // Persist a VALID namespace, then kill the node so open_doc fails
+        // with an actor/transport error that is NOT "Replica not found".
+        let doc = docs_client.create_doc().await.unwrap();
+        let valid_ns = doc.id().as_bytes().to_vec();
+        db.lock()
+            .unwrap()
+            .set_storage_namespace("sbfb-ideas", &valid_ns, None)
+            .unwrap();
+        drop(doc);
+        node.shutdown().await.unwrap();
+
+        let err = boot_storage_namespace(&docs_client, &db, "sbfb-ideas", author)
+            .await
+            .expect_err("docs error after shutdown must fail fast, not recreate");
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("refusing to silently recreate"),
+            "diagnosable fail-fast marker expected, got: {msg}"
+        );
+        let row = db
+            .lock()
+            .unwrap()
+            .get_storage_namespace("sbfb-ideas")
+            .unwrap()
+            .expect("M8 row must still exist");
+        assert_eq!(
+            row.namespace_id, valid_ns,
+            "M8 row must be untouched on fail-fast"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn boot_feed_namespace_fail_fast_on_docs_error() {
+        let node = nexus_core_rs::create_node().await.unwrap();
+        let docs_client = nexus_core_rs::docs::DocsClient::new(node.docs());
+        let author = docs_client.author_create().await.unwrap();
+        let db = std::sync::Arc::new(std::sync::Mutex::new(
+            nexus_coordinator_rs::db::CoordinatorDb::open_in_memory().unwrap(),
+        ));
+        let feed_key = crate::feed_sync::FEED_NAMESPACE_KEY;
+        let doc = docs_client.create_doc().await.unwrap();
+        let valid_ns = doc.id().as_bytes().to_vec();
+        db.lock()
+            .unwrap()
+            .set_storage_namespace(feed_key, &valid_ns, None)
+            .unwrap();
+        drop(doc);
+        node.shutdown().await.unwrap();
+
+        let err = boot_feed_namespace(&docs_client, &db, author)
+            .await
+            .expect_err("docs error after shutdown must fail fast, not recreate");
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("refusing to silently recreate"),
+            "diagnosable fail-fast marker expected, got: {msg}"
+        );
+        let row = db
+            .lock()
+            .unwrap()
+            .get_storage_namespace(feed_key)
+            .unwrap()
+            .expect("M8 row must still exist");
+        assert_eq!(
+            row.namespace_id, valid_ns,
+            "M8 row must be untouched on fail-fast"
+        );
     }
 
     #[tokio::test]

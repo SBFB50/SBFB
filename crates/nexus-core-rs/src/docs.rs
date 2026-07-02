@@ -150,8 +150,12 @@ impl DocsClient {
 
     /// Open an existing document by its namespace id.
     ///
-    /// Returns `Ok(None)` if the document is not present on this
-    /// node.
+    /// In iroh-docs 0.98 the RPC layer never yields `Ok(None)`: an
+    /// absent replica surfaces as an `Err` whose message contains
+    /// "Replica not found" (`OpenError::NotFound`, erased to a string
+    /// across RPC). The `Option` is kept to mirror the upstream
+    /// signature; callers that must distinguish legitimate absence
+    /// from store corruption match on the error message.
     pub async fn open_doc(&self, id: NamespaceId) -> Result<Option<DocHandle>> {
         let maybe = self
             .inner
