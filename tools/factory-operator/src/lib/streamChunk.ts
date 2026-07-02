@@ -4,7 +4,8 @@
 // plan-adaptation #3). The Rust enum `StreamChunk` (#[serde(tag="type")],
 // llm_bridge.rs:42-59) has only FIVE variants — delta, thinking, done,
 // error, debug. The sixth value, `requires_gate`, is a hand-forged JSON
-// literal emitted by `sse_gate()` OUTSIDE serde (operator_server.rs:1063).
+// literal emitted by `sse_gate()` OUTSIDE serde (operator_server.rs, fn
+// sse_gate — anchor by name, the line drifts).
 // Deriving the union from the 5-variant enum alone would drop
 // `requires_gate` and leave the MUR mute on the front — so the six values
 // live here as one explicit source of truth.

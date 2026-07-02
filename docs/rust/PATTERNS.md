@@ -4025,3 +4025,34 @@ suppress its own report. The record gate stays the static Phase E gate +
 browser-enforced CSP at the client (posted on every response including 404, the
 author cannot alter it). The self-check `status` is a TEST verdict, never a publish
 authority (Day-0 "connaissance CONSOMMÉE jamais autoritaire, 0 verdict PASS auto").
+
+## §P72 — Sprint 80 Phase I: hermetic Operator E2E = spawn the BINARY with cwd=fixture; never `cargo run` from a temp cwd; never spawn a .cmd shim without a shell
+
+The Operator resolves its whole world off the **process cwd**: `repo_root()`
+is `git rev-parse --show-toplevel` from cwd (`process.rs:56-67`) and every
+sprint-history git subprocess runs in the cwd too (`sprint_history.rs
+git_cmd`). So the hermetic T1 needs **zero Rust override**: seed a throwaway
+git workspace (planning artifacts with `## Verdict:` lines, one
+`Sprint N Phase X` commit, an unstaged edit, the built bundle copied at
+`tools/factory-operator/bundle`) and spawn the server with `cwd=<fixture>`
+(`e2e/fixture-workspace.mjs` + `serve-operator.mjs`). Two footguns cost this
+phase its first two runs:
+
+1. **cargo config discovery is CWD-based.** `cargo run --manifest-path
+   <repo>/Cargo.toml` from a Temp cwd silently DROPS the repo's
+   `.cargo/config.toml` (`/Brepro` rustflags, `incremental=false`) →
+   every fingerprint invalidates → full silent workspace rebuild under
+   `--quiet` → the Playwright webServer times out with zero output. Always
+   `cargo build` anchored at the repo root, then spawn the built binary
+   with the fixture cwd.
+2. **win32 `.cmd` shims need a shell.** Since the Node CVE-2024-27980
+   hardening, `spawnSync('npm'/'npx', …)` without `shell:true` fails
+   EINVAL with `status: null` — which a verdict projector reads as
+   "everything BLOCK". Fixed-literal argv + `shell: process.platform ===
+   'win32'` (`scripts/t2-acceptance.mjs`).
+
+Related latent gap (carried, not patched from the harness):
+`collect_sprint_commits` falls back to the range `HEAD~50..HEAD` when no
+`Sprint N-1 Phase` commit exists — INVALID on a young (<51 commits) repo,
+so phases silently lose their commit. The fixture anchors a
+`Sprint 0 Phase A` seed commit instead.

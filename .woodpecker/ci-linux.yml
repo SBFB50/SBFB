@@ -105,6 +105,13 @@ steps:
     commands:
       - cd tools/factory-operator && npm run lint
 
+  # Sprint 80 Phase I: the Vitest suite (incl. the PO-14 single-Done
+  # re-coverage) is gated at EVERY push, on both CI surfaces.
+  - name: factory-operator-vitest
+    image: node:20@sha256:cacf10e99285cbbc891452e31249c1b5ec3ba225f40028fae946b75aeaf1b66a
+    commands:
+      - cd tools/factory-operator && npm run test:unit
+
   - name: factory-operator-gates
     image: node:20@sha256:cacf10e99285cbbc891452e31249c1b5ec3ba225f40028fae946b75aeaf1b66a
     commands:

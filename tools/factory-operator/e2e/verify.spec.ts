@@ -4,9 +4,11 @@ import { OPERATOR_TEST_TOKEN } from './fixtures'
 
 // Sprint 80 Phase H — T1 VERIFY-plein + arbre de procédé. Runs against the REAL
 // Operator (serve-operator.mjs): the bespoke diff-viewer renders the REAL
-// working-tree hunks of THIS repo (computed in Rust, /api/git/diff) and the
-// gates band restitutes the REAL live gates 1:1 (/api/gates) — while the ÉTAT
-// slot never fabricates a verdict (scan-front-discipline gate, runtime-checked).
+// working-tree hunks of the SEALED fixture workspace (Phase I hermeticity —
+// the Operator is spawned with cwd=<fixture>, computed in Rust /api/git/diff)
+// and the gates band restitutes the REAL live gates 1:1 (/api/gates) — while
+// the ÉTAT slot never fabricates a verdict (scan-front-discipline gate,
+// runtime-checked).
 
 test.beforeEach(async ({ page }) => {
   await page.goto(`/?token=${OPERATOR_TEST_TOKEN}`)

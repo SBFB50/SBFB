@@ -1,0 +1,28 @@
+{
+  "suite": "sprint80-operator-t2",
+  "status": "PASS",
+  "diagnosis": null,
+  "gates": {
+    "no-radix": "PASS",
+    "no-tw-config": "PASS",
+    "scan-front-discipline": "PASS",
+    "i18n-verdict": "PASS",
+    "i18n-parity": "PASS",
+    "accessibility-system": "PASS",
+    "build": "PASS",
+    "size-limit": "PASS",
+    "vitest": "PASS"
+  },
+  "scenarios": {
+    "boot_cookie_csp": "PASS",
+    "bootstrap_cookie_303": "PASS",
+    "composer_session": "PASS",
+    "documents_map": "PASS",
+    "motion_reduced": "PASS",
+    "mur_gated_no_spawn": "PASS",
+    "procede_verdict_bi_usage": "PASS",
+    "sse_local_token_done": "PASS",
+    "sse_network_single_done": "PASS",
+    "verify_diff_gates": "PASS"
+  }
+}

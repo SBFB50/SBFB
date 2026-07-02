@@ -7,8 +7,8 @@ import { OPERATOR_TEST_TOKEN } from './fixtures'
 // `sbfb_operator` cookie and 303s to `/`, which loads the SPA without a
 // 401 — and renders with 0 Content-Security-Policy violation under the
 // Operator's self-origin CSP (`default-src 'self'; connect-src 'self'`).
-// The remaining sub-tests (composeur→session, SSE single-Done, MUR,
-// diff-viewer) land in Phases C / H / I.
+// The other T1 sub-tests live in steer.spec.ts ((2)/(3a)/(3b)/(4), Phases
+// C + I) and verify.spec.ts ((5), Phase H).
 
 function collectCspViolations(page: Page): string[] {
   const hits: string[] = []

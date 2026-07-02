@@ -172,24 +172,27 @@ jobs:
       - name: "[2] eslint (incl. gate 4 anti-motion.* + i18n no-literal)"
         run: cd tools/factory-operator && npm run lint
 
-      - name: "[3] discipline gates (no-radix / no-tailwind-config / scan-front / i18n-verdict / i18n-parity)"
+      - name: "[3] vitest (unit — gates the PO-14 re-coverage at every push)"
+        run: cd tools/factory-operator && npm run test:unit
+
+      - name: "[4] discipline gates (no-radix / no-tailwind-config / scan-front+anti-score / i18n-verdict / i18n-parity)"
         run: cd tools/factory-operator && npm run gates
 
-      - name: "[4] build (→ bundle)"
+      - name: "[5] build (→ bundle)"
         run: cd tools/factory-operator && npm run build
 
-      - name: "[5] size-limit"
+      - name: "[6] size-limit"
         run: cd tools/factory-operator && npm run size
 
-      - name: "[6] install playwright chromium"
+      - name: "[7] install playwright chromium"
         run: cd tools/factory-operator && npx playwright install --with-deps chromium
 
-      - name: "[7] hermetic T1 (cookie boot + CSP-clean)"
+      - name: "[8] hermetic T1 (cookie boot + CSP + SSE single-Done + MUR + diff/gates)"
         run: cd tools/factory-operator && npm run test:e2e
         env:
           SBFB_FACTORY_BIN: ${{ github.workspace }}/target/debug/sbfb-factory
 
-      - name: "[8] upload playwright report on failure"
+      - name: "[9] upload playwright report on failure"
         if: failure()
         uses: actions/upload-artifact@v4
         with:

@@ -1,23 +1,38 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// Hermetic Operator launcher for the Playwright T1 (Sprint 80 Phase B).
-// Ensures the greenfield front is built into tools/factory-operator/bundle,
-// then spawns the REAL `sbfb-factory` Operator server over it. The server
-// reads SBFB_AUTH_TOKEN + SBFB_HOME from the environment injected by
-// playwright.config.ts (no real ~/.sbfb is ever touched).
+// Hermetic Operator launcher for the Playwright T1 (Sprint 80 Phase B,
+// hermetic workspace Phase I). Builds the greenfield front, seeds a
+// PER-RUN git fixture workspace + SBFB_HOME temp dir, then spawns the
+// REAL `sbfb-factory` Operator server WITH cwd=<fixture workspace> — the
+// Operator resolves repo_root() (and every sprint-history git subprocess)
+// off its cwd, so diff/gates/procédé/documents all read the sealed
+// fixture, never the real repo (closes TEST-ISOLATION-SBFB-HOME).
 //
 // The Operator binary is resolved from SBFB_FACTORY_BIN (CI pre-builds it
-// and passes the path); without it we fall back to `cargo run` (slower,
-// fine for local dev). The server prints `READY 127.0.0.1:<port>` on
-// stdout once it is listening; Playwright's webServer waits on the URL.
-import { spawn } from 'node:child_process'
+// and passes the path); without it we `cargo build` FROM THE REPO ROOT and
+// then spawn the built binary ourselves. Never `cargo run` with
+// cwd=<fixture>: cargo discovers `.cargo/config.toml` from the CWD, so a
+// Temp-dir cwd silently drops the repo's rustflags (/Brepro,
+// incremental=false), invalidates every fingerprint and rebuilds the whole
+// workspace — which is how the webServer timed out on first wiring. The
+// server prints `READY 127.0.0.1:<port>` on stdout once it is listening;
+// Playwright's webServer waits on the URL.
+//
+// Teardown: Playwright tree-kills this process and its children (the
+// reliable mechanism on win32 — SIGTERM relaying is emulated there); the
+// temp dirs are removed best-effort on exit and otherwise left to the OS
+// temp cleaner.
+import { spawn, spawnSync } from 'node:child_process'
+import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { build } from 'vite'
+import { seedFixtureWorkspace } from './fixture-workspace.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(here, '..') // tools/factory-operator
-const repoRoot = path.resolve(root, '..', '..') // repo root — the Operator resolves the bundle relative to here
+const repoRoot = path.resolve(root, '..', '..') // real repo — cargo manifest only
 const port = process.env.OPERATOR_TEST_PORT || '3111'
 
 // ALWAYS rebuild so the T1 exercises the CURRENT source, never a stale
@@ -26,16 +41,49 @@ const port = process.env.OPERATOR_TEST_PORT || '3111'
 console.log('[serve-operator] building the front bundle…')
 await build({ root, configFile: path.join(root, 'vite.config.ts') })
 
-const bin = process.env.SBFB_FACTORY_BIN
-const cmd = bin || 'cargo'
-const args = bin
-  ? ['operator', 'serve', '--port', port]
-  : ['run', '--quiet', '-p', 'sbfb-factory', '--', 'operator', 'serve', '--port', port]
+console.log('[serve-operator] seeding the hermetic git workspace…')
+const workspace = seedFixtureWorkspace(path.join(root, 'bundle'))
+const sbfbHome = fs.mkdtempSync(path.join(os.tmpdir(), 'sbfb-op-e2e-home-'))
+console.log(`[serve-operator] workspace=${workspace} SBFB_HOME=${sbfbHome}`)
 
-console.log(`[serve-operator] spawning Operator on 127.0.0.1:${port} (${bin ? 'prebuilt' : 'cargo run'})`)
-const child = spawn(cmd, args, { cwd: repoRoot, stdio: 'inherit', env: process.env })
+let bin = process.env.SBFB_FACTORY_BIN
+if (!bin) {
+  console.log('[serve-operator] cargo build -p sbfb-factory (from the repo root)…')
+  const build = spawnSync('cargo', ['build', '--locked', '-p', 'sbfb-factory'], {
+    cwd: repoRoot, // cargo config discovery stays anchored at the repo
+    stdio: 'inherit',
+  })
+  if (build.status !== 0) process.exit(build.status ?? 1)
+  bin = path.join(
+    repoRoot,
+    'target',
+    'debug',
+    process.platform === 'win32' ? 'sbfb-factory.exe' : 'sbfb-factory',
+  )
+}
 
-child.on('exit', (code) => process.exit(code ?? 0))
+console.log(`[serve-operator] spawning Operator on 127.0.0.1:${port} (${process.env.SBFB_FACTORY_BIN ? 'prebuilt' : 'freshly built'})`)
+const child = spawn(bin, ['operator', 'serve', '--port', port], {
+  cwd: workspace, // ← repo_root() + sprint-history resolve HERE (hermetic)
+  stdio: 'inherit',
+  env: { ...process.env, SBFB_HOME: sbfbHome },
+})
+
+function cleanup() {
+  for (const dir of [workspace, sbfbHome]) {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3 })
+    } catch {
+      // best-effort: on win32 the tree-kill can race an open handle; the
+      // OS temp cleaner owns the leftovers (per-run unique names).
+    }
+  }
+}
+
+child.on('exit', (code) => {
+  cleanup()
+  process.exit(code ?? 0)
+})
 for (const sig of ['SIGTERM', 'SIGINT']) {
   process.on(sig, () => child.kill(sig))
 }

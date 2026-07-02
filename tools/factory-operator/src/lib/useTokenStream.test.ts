@@ -149,6 +149,20 @@ describe('useTokenStream', () => {
     expect(result.current.text).toBe('partial') // partial output kept
   })
 
+  it('never re-opens the transport after a terminal — one fetch total (0 auto-reconnect)', async () => {
+    // The 0-auto-reconnect half of PO-14 (the EventSource replay footgun the
+    // fetch+reader transport exists to avoid): after the Done terminal, no
+    // code path may re-dial. Real timers on purpose — the hook schedules NO
+    // timer, so a buggy reconnect would surface as a second fetch call in
+    // the microtask chain flushed below.
+    mockFetch(closedBody([frame({ type: 'done', result: 'once' })]))
+    const { result } = renderHook(() => useTokenStream())
+    act(() => result.current.start('/api/chat/x/stream'))
+    await waitFor(() => expect(result.current.status).toBe('done'))
+    await act(async () => {}) // flush pending microtasks after the terminal
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1)
+  })
+
   it("ends honestly ('ended') when the stream closes with no terminal event", async () => {
     // The Claude arm can exit 0 with only a Debug 'exit' — no Done/Error/gate.
     mockFetch(
