@@ -126,7 +126,13 @@ while IFS= read -r line; do
       ERRORS=$((ERRORS + 1))
     fi
   fi
-done < <(git diff --cached -U0 2>/dev/null || true)
+done < <(git diff --cached -U0 -- '*.rs' 2>/dev/null | grep -E '^(\+\+\+ b/|\+pub[[:space:]]+mod[[:space:]])' || true)
+# ^ Perf (2026-07-02): the loop above only ACTS on `+++ b/*.rs` headers and
+# `+pub mod` added lines; every other diff line was a no-op costing 2 grep
+# forks. On Windows Git Bash a large staged diff (e.g. 87 files / ~12k lines
+# with 51 .po catalogs) made the hook run for 50+ minutes. Scoping the diff to
+# '*.rs' + pre-filtering to the two significant patterns is semantics-identical
+# (the state machine sees the same file headers and pub-mod lines) and O(hits).
 
 # === Recuperer le body commit (-m "..." OU -F file) ===
 BODY=""
