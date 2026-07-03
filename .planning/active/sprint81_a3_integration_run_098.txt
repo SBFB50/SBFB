@@ -1,0 +1,135 @@
+   Compiling sbfb-factory v1.0.0 (<repo>\crates\sbfb-factory)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 46.76s
+────────────
+ Nextest run ID 4e9bc33c-d15b-4139-9515-497de6ccced1 with nextest profile: default
+    Starting 10 tests across 2 binaries (29 binaries skipped)
+        FAIL [   1.428s] ( 1/10) nexus-test-harness::multi_daemon test_cross_daemon_blob_transfer
+  stdout ───
+
+    running 1 test
+    test test_cross_daemon_blob_transfer ... FAILED
+
+    failures:
+
+    failures:
+        test_cross_daemon_blob_transfer
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 8 filtered out; finished in 1.31s
+
+  stderr ───
+
+    thread 'test_cross_daemon_blob_transfer' (19784) panicked at crates\nexus-test-harness\tests\multi_daemon.rs:120:9:
+    assertion `left == right` failed: blob-serve returns 200
+      left: 400
+     right: 200
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+        FAIL [   1.962s] ( 2/10) nexus-test-harness::multi_daemon test_feed_replay_idempotent
+  stdout ───
+
+    running 1 test
+    test test_feed_replay_idempotent ... FAILED
+
+    failures:
+
+    failures:
+        test_feed_replay_idempotent
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 8 filtered out; finished in 1.90s
+
+  stderr ───
+
+    thread 'test_feed_replay_idempotent' (49248) panicked at crates\nexus-test-harness\tests\multi_daemon.rs:628:9:
+    assertion failed: resp.status().is_success()
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+        FAIL [   1.963s] ( 3/10) nexus-coordinator-rs::multi_daemon test_new_node_full_sync_and_verify
+  stdout ───
+
+    running 1 test
+    test test_new_node_full_sync_and_verify ... FAILED
+
+    failures:
+
+    failures:
+        test_new_node_full_sync_and_verify
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.87s
+
+  stderr ───
+
+    thread 'test_new_node_full_sync_and_verify' (16260) panicked at crates\nexus-coordinator-rs\tests\multi_daemon.rs:47:9:
+    feed insert 0 returned 403 Forbidden
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+        PASS [   2.033s] ( 4/10) nexus-test-harness::multi_daemon test_two_daemons_boot_and_respond
+        FAIL [   2.209s] ( 5/10) nexus-test-harness::multi_daemon test_cross_daemon_feed_sync
+  stdout ───
+
+    running 1 test
+    test test_cross_daemon_feed_sync ... FAILED
+
+    failures:
+
+    failures:
+        test_cross_daemon_feed_sync
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 8 filtered out; finished in 2.10s
+
+  stderr ───
+
+    thread 'test_cross_daemon_feed_sync' (22556) panicked at crates\nexus-test-harness\tests\multi_daemon.rs:374:9:
+    feed insert 0 returned 403 Forbidden
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+        FAIL [   2.210s] ( 6/10) nexus-test-harness::multi_daemon test_feed_offline_catchup
+  stdout ───
+
+    running 1 test
+    test test_feed_offline_catchup ... FAILED
+
+    failures:
+
+    failures:
+        test_feed_offline_catchup
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 8 filtered out; finished in 2.15s
+
+  stderr ───
+
+    thread 'test_feed_offline_catchup' (10824) panicked at crates\nexus-test-harness\tests\multi_daemon.rs:514:9:
+    assertion failed: resp.status().is_success()
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+        PASS [   2.279s] ( 7/10) nexus-test-harness::multi_daemon test_cross_daemon_discovery
+        PASS [   2.284s] ( 8/10) nexus-test-harness::multi_daemon test_cross_daemon_task_stub
+        PASS [   2.522s] ( 9/10) nexus-test-harness::multi_daemon test_cross_daemon_storage_sync
+        SLOW [> 30.000s] (─────) nexus-test-harness::multi_daemon test_cross_daemon_gossip_exchange
+        FAIL [  33.240s] (10/10) nexus-test-harness::multi_daemon test_cross_daemon_gossip_exchange
+  stdout ───
+
+    running 1 test
+    test test_cross_daemon_gossip_exchange ... FAILED
+
+    failures:
+
+    failures:
+        test_cross_daemon_gossip_exchange
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 8 filtered out; finished in 33.19s
+
+  stderr ───
+
+    thread 'test_cross_daemon_gossip_exchange' (2004) panicked at crates\nexus-test-harness\tests\multi_daemon.rs:182:5:
+    B must discover A's published project via gossip within 30s
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+────────────
+     Summary [  33.244s] 10 tests run: 4 passed, 6 failed, 0 skipped
+        FAIL [   1.428s] ( 1/10) nexus-test-harness::multi_daemon test_cross_daemon_blob_transfer
+        FAIL [   1.962s] ( 2/10) nexus-test-harness::multi_daemon test_feed_replay_idempotent
+        FAIL [   1.963s] ( 3/10) nexus-coordinator-rs::multi_daemon test_new_node_full_sync_and_verify
+        FAIL [   2.209s] ( 5/10) nexus-test-harness::multi_daemon test_cross_daemon_feed_sync
+        FAIL [   2.210s] ( 6/10) nexus-test-harness::multi_daemon test_feed_offline_catchup
+        FAIL [  33.240s] (10/10) nexus-test-harness::multi_daemon test_cross_daemon_gossip_exchange
+error: test run failed

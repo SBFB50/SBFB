@@ -5,6 +5,10 @@ data/
 *.db
 *.db-wal
 *.db-shm
+# iroh-docs stores carry the NamespaceSecret (write capability) — `*.db`
+# does NOT match `.redb` (S81 Phase A3a, belt-and-suspenders for VPS
+# store copies pulled next to the repo).
+*.redb
 
 # Exception: benchmark data is version-controlled (text only, no secrets)
 !data/benchmark/

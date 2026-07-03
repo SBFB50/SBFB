@@ -1,0 +1,64 @@
+{
+  "suite": "sprint81-transport-baseline",
+  "kind": "baseline",
+  "iroh_baseline": "0.98",
+  "head": "23f3be8",
+  "date": "2026-07-02",
+  "replay_contract": "re-run each palier identically post-bump (iroh 1.0.1) and diff verdicts palier-by-palier; a verdict that degrades is a transport regression of the bump",
+  "vocabulary_note": "palier-level 'verdict' uses the closed T2 vocabulary as a status+diagnosis pair (same shape the b3 harness emits: PASS / BLOCK with adjacent 'diagnosis' / RIG-ABSENT / NOT-RUN); 'per_test' entries inside a palier use the nextest vocabulary PASS / FAIL{cause} — they are raw suite results, not palier verdicts",
+  "paliers": {
+    "integration_relay_gated": {
+      "command": "SBFB_INTEGRATION=1 cargo nextest run --locked -E 'binary(multi_daemon)' --no-fail-fast",
+      "verdict": "BLOCK",
+      "tests_run": 10,
+      "passed": 4,
+      "failed": 6,
+      "first_real_run_ever": true,
+      "per_test": {
+        "test_two_daemons_boot_and_respond": "PASS",
+        "test_cross_daemon_discovery": "PASS",
+        "test_cross_daemon_task_stub": "PASS",
+        "test_cross_daemon_storage_sync": "PASS",
+        "test_cross_daemon_blob_transfer": "FAIL{test-rot: raw blob published, blob-serve is zip-archive-only since S12 (HTTP 400 intended)}",
+        "test_cross_daemon_feed_sync": "FAIL{test-rot: feed/insert requires x-sbfb-feed-internal header since S65 ace05b0 (HTTP 403)}",
+        "test_feed_offline_catchup": "FAIL{test-rot: same S65 feed/insert auth}",
+        "test_feed_replay_idempotent": "FAIL{test-rot: same S65 feed/insert auth}",
+        "test_new_node_full_sync_and_verify": "FAIL{test-rot: same S65 feed/insert auth}",
+        "test_cross_daemon_gossip_exchange": "FAIL{product-signal: peer B never discovers peer A's published project via gossip within 30s over real N0 relays — discovery/announce path, same class as S75 SeedAnnounced non-convergence; DISTINCT from task-delivery}"
+      },
+      "diagnosis": "5 of 6 failures are test-rot (suite silently early-returned green in CI since S65; first real run exposes stale auth/format assumptions), 1 of 6 is a real product signal on the gossip discovery path"
+    },
+    "b3_p1_fresh_enroll": {
+      "harness": "scripts/acceptance/b3_live_pc_vps.sh",
+      "redundancy": 1,
+      "verdict": "PASS",
+      "delay_s": 14,
+      "claim_s": 14,
+      "note": "FIRST cross-machine b3 palier-1 PASS in project history (nodeVPS coordinator -> WAN -> nodePC worker GPU inference -> signed result WAN-replicated back). Fresh invite mint each run arms the coordinator sync-set via doc_share -> start_sync.",
+      "confounders_eliminated_first": [
+        "PROJECT_ID reconciled against GET /api/daemon/project-info (config keep_online hash is a seed pin, NOT the project doc id)",
+        "worker consent default L1 own-projects rejected remote project tasks (not_own_project); L3 whitelist consent.json was posed for the runs — the initial BLOCK{result-replication} run was this rig-setup issue, harness auto-diagnostic cannot see consent rejects. NOTE: the rig consent.json is parked as consent.json.rig-l3 between runs because daemon consent unit tests read the real ~/.sbfb (non-hermetic, TEST-ISOLATION residue routed to A3b); repose it for the A3b differential re-run",
+        "stale S75-era tasks fail signature verify under current canonical bytes (known carry, noise)"
+      ]
+    },
+    "b3_p1_coordinator_restart_no_remint": {
+      "harness": "manual replication of b3 steps 3-4 (no invite mint) after systemctl restart of the coordinator",
+      "redundancy": 1,
+      "verdict": "PASS",
+      "delay_s": 6,
+      "note": "S77 blocker did NOT reproduce end-to-end, BUT the boot window it stems from was OBSERVED: after restart the coordinator REJECTED the worker's incoming sync (iroh_docs Aborted ... NotFound, ~26s into boot #2) exactly as the A3 preflight predicted (open_doc does not start_sync). Delivery then succeeded ONLY because the task-submit path side-effects share_write() in the on-demand local-worker bootstrap (local_worker.rs:306-310) BEFORE its spawn fails on the anchor (worker binary absent) — re-arming the sync-set on every submit. Precondition: 're-arming on EVERY submit' holds only WHILE the spawn keeps failing (child never set -> ensure_spawned re-provisions each time); a successfully spawned local worker arms only once per daemon lifetime. This refines preflight §2.2, which filed share_write under 'invite mint only' and missed the submit-path trigger (http.rs:3459 ensure_spawned). The boot->first-submit window remains a real convergence hole and the delivery path depends on a fragile side-effect: both are the A3b target.",
+      "boot_window_evidence": "journal nodeVPS boot#2: 'sync failed origin=Accept err=Aborted sync of NamespaceId(35701c15..) .. NotFound' then submit -> 'failed to spawn on-demand local worker' (share_write already done) -> accept 'sync finished sent=7 recv=8' 300ms later",
+      "a3b_differential_contract": "this palier is already PASS via the submit side-effect, so a post-A3b PASS alone proves nothing; the A3b differential criterion is the WINDOW disappearing: after coordinator restart and BEFORE any submit, the worker's incoming sync must be ACCEPTED (no 'Aborted sync .. NotFound' in the coordinator journal). The preflight §2.2 static theory (reject until share) matched the boot window exactly; its miss was the submit-side share_write side-effect."
+    },
+    "b3_p2_quorum": {
+      "verdict": "NOT-RUN",
+      "note": "palier 2 stays in T2 (kickoff C10); its hard prerequisite is now satisfied: Ollama 0.31.1 installed + llama3.1:8b pulled on nodeMac this phase. Remaining prerequisite: an arm64 nexus-worker binary on nodeMac (build deferred to the T2 run)."
+    }
+  },
+  "resources": {
+    "ollama_mac": "installed (0.31.1, llama3.1:8b pulled) — palier 2 prerequisite DONE",
+    "vps_store_copy": "pulled to data/vps-store-098/ (gitignored; docs.redb carries the NamespaceSecret) — Phase F fixture resource",
+    "vps_binary": "redeployed at HEAD 23f3be8 (0.98) during this phase — required because the previously deployed S76 binary predates GET /api/daemon/project-info which the harness reconciles against; S76 binary kept as rollback; 2 boots, 0 crash-loop (A2 fail-fast stayed silent = store healthy)",
+    "gitignore": "*.redb rule added (\"*.db\" does not match .redb)"
+  }
+}
