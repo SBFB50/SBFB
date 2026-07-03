@@ -3210,12 +3210,12 @@ pub(crate) async fn mint_blob_ticket(
 
 /// `GET /diagnostic/neighborhood` — Sprint 23 Phase E. Returns the
 /// node's own ID and the peer pubkeys currently in the daemon's
-/// observable neighborhood. iroh 0.98 does not expose a DHT routing
-/// table enumeration (`remote_info_iter` landed post-0.98), so the
-/// observable neighborhood is the set of subscribed curator pubkeys
-/// — the peers this daemon actively tracks via gossip. Post-0.98
-/// upgrade or pkarr canary integration (S24) will enrich this with
-/// transport-layer peer discovery.
+/// observable neighborhood. iroh exposes no DHT routing-table
+/// enumeration (re-checked against 1.0.1 at the S81 Phase C bump:
+/// only per-peer `Endpoint::remote_info(EndpointId)` exists — the
+/// `remote_info_iter` once expected "post-0.98" never landed), so
+/// the observable neighborhood is the set of subscribed curator
+/// pubkeys — the peers this daemon actively tracks via gossip.
 async fn diagnostic_neighborhood(State(state): State<Arc<DaemonHttpState>>) -> impl IntoResponse {
     debug!("GET /diagnostic/neighborhood");
     let peers = state.curator_runtime.subscribed_pubkeys_hex();

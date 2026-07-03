@@ -544,15 +544,18 @@ mod tests {
     /// Convergence #4 (Sprint 81 Phase A4 — CONTROL, pins the hole):
     /// a coordinator that REOPENS its persisted project doc after a
     /// restart via `open_doc` alone sits OUTSIDE the doc's sync-set
-    /// (iroh-docs 0.98: only `start_sync` inserts into `SyncState`).
+    /// (iroh-docs 0.101, recalibrated at the S81 Phase B/C bump —
+    /// mechanism unchanged from 0.98: only `start_sync` inserts into
+    /// `SyncState`, `engine/live.rs:408-414`).
     /// Consequences pinned here, both observed LIVE on the anchor in
     /// the S81 Phase A3 baseline: (a) its incremental `task:` write is
     /// never gossip-broadcast, and (b) the worker's keepalive re-dial
     /// (`start_sync(peers)` from the worker side — the S77 fix) is
     /// REJECTED (`AbortReason::NotFound`), so the keepalive CANNOT
-    /// compensate. If this control starts CONVERGING after the
+    /// compensate. If this control starts CONVERGING after an
     /// iroh-docs bump, the upstream sync-set behaviour changed and the
-    /// A4 boot fix premise must be recalibrated (Phase B/C carry).
+    /// A4 boot fix premise must be recalibrated (tripwire re-verified
+    /// non-convergent under 0.101 at Phase B).
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn reopened_project_doc_without_start_sync_does_not_deliver() {
         let dir = tempfile::tempdir().expect("tmpdir");
@@ -688,9 +691,12 @@ mod tests {
             .author_default()
             .await
             .expect("author survives reopen");
-        let doc_a2 = crate::runtime::open_project_doc_for_dispatch(&docs_a2)
-            .await
-            .expect("production boot path opens + enters the sync-set");
+        let doc_a2 = crate::runtime::open_project_doc_for_dispatch(
+            &docs_a2,
+            nexus_core_rs::IdentityMode::Normal,
+        )
+        .await
+        .expect("production boot path opens + enters the sync-set");
         assert_eq!(
             doc_a2.id(),
             doc_id,
@@ -720,6 +726,395 @@ mod tests {
             .await,
             "with the A4 boot fix the post-restart incremental write must reach the replica \
              (worker keepalive accepted, no share_write side-effect needed)"
+        );
+
+        node_a2.shutdown().await.ok();
+        node_b.shutdown().await.ok();
+    }
+
+    // -----------------------------------------------------------------
+    // Sprint 81 Phase C — sibling sync-set fix (P2-SIBLING-SYNC-SET)
+    // -----------------------------------------------------------------
+
+    /// Which sibling namespace a reopen scenario boots.
+    enum SiblingKind {
+        Storage,
+        Feed,
+    }
+
+    /// Which reopen path the scenario exercises after the restart.
+    enum SiblingReopen {
+        /// The production boot fn in Normal mode — the Phase C fix
+        /// (`start_sync(vec![])` chokepoint, all arms).
+        BootFnNormal,
+        /// The production boot fn under Duress — must SKIP the
+        /// sync-set entry (DURESS-BOOT-LEAK §15.1: real store, decoy
+        /// key; no dial, no serve).
+        BootFnDuress,
+        /// Raw `open_doc`, mimicking the pre-C ticket-persisted reopen
+        /// arm (CONTROL — and upstream tripwire: only `start_sync`
+        /// inserts into `SyncState` under iroh-docs 0.101; if this
+        /// path starts converging, recalibrate the sibling fix
+        /// premise, same discipline as convergence #4).
+        OpenDocDirect,
+    }
+
+    /// Shared 2-node harness for the six sibling scenarios: first-boot
+    /// the namespace through the PRODUCTION boot fn (creates + persists
+    /// the M8 row, `share_write` arms the sync-set), enroll a remote
+    /// replica, prove baseline convergence, then restart the
+    /// coordinator on the SAME store + identity and reopen through
+    /// `reopen`. Returns whether a post-restart incremental write
+    /// reached the replica.
+    async fn run_sibling_reopen_scenario(kind: SiblingKind, reopen: SiblingReopen) -> bool {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let store = dir.path().join("coordinator");
+        let secret_base = match kind {
+            SiblingKind::Storage => 20u8,
+            SiblingKind::Feed => 30u8,
+        };
+        let secret = [secret_base
+            + match reopen {
+                SiblingReopen::BootFnNormal => 1,
+                SiblingReopen::BootFnDuress => 2,
+                SiblingReopen::OpenDocDirect => 3,
+            }; 32];
+        let db = std::sync::Arc::new(std::sync::Mutex::new(
+            nexus_coordinator_rs::db::CoordinatorDb::open_in_memory().expect("in-memory DB"),
+        ));
+
+        // Boot #1: first-boot arm — create, persist M8 (Some(ticket)),
+        // share_write side-effect arms the sync-set.
+        let node_a1 = boot_persistent_coordinator(&store, secret).await;
+        let node_b = create_node().await.expect("boot node B (remote replica)");
+        let docs_a1 = DocsClient::new(node_a1.docs());
+        let docs_b = DocsClient::new(node_b.docs());
+        let author_a1 = docs_a1.author_default().await.expect("author A1");
+
+        let (doc_a1, ticket_str) = match kind {
+            SiblingKind::Storage => {
+                let st = crate::runtime::boot_storage_namespace(
+                    &docs_a1,
+                    &db,
+                    "sbfb-ideas",
+                    author_a1,
+                    nexus_core_rs::IdentityMode::Normal,
+                )
+                .await
+                .expect("first-boot storage namespace");
+                (st.doc.clone(), st.ticket.clone())
+            }
+            SiblingKind::Feed => {
+                let fs = crate::runtime::boot_feed_namespace(
+                    &docs_a1,
+                    &db,
+                    author_a1,
+                    nexus_core_rs::IdentityMode::Normal,
+                )
+                .await
+                .expect("first-boot feed namespace");
+                (fs.doc.clone(), fs.ticket.clone())
+            }
+        };
+        let ns_id = doc_a1.id();
+
+        seed_addr(&node_a1, &node_b).await;
+        let ticket: nexus_core_rs::docs::DocsTicket = ticket_str
+            .parse()
+            .expect("the persisted state ticket string parses");
+        let doc_b = docs_b.import_ticket(ticket).await.expect("B imports doc");
+        // Positive deadlines below are generous: these six scenarios run
+        // CONCURRENTLY with the rest of the workspace suite (real QUIC
+        // 2-node convergence is CPU-bound — observed green solo in ~2s
+        // but past 30s under the initial spike of a full parallel run).
+        // `await_exact_key`/`await_neighbor` return as soon as the event
+        // lands, so slack costs nothing; the two-node-convergence nextest
+        // group carries a matching wider slow-timeout.
+        await_neighbor(&doc_b, Duration::from_secs(60)).await;
+
+        doc_a1
+            .set(author_a1, b"kv:base".to_vec(), b"{}".to_vec())
+            .await
+            .expect("baseline write");
+        assert!(
+            await_exact_key(&doc_b, b"kv:", b"kv:base", Duration::from_secs(30)).await,
+            "pre-restart baseline write must converge (share_write armed the sync-set)"
+        );
+
+        // Restart: same store + identity; the M8 row now carries
+        // Some(ticket), so the boot fn takes the ticket-persisted
+        // reopen arm — the arm the Phase C fix targets.
+        node_a1.shutdown().await.expect("A1 shuts down");
+        let node_a2 = boot_persistent_coordinator(&store, secret).await;
+        // Seed B's address BEFORE the reopen path runs: start_sync
+        // re-dials the peers persisted in docs.redb, and in-process
+        // there is no pkarr to resolve them.
+        seed_addr(&node_b, &node_a2).await;
+        let docs_a2 = DocsClient::new(node_a2.docs());
+        let author_a2 = docs_a2
+            .author_default()
+            .await
+            .expect("author survives reopen");
+
+        let doc_a2 = match reopen {
+            SiblingReopen::BootFnNormal | SiblingReopen::BootFnDuress => {
+                let mode = match reopen {
+                    SiblingReopen::BootFnDuress => nexus_core_rs::IdentityMode::Duress,
+                    _ => nexus_core_rs::IdentityMode::Normal,
+                };
+                match kind {
+                    SiblingKind::Storage => crate::runtime::boot_storage_namespace(
+                        &docs_a2,
+                        &db,
+                        "sbfb-ideas",
+                        author_a2,
+                        mode,
+                    )
+                    .await
+                    .expect("reopen through the production boot fn")
+                    .doc
+                    .clone(),
+                    SiblingKind::Feed => {
+                        crate::runtime::boot_feed_namespace(&docs_a2, &db, author_a2, mode)
+                            .await
+                            .expect("reopen through the production boot fn")
+                            .doc
+                            .clone()
+                    }
+                }
+            }
+            SiblingReopen::OpenDocDirect => Arc::new(
+                docs_a2
+                    .open_doc(ns_id)
+                    .await
+                    .expect("open persisted doc")
+                    .expect("doc survives the restart"),
+            ),
+        };
+        assert_eq!(
+            doc_a2.id(),
+            ns_id,
+            "reopen must yield the SAME persisted namespace, never a fresh one"
+        );
+
+        // Worker-style keepalive re-dial (S77) — accepted only if the
+        // reopened coordinator entered its sync-set. The PRODUCTION
+        // keepalive re-issues start_sync until the neighbor holds
+        // (`spawn_doc_sync_keepalive`); a single dial can be lost under
+        // the parallel workspace load spike, so the harness re-dials
+        // periodically like prod does. This does not weaken the negative
+        // paths: a doc outside its sync-set rejects EVERY re-dial
+        // (`AbortReason::NotFound`), which is exactly what they pin.
+        let a2_addr = addr_of(&node_a2).await;
+        node_b.memory_lookup().add_endpoint_info(a2_addr.clone());
+
+        doc_a2
+            .set(author_a2, b"kv:after-restart".to_vec(), b"{}".to_vec())
+            .await
+            .expect("post-restart write");
+        let deadline = std::time::Instant::now()
+            + match reopen {
+                // Convergence expected: generous deadline (see the load
+                // note above — single-dial 20s/45s runs each flaked once
+                // under the full parallel workspace).
+                SiblingReopen::BootFnNormal => Duration::from_secs(45),
+                // Negative assertion: bounded wait, mirrors convergence
+                // #4. The CONTROL's real safety is the categorical
+                // reject (`AbortReason::NotFound` on every re-dial,
+                // state.rs:96-97), not this timing. Known residual for
+                // the DURESS path (review P2-B, carry K): a future
+                // miswire that re-enters the sync-set under duress and
+                // converges in the 8-45s load window would slip past
+                // this bound (it is still caught on any idle/solo run,
+                // where convergence takes ~2s).
+                _ => Duration::from_secs(8),
+            };
+        let converged = loop {
+            doc_b
+                .start_sync(vec![a2_addr.clone()])
+                .await
+                .expect("worker-side start_sync call itself succeeds (rejection is remote)");
+            if await_exact_key(&doc_b, b"kv:", b"kv:after-restart", Duration::from_secs(5)).await {
+                break true;
+            }
+            if std::time::Instant::now() >= deadline {
+                break false;
+            }
+        };
+
+        node_a2.shutdown().await.ok();
+        node_b.shutdown().await.ok();
+        converged
+    }
+
+    /// CONTROL (pins the pre-C hole on the STORAGE sibling): a
+    /// ticket-persisted storage namespace reopened via `open_doc`
+    /// alone — what `boot_storage_namespace`'s reopen arm did before
+    /// Phase C — sits outside the sync-set: broadcasts suppressed,
+    /// worker keepalive rejected.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn storage_namespace_reopen_without_start_sync_does_not_deliver() {
+        assert!(
+            !run_sibling_reopen_scenario(SiblingKind::Storage, SiblingReopen::OpenDocDirect).await,
+            "a reopened-but-never-started storage namespace must NOT deliver — if this \
+             converges the upstream sync-set behaviour changed: recalibrate the sibling fix"
+        );
+    }
+
+    /// GREEN (the Phase C fix, red→green against the CONTROL above):
+    /// reopening through `boot_storage_namespace` enters the sync-set
+    /// at boot, so the post-restart incremental write converges and
+    /// the worker keepalive re-dial is accepted.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn boot_storage_namespace_reenters_sync_set_and_delivers_after_reopen() {
+        assert!(
+            run_sibling_reopen_scenario(SiblingKind::Storage, SiblingReopen::BootFnNormal).await,
+            "with the Phase C sibling fix the reopened storage namespace must re-enter \
+             its sync-set at boot and deliver incremental writes"
+        );
+    }
+
+    /// Duress no-op (DURESS-BOOT-LEAK §15.1): under duress the store
+    /// is the REAL one and only the node keypair is a decoy — the
+    /// boot fn must SKIP the sync-set entry: no persisted-peer
+    /// re-dial, no serving the real replica, worker sync rejected.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn boot_storage_namespace_duress_skips_sync_set_entry() {
+        assert!(
+            !run_sibling_reopen_scenario(SiblingKind::Storage, SiblingReopen::BootFnDuress).await,
+            "under duress the storage namespace must stay OUT of the sync-set (0 dial, \
+             0 serve) — convergence here means the duress gate regressed"
+        );
+    }
+
+    /// CONTROL — feed sibling (mirror of the storage CONTROL). The
+    /// feed doc is network-visible, so this hole had real reach.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn feed_namespace_reopen_without_start_sync_does_not_deliver() {
+        assert!(
+            !run_sibling_reopen_scenario(SiblingKind::Feed, SiblingReopen::OpenDocDirect).await,
+            "a reopened-but-never-started feed namespace must NOT deliver — if this \
+             converges the upstream sync-set behaviour changed: recalibrate the sibling fix"
+        );
+    }
+
+    /// GREEN — feed sibling (mirror of the storage GREEN).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn boot_feed_namespace_reenters_sync_set_and_delivers_after_reopen() {
+        assert!(
+            run_sibling_reopen_scenario(SiblingKind::Feed, SiblingReopen::BootFnNormal).await,
+            "with the Phase C sibling fix the reopened feed namespace must re-enter its \
+             sync-set at boot and deliver incremental writes"
+        );
+    }
+
+    /// Duress no-op — feed sibling (mirror of the storage duress
+    /// no-op).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn boot_feed_namespace_duress_skips_sync_set_entry() {
+        assert!(
+            !run_sibling_reopen_scenario(SiblingKind::Feed, SiblingReopen::BootFnDuress).await,
+            "under duress the feed namespace must stay OUT of the sync-set (0 dial, \
+             0 serve) — convergence here means the duress gate regressed"
+        );
+    }
+
+    /// Duress no-op — PROJECT doc (closes review P2-A): the A4 boot
+    /// path under duress must reopen the SAME persisted doc but SKIP
+    /// the sync-set entry. The project doc is the most sensitive one
+    /// (task/result history) and the preflight §5.2 named its A4-era
+    /// unconditional `start_sync` as a probably-shipped leak; this is
+    /// the integration tripwire for that branch (the unit test only
+    /// covers the pure predicate). Same 8s negative bound as the
+    /// sibling duress tests (review P2-B residual, carry K).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn open_project_doc_for_dispatch_duress_skips_sync_set() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let store = dir.path().join("coordinator");
+        let secret = [13u8; 32];
+
+        // Boot #1: create the doc, enroll B, prove baseline delivery.
+        let node_a1 = boot_persistent_coordinator(&store, secret).await;
+        let node_b = create_node().await.expect("boot node B (worker replica)");
+        let docs_a1 = DocsClient::new(node_a1.docs());
+        let docs_b = DocsClient::new(node_b.docs());
+        let author_a1 = docs_a1.author_default().await.expect("author A1");
+        let doc_a1 = docs_a1.create_doc().await.expect("create project doc");
+        let doc_id = doc_a1.id();
+
+        seed_addr(&node_a1, &node_b).await;
+        let ticket = doc_a1.share_write().await.expect("share write ticket");
+        let doc_b = docs_b.import_ticket(ticket).await.expect("B imports doc");
+        await_neighbor(&doc_b, Duration::from_secs(60)).await;
+
+        doc_a1
+            .set(author_a1, b"task:duress-base".to_vec(), b"{}".to_vec())
+            .await
+            .expect("baseline write");
+        assert!(
+            await_exact_key(
+                &doc_b,
+                b"task:",
+                b"task:duress-base",
+                Duration::from_secs(30)
+            )
+            .await,
+            "pre-restart baseline write must converge"
+        );
+
+        // Restart under DURESS through the production boot path.
+        node_a1.shutdown().await.expect("A1 shuts down");
+        let node_a2 = boot_persistent_coordinator(&store, secret).await;
+        seed_addr(&node_b, &node_a2).await;
+        let docs_a2 = DocsClient::new(node_a2.docs());
+        let author_a2 = docs_a2
+            .author_default()
+            .await
+            .expect("author survives reopen");
+        let doc_a2 = crate::runtime::open_project_doc_for_dispatch(
+            &docs_a2,
+            nexus_core_rs::IdentityMode::Duress,
+        )
+        .await
+        .expect("duress boot path opens the doc without entering the sync-set");
+        assert_eq!(
+            doc_a2.id(),
+            doc_id,
+            "duress must reopen the SAME persisted doc, never create a fresh one"
+        );
+
+        // Worker keepalive re-dials — must stay rejected; the
+        // post-restart write must NOT reach the replica.
+        let a2_addr = addr_of(&node_a2).await;
+        node_b.memory_lookup().add_endpoint_info(a2_addr.clone());
+        doc_a2
+            .set(author_a2, b"task:duress-control".to_vec(), b"{}".to_vec())
+            .await
+            .expect("post-restart write");
+        let deadline = std::time::Instant::now() + Duration::from_secs(8);
+        let converged = loop {
+            doc_b
+                .start_sync(vec![a2_addr.clone()])
+                .await
+                .expect("worker-side start_sync call itself succeeds (rejection is remote)");
+            if await_exact_key(
+                &doc_b,
+                b"task:",
+                b"task:duress-control",
+                Duration::from_secs(5),
+            )
+            .await
+            {
+                break true;
+            }
+            if std::time::Instant::now() >= deadline {
+                break false;
+            }
+        };
+        assert!(
+            !converged,
+            "under duress the project doc must stay OUT of the sync-set — convergence \
+             here means the duress gate regressed (DURESS-BOOT-LEAK §15.1)"
         );
 
         node_a2.shutdown().await.ok();

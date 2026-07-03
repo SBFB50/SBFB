@@ -645,7 +645,7 @@ impl DaemonRuntime {
             .author_default()
             .await
             .context("failed to get default docs author")?;
-        let project_doc = open_project_doc_for_dispatch(&docs_client).await?;
+        let project_doc = open_project_doc_for_dispatch(&docs_client, identity_mode).await?;
         info!(
             doc_id = %project_doc.id(),
             author = %doc_author,
@@ -693,8 +693,14 @@ impl DaemonRuntime {
         {
             let replicated_apps: &[&str] = &["sbfb-ideas"];
             for app_name in replicated_apps {
-                match boot_storage_namespace(&docs_client, &coordinator_db, app_name, doc_author)
-                    .await
+                match boot_storage_namespace(
+                    &docs_client,
+                    &coordinator_db,
+                    app_name,
+                    doc_author,
+                    identity_mode,
+                )
+                .await
                 {
                     Ok(ns_state) => {
                         info!(
@@ -735,7 +741,9 @@ impl DaemonRuntime {
         let seed_registry = Arc::new(crate::seed_registry::SeedRegistry::new());
         let (feed_shutdown_tx, feed_shutdown_rx) = tokio::sync::watch::channel(false);
         let (feed_sync_state, feed_handle) =
-            match boot_feed_namespace(&docs_client, &coordinator_db, doc_author).await {
+            match boot_feed_namespace(&docs_client, &coordinator_db, doc_author, identity_mode)
+                .await
+            {
                 Ok(fs) => {
                     info!(
                         doc_id = %fs.doc.id(),
@@ -2020,14 +2028,15 @@ fn wrap_payload_with_pow_static(
 /// enter its iroh-docs sync-set via `start_sync(vec![])`.
 ///
 /// `open_doc`/`create_doc` alone do NOT enter the sync-set (iroh-docs
-/// 0.98: only `start_sync` inserts the namespace into `SyncState`,
-/// `engine/live.rs:414`). A coordinator outside the sync-set (a) never
-/// gossip-broadcasts its incremental `task:` writes (`LocalInsert`
-/// gated by `is_syncing`, `engine/live.rs:714`) and (b) REJECTS every
-/// incoming worker sync with `AbortReason::NotFound`
-/// (`engine/state.rs:97`). Before Sprint 81 Phase A4 the sync-set was
-/// only (re)armed by `share_write()` side-effects — invite mint and the
-/// on-demand local-worker bootstrap on task submit
+/// 0.101, recalibrated at the S81 Phase B/C bump — mechanism unchanged
+/// from 0.98: only `start_sync` inserts the namespace into `SyncState`,
+/// `engine/live.rs:408-414`). A coordinator outside the sync-set (a)
+/// never gossip-broadcasts its incremental `task:` writes
+/// (`LocalInsert` gated by `is_syncing`, `engine/live.rs:713`) and (b)
+/// REJECTS every incoming worker sync with `AbortReason::NotFound`
+/// (`engine/state.rs:96-97`). Before Sprint 81 Phase A4 the sync-set
+/// was only (re)armed by `share_write()` side-effects — invite mint and
+/// the on-demand local-worker bootstrap on task submit
 /// (`local_worker.rs` `provision()`, nudged from the submit path) —
 /// which left a dead boot->first-submit window observed LIVE on the
 /// anchor (S81 Phase A3 baseline: journal "Aborted sync .. NotFound"
@@ -2039,12 +2048,20 @@ fn wrap_payload_with_pow_static(
 /// `start_sync(vec![])` dials nothing by itself, but iroh-docs merges
 /// the peers PERSISTED in `docs.redb` (`register_useful_peer` /
 /// `get_sync_peers`) and re-dials them (`DirectJoin`) — bounded by the
-/// store's known-peer list, no new wire surface, no relay in the hot
-/// path. Recalibrate the cited internals against iroh-docs 0.101 at
-/// the Phase B/C bump (same discipline as the Phase A2 "Replica not
-/// found" matcher).
+/// store's known-peer list (`PEERS_PER_DOC_CACHE_SIZE = 5`,
+/// `store.rs:17`), no new wire surface, no relay in the hot path.
+///
+/// Under `IdentityMode::Duress` the sync-set entry is SKIPPED
+/// (S81 Phase C, `noop_identity::sync_set_entry_in_duress`): the
+/// reopened doc is the REAL replica (duress swaps only the node
+/// keypair, never the data dir) and entering the sync-set would
+/// re-dial the real persisted peers under the decoy key — regressing
+/// DURESS-BOOT-LEAK (`THREAT_MODEL.md` §15.1). This is regression-free
+/// functionally: no real dispatch happens under duress
+/// (`task_dispatch_in_duress` => 503).
 pub(crate) async fn open_project_doc_for_dispatch(
     docs_client: &nexus_core_rs::docs::DocsClient,
+    identity_mode: nexus_core_rs::IdentityMode,
 ) -> Result<nexus_core_rs::docs::DocHandle> {
     let existing = docs_client
         .list_docs()
@@ -2062,10 +2079,18 @@ pub(crate) async fn open_project_doc_for_dispatch(
             .await
             .context("failed to create project doc")?
     };
-    project_doc.start_sync(Vec::new()).await.context(
-        "failed to enter the project doc sync-set at boot \
-         (coordinator would neither broadcast task: writes nor accept worker syncs)",
-    )?;
+    match crate::noop_identity::sync_set_entry_in_duress(identity_mode) {
+        crate::noop_identity::SyncSetOutcome::Enter => {
+            project_doc.start_sync(Vec::new()).await.context(
+                "failed to enter the project doc sync-set at boot \
+                 (coordinator would neither broadcast task: writes nor accept worker syncs)",
+            )?;
+        }
+        crate::noop_identity::SyncSetOutcome::Skip => {
+            // Duress: silent skip, mirroring the boot feed republish
+            // (no "duress" marker is ever emitted, even at debug level).
+        }
+    }
     Ok(project_doc)
 }
 
@@ -2496,11 +2521,31 @@ fn restore_browse_from_outbox(
 /// app. Checks the M8 `storage_namespaces` table for a persisted
 /// NamespaceId. If found, reopens; otherwise creates a new namespace,
 /// generates a Write ticket, and persists both.
-async fn boot_storage_namespace(
+///
+/// S81 Phase C (P2-SIBLING-SYNC-SET, sibling of the Phase A4 project
+/// doc fix): every arm converges on an explicit `start_sync(vec![])`
+/// so the reopened namespace ENTERS its sync-set at boot. Before this
+/// fix the ticket-persisted reopen arm returned the doc outside the
+/// sync-set (broadcasts suppressed, incoming syncs rejected with
+/// `AbortReason::NotFound`) — the create arms only entered it via the
+/// fragile `share_write()` side-effect. Fail-fast, never warn-only
+/// (Phase A2 doctrine): a silently missed sync-set entry would reopen
+/// the "silent loss" class A2 closed. Under `IdentityMode::Duress` the
+/// entry is SKIPPED (`noop_identity::sync_set_entry_in_duress`): the
+/// store is the REAL one and dialing its persisted peers under the
+/// decoy key would regress DURESS-BOOT-LEAK (§15.1). The create arms
+/// (first-boot / recreate) also `share_write()` past this gate, but on
+/// a FRESH namespace — 0 persisted peers to dial, no real content to
+/// serve — so they are benign under duress. Residual, out of reach in
+/// prod: the ticket-None reopen sub-arm is the only side-effect
+/// touching the REAL replica (re-mint via `share_write()`) —
+/// unreachable, every M8 write since S58 persists `Some(ticket)`.
+pub(crate) async fn boot_storage_namespace(
     docs_client: &nexus_core_rs::docs::DocsClient,
     coordinator_db: &std::sync::Arc<std::sync::Mutex<nexus_coordinator_rs::db::CoordinatorDb>>,
     app_name: &str,
     author: nexus_core_rs::docs::DocsAuthorId,
+    identity_mode: nexus_core_rs::IdentityMode,
 ) -> Result<crate::storage_api::StorageNamespaceState> {
     use std::sync::atomic::AtomicU64;
 
@@ -2590,6 +2635,24 @@ async fn boot_storage_namespace(
         }
     };
 
+    // S81 Phase C chokepoint: single sync-set entry for ALL arms
+    // (idempotent on the already-armed create arms), duress-gated.
+    match crate::noop_identity::sync_set_entry_in_duress(identity_mode) {
+        crate::noop_identity::SyncSetOutcome::Enter => {
+            doc.start_sync(Vec::new()).await.with_context(|| {
+                format!(
+                    "failed to enter the storage namespace sync-set at boot for app \
+                     {app_name} (ns {}) — the namespace would neither broadcast its \
+                     writes nor accept incoming syncs",
+                    doc.id()
+                )
+            })?;
+        }
+        crate::noop_identity::SyncSetOutcome::Skip => {
+            // Duress: silent skip (no "duress" marker, even at debug level).
+        }
+    }
+
     Ok(crate::storage_api::StorageNamespaceState {
         doc: Arc::new(doc),
         author,
@@ -2602,10 +2665,17 @@ async fn boot_storage_namespace(
 /// P2P sync. Mirrors `boot_storage_namespace` but produces a
 /// `FeedSyncState` without the version counter (feed dedup is
 /// hash-based, not version-based).
-async fn boot_feed_namespace(
+///
+/// S81 Phase C: same sync-set chokepoint + duress gate as
+/// `boot_storage_namespace` (P2-SIBLING-SYNC-SET). The feed doc is
+/// network-visible, so a reopened-but-never-started feed namespace
+/// had real reach: the S75 PULL directory is only a partial
+/// mitigation when the feed doc itself rejects every sync.
+pub(crate) async fn boot_feed_namespace(
     docs_client: &nexus_core_rs::docs::DocsClient,
     coordinator_db: &std::sync::Arc<std::sync::Mutex<nexus_coordinator_rs::db::CoordinatorDb>>,
     author: nexus_core_rs::docs::DocsAuthorId,
+    identity_mode: nexus_core_rs::IdentityMode,
 ) -> Result<crate::feed_sync::FeedSyncState> {
     let feed_key = crate::feed_sync::FEED_NAMESPACE_KEY;
 
@@ -2681,6 +2751,23 @@ async fn boot_feed_namespace(
             (doc, ticket_str)
         }
     };
+
+    // S81 Phase C chokepoint: mirrors boot_storage_namespace.
+    match crate::noop_identity::sync_set_entry_in_duress(identity_mode) {
+        crate::noop_identity::SyncSetOutcome::Enter => {
+            doc.start_sync(Vec::new()).await.with_context(|| {
+                format!(
+                    "failed to enter the feed namespace sync-set at boot (ns {}) — the \
+                     public feed would neither broadcast its writes nor accept incoming \
+                     syncs",
+                    doc.id()
+                )
+            })?;
+        }
+        crate::noop_identity::SyncSetOutcome::Skip => {
+            // Duress: silent skip (no "duress" marker, even at debug level).
+        }
+    }
 
     Ok(crate::feed_sync::FeedSyncState {
         doc: Arc::new(doc),
@@ -4228,9 +4315,15 @@ mod tests {
             .set_storage_namespace("sbfb-ideas", &stale, None)
             .unwrap();
 
-        let state = boot_storage_namespace(&docs_client, &db, "sbfb-ideas", author)
-            .await
-            .expect("absent replica (NotFound) must self-heal, not fail fast");
+        let state = boot_storage_namespace(
+            &docs_client,
+            &db,
+            "sbfb-ideas",
+            author,
+            nexus_core_rs::IdentityMode::Normal,
+        )
+        .await
+        .expect("absent replica (NotFound) must self-heal, not fail fast");
 
         let row = db
             .lock()
@@ -4262,9 +4355,14 @@ mod tests {
             .set_storage_namespace(feed_key, &stale, None)
             .unwrap();
 
-        let state = boot_feed_namespace(&docs_client, &db, author)
-            .await
-            .expect("absent replica (NotFound) must self-heal, not fail fast");
+        let state = boot_feed_namespace(
+            &docs_client,
+            &db,
+            author,
+            nexus_core_rs::IdentityMode::Normal,
+        )
+        .await
+        .expect("absent replica (NotFound) must self-heal, not fail fast");
 
         let row = db
             .lock()
@@ -4296,9 +4394,15 @@ mod tests {
         drop(doc);
         node.shutdown().await.unwrap();
 
-        let err = boot_storage_namespace(&docs_client, &db, "sbfb-ideas", author)
-            .await
-            .expect_err("docs error after shutdown must fail fast, not recreate");
+        let err = boot_storage_namespace(
+            &docs_client,
+            &db,
+            "sbfb-ideas",
+            author,
+            nexus_core_rs::IdentityMode::Normal,
+        )
+        .await
+        .expect_err("docs error after shutdown must fail fast, not recreate");
         let msg = format!("{err:#}");
         assert!(
             msg.contains("refusing to silently recreate"),
@@ -4334,9 +4438,14 @@ mod tests {
         drop(doc);
         node.shutdown().await.unwrap();
 
-        let err = boot_feed_namespace(&docs_client, &db, author)
-            .await
-            .expect_err("docs error after shutdown must fail fast, not recreate");
+        let err = boot_feed_namespace(
+            &docs_client,
+            &db,
+            author,
+            nexus_core_rs::IdentityMode::Normal,
+        )
+        .await
+        .expect_err("docs error after shutdown must fail fast, not recreate");
         let msg = format!("{err:#}");
         assert!(
             msg.contains("refusing to silently recreate"),

@@ -491,6 +491,56 @@ mod tests {
         node.shutdown().await.ok();
     }
 
+    /// S81 Phase C (carry #2, requalified by the preflight): the
+    /// `DocTicket` string a coordinator persists (M8 `doc_ticket`
+    /// column) and serves to JOIN endpoints must survive the
+    /// Display -> FromStr round-trip under the CURRENT lock
+    /// (iroh-docs 0.101). The 0.98 -> 0.101 wire compat itself was
+    /// settled by byte-diffing the vendored `ticket.rs` (struct,
+    /// `TicketWireFormat::Variant0`, `KIND="doc"`, postcard body all
+    /// identical; only `Ticket` trait method NAMES changed, invisible
+    /// to SBFB which only uses Display + FromStr) — no genuine 0.98
+    /// fixture exists to commit, and pre-launch policy makes one a
+    /// non-scenario.
+    #[tokio::test]
+    async fn doc_ticket_string_round_trips_under_current_lock() {
+        let node = spawn_node().await;
+        let docs = DocsClient::new(node.docs());
+        let doc = docs.create_doc().await.unwrap();
+
+        let ticket = doc.share_write().await.expect("mint write ticket");
+        let s = ticket.to_string(); // == what the DB column persists
+        let parsed: DocsTicket = s.parse().expect("persisted ticket string re-parses");
+        assert_eq!(
+            parsed.capability.id(),
+            doc.id(),
+            "round-tripped ticket must preserve the NamespaceId"
+        );
+        assert_eq!(
+            parsed.to_string(),
+            s,
+            "Display -> FromStr -> Display must be idempotent"
+        );
+
+        node.shutdown().await.ok();
+    }
+
+    /// S81 Phase C: a hostile / malformed ticket string (e.g. read
+    /// from a tampered DB column or a bad JOIN request body) must
+    /// surface as `Err`, never panic — the consumers parse with
+    /// `match .parse()` and turn this into an HTTP error.
+    #[test]
+    fn doc_ticket_hostile_string_fails_to_parse() {
+        assert!("not-a-ticket".parse::<DocsTicket>().is_err());
+        assert!("doc".parse::<DocsTicket>().is_err());
+        assert!(
+            "docaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                .parse::<DocsTicket>()
+                .is_err(),
+            "a base32-shaped but truncated body must fail cleanly"
+        );
+    }
+
     #[tokio::test]
     async fn get_many_by_prefix_returns_matching_entries_only() {
         // Regression test for Sprint 2 audit S5 finding: the

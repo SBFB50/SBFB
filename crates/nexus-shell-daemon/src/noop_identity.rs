@@ -31,6 +31,20 @@
 //!   maintenance window) and carries no signal about why — an
 //!   adversary cannot tell "duress" from "backend restart".
 //!
+//! - `sync_set_entry_in_duress` (Sprint 81 Phase C) : the boot path
+//!   gates every iroh-docs `start_sync` (project doc, storage
+//!   namespaces, feed namespace) through this check. Under duress
+//!   the iroh store and the coordinator DB are the REAL ones — only
+//!   the node keypair is a decoy (`nexus-launcher` `unlock.rs`
+//!   swaps the exported secret, never the data dir). An
+//!   unconditional `start_sync` would re-dial the real peers
+//!   persisted in `docs.redb` under the decoy key AND serve the
+//!   real replica content to any peer that syncs — regressing the
+//!   DURESS-BOOT-LEAK closure (`THREAT_MODEL.md` §15.1). Skipping
+//!   the sync-set entry keeps the reopened docs dark: no dial, no
+//!   broadcast, every incoming sync rejected (`AbortReason::
+//!   NotFound`), while the daemon surface stays responsive.
+//!
 //! ## Why a helper crate instead of inline ifs
 //!
 //! Concentrating the check in one module means the audit / review
@@ -79,6 +93,18 @@ pub enum DispatchOutcome {
     Reject503,
 }
 
+/// Outcome of `sync_set_entry_in_duress`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SyncSetOutcome {
+    /// Normal identity — the boot path must enter the doc's
+    /// iroh-docs sync-set (`start_sync`).
+    Enter,
+    /// Duress identity — the boot path must skip `start_sync`
+    /// entirely: the reopened doc is the REAL replica and must not
+    /// dial persisted peers or serve content under the decoy key.
+    Skip,
+}
+
 /// Gate a gossip publish on the current identity mode.
 pub fn gossip_publish_in_duress(mode: IdentityMode) -> PublishOutcome {
     match mode {
@@ -103,6 +129,17 @@ pub fn task_dispatch_in_duress(mode: IdentityMode) -> DispatchOutcome {
     }
 }
 
+/// Gate a boot-time iroh-docs sync-set entry on the current
+/// identity mode (Sprint 81 Phase C — see the module doc for why an
+/// unconditional `start_sync` under duress regresses
+/// DURESS-BOOT-LEAK).
+pub fn sync_set_entry_in_duress(mode: IdentityMode) -> SyncSetOutcome {
+    match mode {
+        IdentityMode::Normal => SyncSetOutcome::Enter,
+        IdentityMode::Duress => SyncSetOutcome::Skip,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -120,6 +157,18 @@ mod tests {
         assert_eq!(
             task_dispatch_in_duress(IdentityMode::Normal),
             DispatchOutcome::Proceed
+        );
+        assert_eq!(
+            sync_set_entry_in_duress(IdentityMode::Normal),
+            SyncSetOutcome::Enter
+        );
+    }
+
+    #[test]
+    fn duress_mode_skips_sync_set_entry() {
+        assert_eq!(
+            sync_set_entry_in_duress(IdentityMode::Duress),
+            SyncSetOutcome::Skip
         );
     }
 

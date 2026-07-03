@@ -14,6 +14,17 @@
 #
 # Schema reference: https://nexte.st/book/configuration.html
 
+# S81 Phase C: the dispatch_loop convergence scenarios each boot TWO
+# real iroh nodes (QUIC handshake + gossip + doc sync). Running all
+# eleven of them concurrently with the rest of the workspace starves
+# the handshakes on a saturated CPU: observed green solo in ~2s but
+# past a 20-30s deadline under the full parallel run (false flakes on
+# genuinely-converging tests). Cap their parallelism instead of
+# inflating deadlines forever — `await_exact_key`/`await_neighbor`
+# return as soon as the event lands, so serialization costs seconds.
+[test-groups]
+two-node-convergence = { max-threads = 2 }
+
 [profile.default]
 # Local dev: no retries, fail fast on first failure. This keeps
 # `cargo nextest run` on a developer laptop as loud as possible.
@@ -21,6 +32,16 @@ retries = 0
 slow-timeout = { period = "30s", terminate-after = 3 }
 failure-output = "immediate"
 status-level = "pass"
+
+[[profile.default.overrides]]
+filter = 'package(nexus-shell-daemon) & test(/(convergence_|without_start_sync|reenters_sync_set|duress_skips_sync_set)/)'
+test-group = 'two-node-convergence'
+# The group caps intra-group parallelism, but the REST of the workspace
+# still saturates the CPU around these tests (the alphabetically-first
+# group member lands in the initial spike and its QUIC handshake can
+# take >30s that costs ~2s solo). Give the group a wider terminate
+# budget so a slow-but-correct convergence is not killed at 90s.
+slow-timeout = { period = "60s", terminate-after = 3 }
 
 [profile.ci]
 # CI: do not stop the whole run on the first failure — we want the

@@ -29,10 +29,18 @@
 //!   empty: the coordinator broadcasts nothing and the worker only ever
 //!   receives the initial bulk sync — never the incremental writes.
 //!
+//! Recalibrated against iroh-docs 0.101 at the S81 Phase B/C bump —
+//! mechanism unchanged: broadcast gate `is_syncing` (`live.rs:713`),
+//! sync-set insert only via `start_sync` (`live.rs:408-414`),
+//! incoming-sync reject `AbortReason::NotFound` (`state.rs:96-97`).
+//! The line numbers cited in the S77 narrative above are the 0.98
+//! ones it was root-caused against.
+//!
 //! The golden in-process example (`examples/two_nodes_docs_sync.rs`)
-//! converges post-subscribe under 0.98, so the convergence primitive is
-//! **not** broken — the gap is keeping the namespace's gossip neighbor
-//! alive across transport churn. This module is that keepalive: it
+//! converges post-subscribe (verified under 0.98; the 2-node
+//! convergence suite is green under 0.101), so the convergence
+//! primitive is **not** broken — the gap is keeping the namespace's
+//! gossip neighbor alive across transport churn. This module is that keepalive: it
 //! observes the doc's `NeighborUp`/`NeighborDown` events and, whenever
 //! the neighbor is absent, re-issues `Doc::start_sync(peers)`. Passing
 //! the coordinator's [`EndpointAddr`] (which carries the endpoint id)
