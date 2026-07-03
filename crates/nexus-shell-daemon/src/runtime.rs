@@ -635,33 +635,21 @@ impl DaemonRuntime {
         // 6c. Sprint 49 Phase A: create or reopen the project iroh-docs
         //     document. The daemon acts as coordinator for the local
         //     user's project — single-project mode (D1).
+        //     Sprint 81 Phase A4: open/create + sync-set entry moved to
+        //     `open_project_doc_for_dispatch` so the boot path is
+        //     unit-testable and the coordinator never sits outside its
+        //     own doc's sync-set (dead boot->first-submit window
+        //     observed LIVE on the anchor, S81 Phase A3 baseline).
         let docs_client = nexus_core_rs::docs::DocsClient::new(node.docs());
         let doc_author = docs_client
             .author_default()
             .await
             .context("failed to get default docs author")?;
-        let project_doc = {
-            let existing = docs_client
-                .list_docs()
-                .await
-                .context("failed to list project docs")?;
-            if let Some(&first_id) = existing.first() {
-                docs_client
-                    .open_doc(first_id)
-                    .await
-                    .context("failed to open project doc")?
-                    .ok_or_else(|| anyhow!("project doc listed but failed to open"))?
-            } else {
-                docs_client
-                    .create_doc()
-                    .await
-                    .context("failed to create project doc")?
-            }
-        };
+        let project_doc = open_project_doc_for_dispatch(&docs_client).await?;
         info!(
             doc_id = %project_doc.id(),
             author = %doc_author,
-            "project doc ready for coordinator dispatch"
+            "project doc ready for coordinator dispatch (sync-set entered)"
         );
         let project_doc = Arc::new(project_doc);
 
@@ -2031,6 +2019,59 @@ fn wrap_payload_with_pow_static(
     };
     let proof = solve_cache.ensure_proof(*topic, keypair.as_ref(), &policy)?;
     nexus_core_rs::PowEnvelope::encode(&proof, payload)
+}
+
+/// Open the coordinator's project doc (or create it on first boot) AND
+/// enter its iroh-docs sync-set via `start_sync(vec![])`.
+///
+/// `open_doc`/`create_doc` alone do NOT enter the sync-set (iroh-docs
+/// 0.98: only `start_sync` inserts the namespace into `SyncState`,
+/// `engine/live.rs:414`). A coordinator outside the sync-set (a) never
+/// gossip-broadcasts its incremental `task:` writes (`LocalInsert`
+/// gated by `is_syncing`, `engine/live.rs:714`) and (b) REJECTS every
+/// incoming worker sync with `AbortReason::NotFound`
+/// (`engine/state.rs:97`). Before Sprint 81 Phase A4 the sync-set was
+/// only (re)armed by `share_write()` side-effects — invite mint and the
+/// on-demand local-worker bootstrap on task submit
+/// (`local_worker.rs` `provision()`, nudged from the submit path) —
+/// which left a dead boot->first-submit window observed LIVE on the
+/// anchor (S81 Phase A3 baseline: journal "Aborted sync .. NotFound"
+/// ~26s after boot) and made WAN task delivery depend on a fragile
+/// side-effect. Booting straight into the sync-set closes that window
+/// at the root; the worker-side keepalive (`spawn_doc_sync_keepalive`,
+/// S77) is complementary and untouched.
+///
+/// `start_sync(vec![])` dials nothing by itself, but iroh-docs merges
+/// the peers PERSISTED in `docs.redb` (`register_useful_peer` /
+/// `get_sync_peers`) and re-dials them (`DirectJoin`) — bounded by the
+/// store's known-peer list, no new wire surface, no relay in the hot
+/// path. Recalibrate the cited internals against iroh-docs 0.101 at
+/// the Phase B/C bump (same discipline as the Phase A2 "Replica not
+/// found" matcher).
+pub(crate) async fn open_project_doc_for_dispatch(
+    docs_client: &nexus_core_rs::docs::DocsClient,
+) -> Result<nexus_core_rs::docs::DocHandle> {
+    let existing = docs_client
+        .list_docs()
+        .await
+        .context("failed to list project docs")?;
+    let project_doc = if let Some(&first_id) = existing.first() {
+        docs_client
+            .open_doc(first_id)
+            .await
+            .context("failed to open project doc")?
+            .ok_or_else(|| anyhow!("project doc listed but failed to open"))?
+    } else {
+        docs_client
+            .create_doc()
+            .await
+            .context("failed to create project doc")?
+    };
+    project_doc.start_sync(Vec::new()).await.context(
+        "failed to enter the project doc sync-set at boot \
+         (coordinator would neither broadcast task: writes nor accept worker syncs)",
+    )?;
+    Ok(project_doc)
 }
 
 /// Mint a fresh `BlobTicket` for `hash` from the node's CURRENT endpoint address.

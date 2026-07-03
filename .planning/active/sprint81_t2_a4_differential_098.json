@@ -1,0 +1,30 @@
+{
+  "suite": "sprint81-transport-a4-differential",
+  "kind": "differential",
+  "against_baseline": ".planning/active/sprint81_t2_baseline_098.json",
+  "iroh_version": "0.98",
+  "fix_under_test": "coordinator enters its project-doc sync-set at boot (open_project_doc_for_dispatch: open/create + start_sync(vec![]))",
+  "date": "2026-07-03",
+  "vocabulary_note": "palier-level 'verdict' uses the closed T2 vocabulary as a status+diagnosis pair (same shape as the baseline artefact)",
+  "paliers": {
+    "boot_window_pre_submit": {
+      "verdict": "PASS",
+      "criterion": "per the baseline a3b_differential_contract: after a coordinator restart and BEFORE any submit, the worker's incoming sync must be ACCEPTED (no 'Aborted sync .. NotFound' in the coordinator journal)",
+      "observed": "boot logs 'project doc ready for coordinator dispatch (sync-set entered)'; worker started 21s after boot with ZERO submits issued; its dial was ACCEPTED 2s later ('sync finished sent=7 recv=5'); NotFound count over the whole window = 0; the coordinator even re-dialed its persisted peers outbound. Baseline for comparison: reject 'Aborted sync .. NotFound' ~26s after boot, acceptance only AFTER the first submit's share_write side-effect",
+      "note": "the fragile share_write submit-path side-effect is no longer load-bearing for delivery (it remains in place, now redundant for the sync-set)"
+    },
+    "b3_p1_post_fix": {
+      "harness": "scripts/acceptance/b3_live_pc_vps.sh",
+      "redundancy": 1,
+      "verdict": "PASS",
+      "delay_s": 26,
+      "claim_s": 26,
+      "note": "within the 30s budget; slower than the 14s baseline run because the worker-side Ollama model was cold after a host reboot (claim carries the whole delay, inference+replication ~0s)"
+    }
+  },
+  "hermetic_anchors": {
+    "control_pins_the_hole": "dispatch_loop::tests::reopened_project_doc_without_start_sync_does_not_deliver (reopen without start_sync -> worker keepalive re-dial NOT delivered; tripwire for the iroh-docs 0.101 bump)",
+    "green_proves_boot_path": "dispatch_loop::tests::boot_path_reenters_sync_set_and_delivers_after_reopen (production boot path -> keepalive accepted -> incremental write converges)",
+    "consent_hermetic": "10/10 http::tests::consent_* green WITH the rig-level L3 consent.json present (previously polluted by it)"
+  }
+}

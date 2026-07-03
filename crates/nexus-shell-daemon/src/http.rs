@@ -8924,7 +8924,11 @@ mod tests {
 
     #[tokio::test]
     async fn consent_get_returns_default_config() {
-        let app = build_test_router(mk_state().await);
+        // S81 Phase A4: hermetic — consent routes resolve ~/.sbfb when
+        // sbfb_home is None, so a rig-level consent.json would leak in
+        // (the exact pollution the A3 baseline hit). Pin a tempdir.
+        let tmp = tempfile::tempdir().expect("tmpdir");
+        let app = build_test_router(mk_state_with_sbfb_home(tmp.path().to_path_buf()).await);
         let resp = app
             .oneshot(
                 Request::builder()
@@ -8943,7 +8947,11 @@ mod tests {
 
     #[tokio::test]
     async fn consent_set_invalid_level_400() {
-        let app = build_test_router(mk_state().await);
+        // S81 Phase A4: hermetic — consent routes resolve ~/.sbfb when
+        // sbfb_home is None, so a rig-level consent.json would leak in
+        // (the exact pollution the A3 baseline hit). Pin a tempdir.
+        let tmp = tempfile::tempdir().expect("tmpdir");
+        let app = build_test_router(mk_state_with_sbfb_home(tmp.path().to_path_buf()).await);
         let body = serde_json::json!({"level": 0});
         let resp = app
             .oneshot(
@@ -8961,7 +8969,11 @@ mod tests {
 
     #[tokio::test]
     async fn consent_set_level_5_400() {
-        let app = build_test_router(mk_state().await);
+        // S81 Phase A4: hermetic — consent routes resolve ~/.sbfb when
+        // sbfb_home is None, so a rig-level consent.json would leak in
+        // (the exact pollution the A3 baseline hit). Pin a tempdir.
+        let tmp = tempfile::tempdir().expect("tmpdir");
+        let app = build_test_router(mk_state_with_sbfb_home(tmp.path().to_path_buf()).await);
         let body = serde_json::json!({"level": 5});
         let resp = app
             .oneshot(
@@ -8979,7 +8991,11 @@ mod tests {
 
     #[tokio::test]
     async fn consent_whitelist_add_invalid_node_id_400() {
-        let app = build_test_router(mk_state().await);
+        // S81 Phase A4: hermetic — consent routes resolve ~/.sbfb when
+        // sbfb_home is None, so a rig-level consent.json would leak in
+        // (the exact pollution the A3 baseline hit). Pin a tempdir.
+        let tmp = tempfile::tempdir().expect("tmpdir");
+        let app = build_test_router(mk_state_with_sbfb_home(tmp.path().to_path_buf()).await);
         let body = serde_json::json!({"project_id": "not-valid-hex"});
         let resp = app
             .oneshot(
@@ -8997,7 +9013,11 @@ mod tests {
 
     #[tokio::test]
     async fn consent_whitelist_add_missing_project_id_422() {
-        let app = build_test_router(mk_state().await);
+        // S81 Phase A4: hermetic — consent routes resolve ~/.sbfb when
+        // sbfb_home is None, so a rig-level consent.json would leak in
+        // (the exact pollution the A3 baseline hit). Pin a tempdir.
+        let tmp = tempfile::tempdir().expect("tmpdir");
+        let app = build_test_router(mk_state_with_sbfb_home(tmp.path().to_path_buf()).await);
         let body = serde_json::json!({});
         let resp = app
             .oneshot(
@@ -9015,7 +9035,11 @@ mod tests {
 
     #[tokio::test]
     async fn consent_whitelist_remove_missing_project_id_422() {
-        let app = build_test_router(mk_state().await);
+        // S81 Phase A4: hermetic — consent routes resolve ~/.sbfb when
+        // sbfb_home is None, so a rig-level consent.json would leak in
+        // (the exact pollution the A3 baseline hit). Pin a tempdir.
+        let tmp = tempfile::tempdir().expect("tmpdir");
+        let app = build_test_router(mk_state_with_sbfb_home(tmp.path().to_path_buf()).await);
         let body = serde_json::json!({});
         let resp = app
             .oneshot(

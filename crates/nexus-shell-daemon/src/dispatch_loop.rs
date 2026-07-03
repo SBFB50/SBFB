@@ -512,4 +512,217 @@ mod tests {
         node_a.shutdown().await.ok();
         node_b.shutdown().await.ok();
     }
+
+    /// Boot a persistent coordinator node on `data_dir` with a fixed
+    /// secret key, so a test can shut it down and boot a successor on
+    /// the SAME store + identity (the restart / hot-binary-swap mode
+    /// of `sprint76_verification.md` §5.1).
+    async fn boot_persistent_coordinator(
+        data_dir: &std::path::Path,
+        secret: [u8; 32],
+    ) -> nexus_core_rs::Node {
+        nexus_core_rs::create_node_with_config(
+            nexus_core_rs::NodeConfig::default()
+                .with_secret_key(secret)
+                .with_data_dir(data_dir),
+        )
+        .await
+        .expect("boot persistent coordinator node")
+    }
+
+    /// Publish `node`'s current address into `other`'s memory lookup
+    /// AND return it, so a test can hand it to a worker-side
+    /// `start_sync` exactly like the S77 keepalive does with the
+    /// ticket peers.
+    async fn addr_of(node: &nexus_core_rs::Node) -> iroh::EndpointAddr {
+        DiscoveryClient::new(node.endpoint())
+            .my_endpoint_addr()
+            .await
+            .expect("node publishes its address")
+    }
+
+    /// Convergence #4 (Sprint 81 Phase A4 — CONTROL, pins the hole):
+    /// a coordinator that REOPENS its persisted project doc after a
+    /// restart via `open_doc` alone sits OUTSIDE the doc's sync-set
+    /// (iroh-docs 0.98: only `start_sync` inserts into `SyncState`).
+    /// Consequences pinned here, both observed LIVE on the anchor in
+    /// the S81 Phase A3 baseline: (a) its incremental `task:` write is
+    /// never gossip-broadcast, and (b) the worker's keepalive re-dial
+    /// (`start_sync(peers)` from the worker side — the S77 fix) is
+    /// REJECTED (`AbortReason::NotFound`), so the keepalive CANNOT
+    /// compensate. If this control starts CONVERGING after the
+    /// iroh-docs bump, the upstream sync-set behaviour changed and the
+    /// A4 boot fix premise must be recalibrated (Phase B/C carry).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn reopened_project_doc_without_start_sync_does_not_deliver() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let store = dir.path().join("coordinator");
+        let secret = [7u8; 32];
+
+        // Boot #1: create the doc, enroll B, prove baseline delivery.
+        let node_a1 = boot_persistent_coordinator(&store, secret).await;
+        let node_b = create_node().await.expect("boot node B (worker replica)");
+        let docs_a1 = DocsClient::new(node_a1.docs());
+        let docs_b = DocsClient::new(node_b.docs());
+        let author_a1 = docs_a1.author_default().await.expect("author A1");
+        let doc_a1 = docs_a1.create_doc().await.expect("create project doc");
+        let doc_id = doc_a1.id();
+
+        seed_addr(&node_a1, &node_b).await;
+        let ticket = doc_a1.share_write().await.expect("share write ticket");
+        let doc_b = docs_b.import_ticket(ticket).await.expect("B imports doc");
+        await_neighbor(&doc_b, Duration::from_secs(20)).await;
+
+        doc_a1
+            .set(author_a1, b"task:restart-base".to_vec(), b"{}".to_vec())
+            .await
+            .expect("baseline write");
+        assert!(
+            await_exact_key(
+                &doc_b,
+                b"task:",
+                b"task:restart-base",
+                Duration::from_secs(15)
+            )
+            .await,
+            "pre-restart baseline write must converge (share_write armed the sync-set)"
+        );
+
+        // Restart: same store, same identity, reopen WITHOUT start_sync.
+        node_a1.shutdown().await.expect("A1 shuts down");
+        let node_a2 = boot_persistent_coordinator(&store, secret).await;
+        let docs_a2 = DocsClient::new(node_a2.docs());
+        let author_a2 = docs_a2
+            .author_default()
+            .await
+            .expect("author survives reopen");
+        let doc_a2 = docs_a2
+            .open_doc(doc_id)
+            .await
+            .expect("open persisted doc")
+            .expect("doc survives the restart");
+
+        // The worker keepalive re-dials the rebooted coordinator — and
+        // must be rejected, because A2 never entered its sync-set.
+        let a2_addr = addr_of(&node_a2).await;
+        node_b.memory_lookup().add_endpoint_info(a2_addr.clone());
+        doc_b
+            .start_sync(vec![a2_addr])
+            .await
+            .expect("worker-side start_sync call itself succeeds (rejection is remote)");
+
+        doc_a2
+            .set(author_a2, b"task:restart-control".to_vec(), b"{}".to_vec())
+            .await
+            .expect("post-restart write");
+        assert!(
+            !await_exact_key(
+                &doc_b,
+                b"task:",
+                b"task:restart-control",
+                Duration::from_secs(8)
+            )
+            .await,
+            "an incremental write from a reopened-but-never-started doc must NOT reach the \
+             replica, even with the worker keepalive re-dialing — if this starts converging \
+             the upstream sync-set behaviour changed: recalibrate the A4 boot fix"
+        );
+
+        node_a2.shutdown().await.ok();
+        node_b.shutdown().await.ok();
+    }
+
+    /// Convergence #5 (Sprint 81 Phase A4 — the boot fix, red→green
+    /// against #4): same restart scenario, but the successor reopens
+    /// through `open_project_doc_for_dispatch` (the PRODUCTION boot
+    /// path) which enters the sync-set at boot. The worker keepalive
+    /// re-dial is now ACCEPTED and the post-restart incremental write
+    /// converges WITHOUT any invite mint or submit-path share_write
+    /// side-effect (the fragile dependency the A3 baseline exposed).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn boot_path_reenters_sync_set_and_delivers_after_reopen() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let store = dir.path().join("coordinator");
+        let secret = [9u8; 32];
+
+        // Boot #1: create the doc, enroll B, prove baseline delivery.
+        let node_a1 = boot_persistent_coordinator(&store, secret).await;
+        let node_b = create_node().await.expect("boot node B (worker replica)");
+        let docs_a1 = DocsClient::new(node_a1.docs());
+        let docs_b = DocsClient::new(node_b.docs());
+        let author_a1 = docs_a1.author_default().await.expect("author A1");
+        let doc_a1 = docs_a1.create_doc().await.expect("create project doc");
+        let doc_id = doc_a1.id();
+
+        seed_addr(&node_a1, &node_b).await;
+        let ticket = doc_a1.share_write().await.expect("share write ticket");
+        let doc_b = docs_b.import_ticket(ticket).await.expect("B imports doc");
+        await_neighbor(&doc_b, Duration::from_secs(20)).await;
+
+        doc_a1
+            .set(author_a1, b"task:restart-base".to_vec(), b"{}".to_vec())
+            .await
+            .expect("baseline write");
+        assert!(
+            await_exact_key(
+                &doc_b,
+                b"task:",
+                b"task:restart-base",
+                Duration::from_secs(15)
+            )
+            .await,
+            "pre-restart baseline write must converge"
+        );
+
+        // Restart: same store, same identity — reopen through the
+        // production boot path (open/create + start_sync).
+        node_a1.shutdown().await.expect("A1 shuts down");
+        let node_a2 = boot_persistent_coordinator(&store, secret).await;
+        // Seed B's address BEFORE the boot path runs: start_sync
+        // re-dials the peers persisted in docs.redb, and in-process
+        // there is no pkarr to resolve them (prod resolves via
+        // discovery).
+        seed_addr(&node_b, &node_a2).await;
+        let docs_a2 = DocsClient::new(node_a2.docs());
+        let author_a2 = docs_a2
+            .author_default()
+            .await
+            .expect("author survives reopen");
+        let doc_a2 = crate::runtime::open_project_doc_for_dispatch(&docs_a2)
+            .await
+            .expect("production boot path opens + enters the sync-set");
+        assert_eq!(
+            doc_a2.id(),
+            doc_id,
+            "boot path must reopen the SAME persisted doc, never create a fresh one"
+        );
+
+        // The worker keepalive re-dials the rebooted coordinator — now
+        // ACCEPTED because the boot path entered the sync-set.
+        let a2_addr = addr_of(&node_a2).await;
+        node_b.memory_lookup().add_endpoint_info(a2_addr.clone());
+        doc_b
+            .start_sync(vec![a2_addr])
+            .await
+            .expect("worker-side keepalive re-dial");
+
+        doc_a2
+            .set(author_a2, b"task:restart-fixed".to_vec(), b"{}".to_vec())
+            .await
+            .expect("post-restart write");
+        assert!(
+            await_exact_key(
+                &doc_b,
+                b"task:",
+                b"task:restart-fixed",
+                Duration::from_secs(20)
+            )
+            .await,
+            "with the A4 boot fix the post-restart incremental write must reach the replica \
+             (worker keepalive accepted, no share_write side-effect needed)"
+        );
+
+        node_a2.shutdown().await.ok();
+        node_b.shutdown().await.ok();
+    }
 }

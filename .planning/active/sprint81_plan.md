@@ -7,7 +7,7 @@
 > `verification_2026-07-02.md` : pin `=1.0.1`, auto-migration redb #105, self-heal ×2
 > `:2518`/`:2606`, MSRV tranchée 1.91, phases A2/A3, C8/C9/C10) + dossier canonique S81
 > (corrections sceptique intégrées : materializer `feed_materializer.rs:54-58`,
-> 3 crates déclarent iroh). **14 phases : 0 + A, A2, A3, B→K.**
+> 3 crates déclarent iroh). **15 phases : 0 + A, A2, A3, A4 (split préflight A3, ex-« A3b »), B→K.**
 
 > Phases dimensionnées par le **travail**, JAMAIS par LOC. **Phase 0 = audit gate S80** (JOUÉE).
 > S81 = **iroh STRICTEMENT SEUL** (bisectabilité ; materializer en Phase A commit séparé AVANT le
@@ -95,6 +95,31 @@
   une assertion in-process.
 - **Gate / scope-cut** : 0-bump strict ; la baseline b3 0.98 est COMMITTÉE avant tout
   bump (différentiel avant/après = preuve de non-régression transport).
+
+## Phase A4 — Fix boot sync-set coordinateur (ex-« A3b », split préflight A3) [0-bump]
+
+> *Déclarée à l'exécution du split PLAN-ADAPT du préflight A3 (le plan autorisait le
+> split, précédent E' ; « A3b » du préflight = « A4 » au canon `Phase [A-Z]+[0-9]?`
+> README §4). Préflight = POINTEUR vers l'artefact A3 §2/§3/§6/§7/§10.*
+
+- **But** : fermer à la racine la fenêtre boot→premier-submit observée LIVE en A3
+  (le coordinateur redémarré rouvre son project doc HORS sync-set iroh-docs : ses
+  écritures `task:` ne broadcast pas ET les syncs entrants du worker sont rejetés
+  `NotFound` ; la delivery ne tenait qu'au side-effect `share_write` du bootstrap
+  local-worker au submit).
+- **Jobs/surfaces** : `nexus-core-rs/src/docs.rs` (+`DocHandle::start_sync`) ;
+  `nexus-shell-daemon/src/runtime.rs` (`open_project_doc_for_dispatch` = open/create
+  + `start_sync(vec![])`, call-site boot 6c) ; tests `dispatch_loop.rs` + hermétisme
+  `consent_*` (`http.rs`).
+- **Livrables** : fix boot + test CONTROL (épingle le trou, tripwire bump 0.101) +
+  test GREEN (chemin de boot prod) + 6 tests consent hermétisés + artefact
+  différentiel committé (`sprint81_t2_a4_differential_098.json` : fenêtre DISPARUE
+  avant tout submit + b3 palier 1 post-fix PASS).
+- **Delta tests attendu** : **+1..2 Rust** (livré +2).
+- **T1** : durcit le sous-test (1) convergence — mode restart-coordinateur couvert.
+- **Gate / scope-cut** : 0-bump strict ; keepalive worker INTACT ; 0 relais N0
+  hot-path ; carries explicites P2-SIBLING-SYNC-SET (feed/storage, → B/C+K) et
+  P2-PROJECT-DOC-SELECTOR (`list_docs().first()`, → dette/K).
 
 ## Phase B — Bump deps workspace + recompile mécanique
 
@@ -331,7 +356,8 @@
 |---|---|
 | A | **aucun** — fix coordinator SQLite 0-bump, **AVANT** le bump (commit séparé, bisectabilité) |
 | A2 | **aucun** — self-heal ×2 fail-fast (`runtime.rs:2518`/`:2606`), 0-bump |
-| A3 | **aucun** — baseline b3 LIVE 0.98 committée + fix WAN task-delivery, 0-bump |
+| A3 | **aucun** — baseline b3 LIVE 0.98 committée (split préflight : observation seule), 0-bump |
+| A4 | **aucun** — fix boot sync-set coordinateur (`DocHandle::start_sync` + `open_project_doc_for_dispatch`), 0-bump |
 | B | **bump point unique** : iroh `=1.0.1` / docs `=0.101.0` / gossip `=0.101.0` / blobs `=0.103.0` (+ `iroh-tickets`/`iroh-metrics` si relogement, `irpc` 0.14→0.17) ; `pkarr` `CaRootsConfig→CaTlsConfig` ; `Cargo.lock` figé ; MSRV 1.91 tranchée |
 | C | recompile + migration **iroh-docs** (wire + types iroh-base) — `nexus-core-rs` (+ `runtime.rs`) |
 | D | recompile **iroh-blobs** + redb4 — `nexus-core-rs` |

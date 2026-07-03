@@ -379,6 +379,37 @@ impl DocHandle {
     }
 
     // ------------------------------------------------------------------
+    // Sync
+    // ------------------------------------------------------------------
+
+    /// Enter this document's live sync-set, optionally dialing `peers`.
+    ///
+    /// Opening a doc (`open_doc`/`create_doc`) does NOT enter the
+    /// sync-set — verified against iroh-docs 0.98: only `start_sync`
+    /// inserts the namespace into the engine's `SyncState`
+    /// (`engine/live.rs:414`). A node outside the sync-set (a) never
+    /// gossip-broadcasts its incremental `LocalInsert` writes (gated by
+    /// `is_syncing`, `engine/live.rs:714`) and (b) REJECTS every
+    /// incoming sync request with `AbortReason::NotFound`
+    /// (`engine/state.rs:97`). `share_write`/`share_read` and
+    /// `import_ticket` enter the sync-set as a side-effect; a
+    /// coordinator that only ever re-OPENS a persisted doc must call
+    /// this explicitly (Sprint 81 Phase A4 boot fix).
+    ///
+    /// With an empty `peers` list nothing is dialed by the caller, but
+    /// iroh-docs merges the peers PERSISTED in the store
+    /// (`register_useful_peer` / `get_sync_peers`) and re-dials them
+    /// (`DirectJoin`) — bounded by the store's known-peer list.
+    /// Idempotent on an already-syncing doc. Recalibrate the cited
+    /// internals against iroh-docs 0.101 at the version bump.
+    pub async fn start_sync(&self, peers: Vec<iroh::EndpointAddr>) -> Result<()> {
+        self.inner
+            .start_sync(peers)
+            .await
+            .map_err(|e| NexusError::Docs(format!("start_sync failed: {e}")))
+    }
+
+    // ------------------------------------------------------------------
     // Sharing
     // ------------------------------------------------------------------
 
