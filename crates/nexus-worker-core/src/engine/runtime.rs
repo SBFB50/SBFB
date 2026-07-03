@@ -736,15 +736,15 @@ impl Engine {
         let (keepalive_stop_tx, keepalive_stop_rx) = watch::channel(false);
         let mut keepalive_handles = Vec::new();
         for (project_id, doc) in &self.task_docs {
-            if let Some(peers) = self.task_doc_peers.get(project_id) {
-                if !peers.is_empty() {
-                    keepalive_handles.push(spawn_doc_sync_keepalive(
-                        doc.clone(),
-                        peers.clone(),
-                        KeepaliveConfig::default(),
-                        keepalive_stop_rx.clone(),
-                    ));
-                }
+            if let Some(peers) = self.task_doc_peers.get(project_id)
+                && !peers.is_empty()
+            {
+                keepalive_handles.push(spawn_doc_sync_keepalive(
+                    doc.clone(),
+                    peers.clone(),
+                    KeepaliveConfig::default(),
+                    keepalive_stop_rx.clone(),
+                ));
             }
         }
 

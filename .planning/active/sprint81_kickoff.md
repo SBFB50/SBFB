@@ -492,7 +492,9 @@ RTT/PathId multipath via l'orchestrateur de session in-vivo ex-S78, Phases I/J).
 > re-pin 1.0.x → 1.0.1 publiée, pinnée d'entrée [C3/D1].)*
 
 - **[D]** Changelog iroh-blobs 0.101→0.103 non détaillé côté signatures — *découvrir au
-  compile, documenter tout break ; valider l'ouverture redb4 sur store dev existant.*
+  compile, documenter tout break ; valider l'ouverture redb4 sur COPIE du store dev
+  (requalifié Phase B : jamais le store réel — l'auto-migration redb 2→4 est one-way et
+  se déclenche à l'ouverture ; règle « pas de boot store réel avant Phase F PASS »).*
 - **[E]** Survie de l'URL pkarr `dns.iroh.link/pkarr` + default_relay_map sous 1.0 — *check
   nommé pré-flip ; le plan B C8 (relais + pkarr self-hosted) est désormais OBLIGATOIRE,
   plus optionnel.*

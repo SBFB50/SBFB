@@ -192,11 +192,11 @@ async fn storage_list_replicated(
 
     let mut entries = Vec::with_capacity(doc_entries.len());
     for entry in &doc_entries {
-        if let Some(value) = read_entry_content(&blobs, entry).await {
-            if !is_tombstone(&value) {
-                let key = String::from_utf8_lossy(entry.key()).to_string();
-                entries.push(serde_json::json!({ "key": key, "value": value }));
-            }
+        if let Some(value) = read_entry_content(&blobs, entry).await
+            && !is_tombstone(&value)
+        {
+            let key = String::from_utf8_lossy(entry.key()).to_string();
+            entries.push(serde_json::json!({ "key": key, "value": value }));
         }
     }
 

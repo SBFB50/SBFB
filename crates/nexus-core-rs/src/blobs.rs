@@ -84,7 +84,7 @@ impl<'a> BlobsClient<'a> {
     /// [`BlobsClient::set_tag`] / [`BlobsClient::delete_tag`].
     pub async fn add_bytes(&self, data: impl AsRef<[u8]>) -> Result<[u8; 32]> {
         let bytes = data.as_ref().to_vec();
-        // iroh-blobs 0.99: add_bytes() returns a TagInfo where
+        // iroh-blobs 0.103: add_bytes() returns a TagInfo where
         // `.hash` is a field (not a method).
         let tag_info = self
             .inner

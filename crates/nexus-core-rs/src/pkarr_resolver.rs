@@ -2,7 +2,7 @@
 //! pkarr relay client adapter implementing [`QuorumResolver`].
 //!
 //! Wraps [`iroh::address_lookup::pkarr::PkarrRelayClient`] (iroh
-//! 0.97) so that `N` instances — one per pkarr relay in our
+//! 1.0.1) so that `N` instances — one per pkarr relay in our
 //! federation — can feed the [`crate::dht_quorum::redundant_resolve`]
 //! 2/3 quorum primitive. Byte-for-byte comparison is performed on
 //! the canonical pkarr relay payload returned by the iroh client
@@ -37,7 +37,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use iroh::EndpointId;
 use iroh::address_lookup::pkarr::PkarrRelayClient;
-use iroh::tls::{CaRootsConfig, default_provider};
+use iroh::dns::DnsResolver;
+use iroh::tls::{CaTlsConfig, default_provider};
 use url::Url;
 
 use crate::dht_quorum::QuorumResolver;
@@ -88,16 +89,20 @@ pub struct PkarrQuorumResolver {
 impl PkarrQuorumResolver {
     /// Build a resolver pointing at a single pkarr relay URL.
     ///
-    /// Uses iroh's default CA root config
-    /// ([`iroh::tls::CaRootsConfig::default`], which is
-    /// `EmbeddedWebPki` — the Mozilla-trusted roots compiled into
-    /// the `webpki-roots` crate), matching the root set iroh
-    /// itself ships with for relay connections. Fails loud when
-    /// the TLS `ClientConfig` cannot be built (e.g. the
-    /// cryptographic provider refuses to initialise) — returning
-    /// an error is the right call because a silent fallback to
-    /// plaintext would quietly undermine the eclipse defence this
-    /// module exists for.
+    /// Uses iroh's default CA TLS config
+    /// ([`iroh::tls::CaTlsConfig::default`], whose default mode
+    /// embeds the Mozilla-trusted WebPKI roots compiled into the
+    /// `webpki-roots` crate — same trust posture as the 0.98
+    /// `EmbeddedWebPki` variant, only the type was renamed in
+    /// iroh 1.0), matching the root set iroh itself ships with
+    /// for relay connections. Fails loud when the TLS
+    /// `ClientConfig` cannot be built (e.g. the cryptographic
+    /// provider refuses to initialise) — returning an error is
+    /// the right call because a silent fallback to plaintext
+    /// would quietly undermine the eclipse defence this module
+    /// exists for. iroh 1.0.1 additionally requires an explicit
+    /// [`DnsResolver`] — we hand it iroh's cross-platform
+    /// default.
     ///
     /// The label defaults to the URL's host (e.g.
     /// `"dns.iroh.link"`) and falls back to `"unknown"` only if
@@ -106,12 +111,12 @@ impl PkarrQuorumResolver {
     /// avoids an `unwrap` on the happy path.
     pub fn new(pkarr_relay_url: Url) -> Result<Self> {
         let label = pkarr_relay_url.host_str().unwrap_or("unknown").to_string();
-        let tls_config = CaRootsConfig::default()
+        let tls_config = CaTlsConfig::default()
             .client_config(default_provider())
             .map_err(|e| {
                 NexusError::Endpoint(format!("pkarr quorum resolver TLS config failed: {e}"))
             })?;
-        let client = PkarrRelayClient::new(pkarr_relay_url, tls_config);
+        let client = PkarrRelayClient::new(pkarr_relay_url, tls_config, DnsResolver::new());
         Ok(Self { label, client })
     }
 

@@ -126,10 +126,10 @@ impl KeyPair {
             }
             Err(e) if e.kind() == ErrorKind::NotFound => {
                 let kp = KeyPair::generate();
-                if let Some(parent) = path.parent() {
-                    if !parent.as_os_str().is_empty() {
-                        fs::create_dir_all(parent).map_err(NexusError::Io)?;
-                    }
+                if let Some(parent) = path.parent()
+                    && !parent.as_os_str().is_empty()
+                {
+                    fs::create_dir_all(parent).map_err(NexusError::Io)?;
                 }
                 fs::write(path, kp.secret_bytes()).map_err(NexusError::Io)?;
                 set_owner_only_perms(path).ok(); // best-effort on Unix

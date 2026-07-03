@@ -218,10 +218,10 @@ impl ShardPlan {
             if a.layer_start >= a.layer_end {
                 return false; // empty / inverted block
             }
-            if let Some(end) = prev_end {
-                if a.layer_start != end {
-                    return false; // gap or overlap
-                }
+            if let Some(end) = prev_end
+                && a.layer_start != end
+            {
+                return false; // gap or overlap
             }
             prev_end = Some(a.layer_end);
         }

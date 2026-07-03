@@ -104,12 +104,11 @@ impl TraceProcessor for SignedCanaryProcessor {
                 return;
             }
         };
-        if let Ok(mut guard) = self.inner.lock() {
-            if let Some(ref mut w) = *guard {
-                if w.write_all(&line).is_ok() {
-                    let _ = w.flush();
-                }
-            }
+        if let Ok(mut guard) = self.inner.lock()
+            && let Some(ref mut w) = *guard
+            && w.write_all(&line).is_ok()
+        {
+            let _ = w.flush();
         }
     }
 }

@@ -230,13 +230,13 @@ impl DelegationCert {
     /// Full verification: signature valid + not expired at `now_ts`.
     pub fn verify(&self, now_ts: i64) -> std::result::Result<(), DelegationCertError> {
         self.verify_signature()?;
-        if let Some(exp) = self.expires_at_ts {
-            if now_ts > exp {
-                return Err(DelegationCertError::Expired {
-                    expires_at: exp,
-                    now: now_ts,
-                });
-            }
+        if let Some(exp) = self.expires_at_ts
+            && now_ts > exp
+        {
+            return Err(DelegationCertError::Expired {
+                expires_at: exp,
+                now: now_ts,
+            });
         }
         Ok(())
     }

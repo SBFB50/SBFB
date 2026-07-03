@@ -287,19 +287,19 @@ impl std::error::Error for BootstrapAllowlistError {}
 /// `SBFB_BOOTSTRAP_ALLOWLIST_PATH` env var wins ; else
 /// `$SBFB_HOME/bootstrap_allowlist.toml`.
 pub fn bootstrap_allowlist_file_path() -> Option<PathBuf> {
-    if let Ok(path) = env::var(CUSTOM_BOOTSTRAP_ALLOWLIST_ENV) {
-        if !path.is_empty() {
-            return Some(PathBuf::from(path));
-        }
+    if let Ok(path) = env::var(CUSTOM_BOOTSTRAP_ALLOWLIST_ENV)
+        && !path.is_empty()
+    {
+        return Some(PathBuf::from(path));
     }
     sbfb_home().map(|h| h.join(BOOTSTRAP_ALLOWLIST_FILE_NAME))
 }
 
 fn sbfb_home() -> Option<PathBuf> {
-    if let Ok(dir) = env::var("SBFB_HOME") {
-        if !dir.is_empty() {
-            return Some(PathBuf::from(dir));
-        }
+    if let Ok(dir) = env::var("SBFB_HOME")
+        && !dir.is_empty()
+    {
+        return Some(PathBuf::from(dir));
     }
     let home = env::var("HOME")
         .ok()

@@ -320,13 +320,13 @@ impl NvmlProfile {
     }
 
     fn open_inner(nvml: Arc<Nvml>, path: &Path) -> NvmlProfileResult<Self> {
-        if let Some(parent) = path.parent() {
-            if !parent.as_os_str().is_empty() {
-                std::fs::create_dir_all(parent).map_err(|e| NvmlProfileError::Io {
-                    path: parent.to_path_buf(),
-                    source: e,
-                })?;
-            }
+        if let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(parent).map_err(|e| NvmlProfileError::Io {
+                path: parent.to_path_buf(),
+                source: e,
+            })?;
         }
         let mut conn = Connection::open(path)?;
         prepare_schema(&mut conn)?;

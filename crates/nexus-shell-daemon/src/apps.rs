@@ -122,15 +122,15 @@ pub async fn list_apps(
     let mut apps: Vec<AppSummary> = entries
         .iter()
         .filter(|e| {
-            if let Some(ref cat) = query.category {
-                if !e.category.eq_ignore_ascii_case(cat) {
-                    return false;
-                }
+            if let Some(ref cat) = query.category
+                && !e.category.eq_ignore_ascii_case(cat)
+            {
+                return false;
             }
-            if let Some(os) = query.open_source {
-                if e.is_open_source != os {
-                    return false;
-                }
+            if let Some(os) = query.open_source
+                && e.is_open_source != os
+            {
+                return false;
             }
             true
         })

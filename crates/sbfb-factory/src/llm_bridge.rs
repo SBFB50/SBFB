@@ -27,10 +27,10 @@ fn idle_timeout() -> Duration {
 /// operators can point at a specific binary — and so tests never
 /// spawn a real `claude` agent with `bypassPermissions`.
 fn claude_exe() -> String {
-    if let Ok(bin) = std::env::var("SBFB_CLAUDE_BIN") {
-        if !bin.is_empty() {
-            return bin;
-        }
+    if let Ok(bin) = std::env::var("SBFB_CLAUDE_BIN")
+        && !bin.is_empty()
+    {
+        return bin;
     }
     if cfg!(windows) {
         "claude.cmd".to_string()
@@ -262,20 +262,18 @@ pub(crate) fn spawn_agent_stream(
                 "stream_event" => {
                     if let Some(event) = parsed.get("event") {
                         let event_type = event.get("type").and_then(|v| v.as_str()).unwrap_or("");
-                        if event_type == "content_block_delta" {
-                            if let Some(delta) = event.get("delta") {
+                        if event_type == "content_block_delta"
+                            && let Some(delta) = event.get("delta") {
                                 let delta_type = delta.get("type").and_then(|v| v.as_str()).unwrap_or("");
                                 if delta_type == "text_delta" {
                                     if let Some(text) = delta.get("text").and_then(|v| v.as_str()) {
                                         yield StreamChunk::Delta { text: text.to_owned() };
                                     }
-                                } else if delta_type == "thinking_delta" {
-                                    if let Some(text) = delta.get("thinking").and_then(|v| v.as_str()) {
+                                } else if delta_type == "thinking_delta"
+                                    && let Some(text) = delta.get("thinking").and_then(|v| v.as_str()) {
                                         yield StreamChunk::Thinking { text: text.to_owned() };
                                     }
-                                }
                             }
-                        }
                     }
                 }
                 "result" => {

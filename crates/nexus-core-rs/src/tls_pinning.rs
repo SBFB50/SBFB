@@ -313,19 +313,19 @@ pub fn extract_spki_sha256_from_pem(pem_bytes: &[u8]) -> Result<String, PinError
 /// `USERPROFILE` is set — in practice a test environment that
 /// deliberately un-set both.
 pub fn relay_pins_file_path() -> Option<PathBuf> {
-    if let Ok(custom) = env::var(CUSTOM_PINS_FILE_ENV) {
-        if !custom.is_empty() {
-            return Some(PathBuf::from(custom));
-        }
+    if let Ok(custom) = env::var(CUSTOM_PINS_FILE_ENV)
+        && !custom.is_empty()
+    {
+        return Some(PathBuf::from(custom));
     }
     sbfb_home().map(|d| d.join(RELAY_PINS_FILE_NAME))
 }
 
 fn sbfb_home() -> Option<PathBuf> {
-    if let Ok(dir) = env::var(SBFB_HOME_ENV) {
-        if !dir.is_empty() {
-            return Some(PathBuf::from(dir));
-        }
+    if let Ok(dir) = env::var(SBFB_HOME_ENV)
+        && !dir.is_empty()
+    {
+        return Some(PathBuf::from(dir));
     }
     let home = env::var("HOME")
         .ok()

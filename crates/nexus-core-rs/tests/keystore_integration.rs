@@ -176,16 +176,15 @@ fn hot_reload_blob_rotation_watcher() {
     let mut saw_event = false;
     let deadline = std::time::Instant::now() + Duration::from_secs(5);
     while std::time::Instant::now() < deadline {
-        if let Ok(Ok(ev)) = rx.recv_timeout(Duration::from_millis(500)) {
-            if ev.paths.iter().any(|p| p == &blob_path)
-                && matches!(
-                    ev.kind,
-                    EventKind::Create(_) | EventKind::Modify(_) | EventKind::Any
-                )
-            {
-                saw_event = true;
-                break;
-            }
+        if let Ok(Ok(ev)) = rx.recv_timeout(Duration::from_millis(500))
+            && ev.paths.iter().any(|p| p == &blob_path)
+            && matches!(
+                ev.kind,
+                EventKind::Create(_) | EventKind::Modify(_) | EventKind::Any
+            )
+        {
+            saw_event = true;
+            break;
         }
     }
     assert!(

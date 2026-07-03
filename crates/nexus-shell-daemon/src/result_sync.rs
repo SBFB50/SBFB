@@ -525,15 +525,15 @@ mod tests {
             loop {
                 {
                     let g = db.lock().unwrap();
-                    if let Some(detail) = g.get_task_result(task_id).expect("get") {
-                        if detail.result_text.is_some() {
-                            assert_eq!(
-                                g.get_task(task_id).expect("get").expect("row").status,
-                                TaskStatus::Completed,
-                                "task must be completed once its result syncs back"
-                            );
-                            return;
-                        }
+                    if let Some(detail) = g.get_task_result(task_id).expect("get")
+                        && detail.result_text.is_some()
+                    {
+                        assert_eq!(
+                            g.get_task(task_id).expect("get").expect("row").status,
+                            TaskStatus::Completed,
+                            "task must be completed once its result syncs back"
+                        );
+                        return;
                     }
                 }
                 tokio::time::sleep(Duration::from_millis(200)).await;

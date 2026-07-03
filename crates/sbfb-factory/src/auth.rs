@@ -114,10 +114,10 @@ impl AuthState {
 /// `%USERPROFILE%` + `.sbfb`. Same resolution as the daemon and as
 /// [`crate::daemon_client`].
 pub fn sbfb_home() -> Option<PathBuf> {
-    if let Ok(dir) = std::env::var("SBFB_HOME") {
-        if !dir.is_empty() {
-            return Some(PathBuf::from(dir));
-        }
+    if let Ok(dir) = std::env::var("SBFB_HOME")
+        && !dir.is_empty()
+    {
+        return Some(PathBuf::from(dir));
     }
     let home = std::env::var("HOME")
         .ok()
@@ -237,10 +237,10 @@ pub fn is_loopback_host(host: &str) -> bool {
     if !matches!(host_only, "localhost" | "127.0.0.1" | "::1") {
         return false;
     }
-    if let Some(p) = port_opt {
-        if p.parse::<u16>().is_err() {
-            return false;
-        }
+    if let Some(p) = port_opt
+        && p.parse::<u16>().is_err()
+    {
+        return false;
     }
     true
 }

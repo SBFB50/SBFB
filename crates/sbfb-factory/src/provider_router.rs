@@ -279,11 +279,11 @@ fn network_timeout() -> Duration {
 /// blocking file IO to the runtime's blocking pool instead of stalling an
 /// async executor worker on the network poll path.
 async fn resolve_daemon() -> Result<(String, String), String> {
-    if let Ok(ep) = std::env::var("SBFB_DAEMON_ENDPOINT") {
-        if !ep.is_empty() {
-            let token = std::env::var("SBFB_DAEMON_TOKEN").unwrap_or_default();
-            return Ok((ep.trim_end_matches('/').to_string(), token));
-        }
+    if let Ok(ep) = std::env::var("SBFB_DAEMON_ENDPOINT")
+        && !ep.is_empty()
+    {
+        let token = std::env::var("SBFB_DAEMON_TOKEN").unwrap_or_default();
+        return Ok((ep.trim_end_matches('/').to_string(), token));
     }
     match tokio::task::spawn_blocking(crate::daemon_client::DaemonConnection::discover).await {
         Ok(Ok(conn)) => Ok((conn.base_url, conn.token)),

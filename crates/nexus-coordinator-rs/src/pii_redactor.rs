@@ -83,7 +83,7 @@ fn luhn_valid(number: &str) -> bool {
             }
         })
         .sum();
-    checksum % 10 == 0
+    checksum.is_multiple_of(10)
 }
 
 #[derive(Debug, Clone)]
@@ -192,15 +192,15 @@ fn dedupe_spans(spans: &mut Vec<Span>) {
     spans.sort_by(|a, b| a.start.cmp(&b.start).then(b.end.cmp(&a.end)));
     let mut merged: Vec<Span> = Vec::new();
     for s in spans.drain(..) {
-        if let Some(last) = merged.last() {
-            if s.start < last.end {
-                let len_s = s.end - s.start;
-                let len_last = last.end - last.start;
-                if len_s > len_last {
-                    *merged.last_mut().unwrap() = s;
-                }
-                continue;
+        if let Some(last) = merged.last()
+            && s.start < last.end
+        {
+            let len_s = s.end - s.start;
+            let len_last = last.end - last.start;
+            if len_s > len_last {
+                *merged.last_mut().unwrap() = s;
             }
+            continue;
         }
         merged.push(s);
     }

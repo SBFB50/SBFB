@@ -73,13 +73,13 @@ pub async fn deploy_from_repo(
         return error_response(StatusCode::BAD_REQUEST, "repo_url must be an HTTPS URL");
     }
 
-    if let Some(ref sha) = req.commit_sha {
-        if !is_valid_sha(sha) {
-            return error_response(
-                StatusCode::BAD_REQUEST,
-                "commit_sha must be a full 40-character hex SHA",
-            );
-        }
+    if let Some(ref sha) = req.commit_sha
+        && !is_valid_sha(sha)
+    {
+        return error_response(
+            StatusCode::BAD_REQUEST,
+            "commit_sha must be a full 40-character hex SHA",
+        );
     }
 
     if !is_repo_public(&repo_url).await {
@@ -116,13 +116,14 @@ pub async fn deploy_from_repo(
         Ok(m) => m,
         Err(e) => return error_response(StatusCode::BAD_REQUEST, &e),
     };
-    if let Some(ref nid) = manifest.node_id {
-        if !nid.is_empty() && nid != &state.node_id {
-            warn!(
-                node_id = %nid,
-                "SBFB.json contains deprecated node_id field that does not match daemon"
-            );
-        }
+    if let Some(ref nid) = manifest.node_id
+        && !nid.is_empty()
+        && nid != &state.node_id
+    {
+        warn!(
+            node_id = %nid,
+            "SBFB.json contains deprecated node_id field that does not match daemon"
+        );
     }
 
     if !clone_dir.join("index.html").is_file() {
@@ -468,10 +469,10 @@ pub(crate) async fn finalize_deploy(
     // must never fail the deploy.
     {
         let blobs = BlobsClient::new(state.node.blobs_store());
-        if let Some(hash_arr) = decode_hash_hex(&hash_hex) {
-            if let Err(e) = blobs.set_tag(&keep_online_tag(project_id), hash_arr).await {
-                debug!(error = %e, "keep-online tag set failed (non-fatal)");
-            }
+        if let Some(hash_arr) = decode_hash_hex(&hash_hex)
+            && let Err(e) = blobs.set_tag(&keep_online_tag(project_id), hash_arr).await
+        {
+            debug!(error = %e, "keep-online tag set failed (non-fatal)");
         }
         let db_guard = state
             .coordinator_db
@@ -542,12 +543,11 @@ pub(crate) async fn finalize_deploy(
             };
             match insert_result {
                 Ok(entry) => {
-                    if let Some(ref fs) = state.feed_sync_state {
-                        if let Err(e) =
+                    if let Some(ref fs) = state.feed_sync_state
+                        && let Err(e) =
                             crate::feed_sync::publish_feed_entry_to_docs(fs, &entry).await
-                        {
-                            warn!(error = %e, "deploy→feed publish to iroh-docs failed");
-                        }
+                    {
+                        warn!(error = %e, "deploy→feed publish to iroh-docs failed");
                     }
                     debug!(seq = entry.seq, "deploy→feed: ReleasePublished inserted");
                 }
@@ -565,8 +565,8 @@ pub(crate) async fn finalize_deploy(
     // is_open_source=false fork is kept online by its deployer. The seeder signs
     // ONLY its seed claim, never the provenance — authorship is unchanged (R5).
     // Best-effort: a feed hiccup must never fail the deploy.
-    if let Some(ref fs) = state.feed_sync_state {
-        if let Err(e) = crate::feed_sync::emit_seed_announced(
+    if let Some(ref fs) = state.feed_sync_state
+        && let Err(e) = crate::feed_sync::emit_seed_announced(
             fs,
             &state.coordinator_db,
             &state.pow_keypair,
@@ -574,9 +574,8 @@ pub(crate) async fn finalize_deploy(
             &hash_hex,
         )
         .await
-        {
-            warn!(error = %e, "deploy→feed: SeedAnnounced emit failed (non-fatal)");
-        }
+    {
+        warn!(error = %e, "deploy→feed: SeedAnnounced emit failed (non-fatal)");
     }
 
     Ok((hash_hex, prov_hash))
@@ -679,10 +678,10 @@ pub(crate) async fn publish_announcement(state: &DaemonHttpState, params: Announ
         announcement = announcement.with_open_source(true);
     }
 
-    if let Some(h) = archive_hash {
-        if let Ok(ticket_str) = crate::http::mint_blob_ticket(state, h).await {
-            announcement = announcement.with_archive_ticket(ticket_str);
-        }
+    if let Some(h) = archive_hash
+        && let Ok(ticket_str) = crate::http::mint_blob_ticket(state, h).await
+    {
+        announcement = announcement.with_archive_ticket(ticket_str);
     }
 
     // Remediation #8: build the PoW envelope ONCE, broadcast it under the sender
@@ -696,10 +695,10 @@ pub(crate) async fn publish_announcement(state: &DaemonHttpState, params: Announ
         // (fresh issued_at + a ticket minted from the current address above).
         if let Ok(envelope) = crate::http::wrap_payload_with_pow(state, &payload) {
             let sender_guard = state.gossip_sender.read().await;
-            if let Some(sender) = sender_guard.as_ref() {
-                if let Err(e) = sender.broadcast(envelope).await {
-                    debug!(error = %e, "gossip broadcast failed (non-fatal)");
-                }
+            if let Some(sender) = sender_guard.as_ref()
+                && let Err(e) = sender.broadcast(envelope).await
+            {
+                debug!(error = %e, "gossip broadcast failed (non-fatal)");
             }
             drop(sender_guard);
         }

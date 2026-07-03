@@ -114,10 +114,10 @@ impl DaemonConnection {
 }
 
 fn nexus_grid_root() -> Option<PathBuf> {
-    if let Ok(p) = std::env::var("NEXUS_GRID_ROOT") {
-        if !p.is_empty() {
-            return Some(PathBuf::from(p));
-        }
+    if let Ok(p) = std::env::var("NEXUS_GRID_ROOT")
+        && !p.is_empty()
+    {
+        return Some(PathBuf::from(p));
     }
     directories::BaseDirs::new().map(|b| b.data_dir().join("nexus-grid"))
 }

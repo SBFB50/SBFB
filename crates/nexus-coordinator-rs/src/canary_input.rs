@@ -164,10 +164,10 @@ pub fn verify_canary_input_set(
         .map_err(|e| format!("bad pubkey hex: {e}"))?
         .try_into()
         .map_err(|_| "pubkey must be 32 bytes".to_string())?;
-    if let Some(expected) = expected_pubkey {
-        if &pubkey_bytes != expected {
-            return Err("canary_input_set signed by unexpected pubkey".into());
-        }
+    if let Some(expected) = expected_pubkey
+        && &pubkey_bytes != expected
+    {
+        return Err("canary_input_set signed by unexpected pubkey".into());
     }
     nexus_core_rs::crypto::verify(&pubkey_bytes, set.signable_json().as_bytes(), &sig_bytes)
         .map_err(|e| format!("signature verification failed: {e}"))
@@ -397,23 +397,23 @@ impl CanaryInputManager {
         let mut policy = CanaryInputPolicy::default();
         let mut policy_mtime: Option<f64> = None;
 
-        if let Some(ref pp) = policy_path {
-            if pp.exists() {
-                if let Ok(text) = std::fs::read_to_string(pp) {
-                    if let Ok(p) = CanaryInputPolicy::from_toml(&text) {
-                        policy = p;
-                    }
-                }
-                policy_mtime = pp
-                    .metadata()
-                    .ok()
-                    .and_then(|m| {
-                        m.modified()
-                            .ok()
-                            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-                    })
-                    .map(|d| d.as_secs_f64());
+        if let Some(ref pp) = policy_path
+            && pp.exists()
+        {
+            if let Ok(text) = std::fs::read_to_string(pp)
+                && let Ok(p) = CanaryInputPolicy::from_toml(&text)
+            {
+                policy = p;
             }
+            policy_mtime = pp
+                .metadata()
+                .ok()
+                .and_then(|m| {
+                    m.modified()
+                        .ok()
+                        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                })
+                .map(|d| d.as_secs_f64());
         }
 
         let initial_set = Self::try_load_set(&canary_set_path, &policy, coord_pubkey.as_ref());

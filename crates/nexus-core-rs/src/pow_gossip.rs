@@ -227,10 +227,10 @@ impl PowSolveCache {
 
         {
             let cache = self.entries.lock().expect("PowSolveCache mutex poisoned");
-            if let Some((proof, valid_until)) = cache.get(&topic) {
-                if *valid_until > Instant::now() {
-                    return Ok(proof.clone());
-                }
+            if let Some((proof, valid_until)) = cache.get(&topic)
+                && *valid_until > Instant::now()
+            {
+                return Ok(proof.clone());
             }
         }
 
@@ -306,10 +306,10 @@ impl PowVerifyCache {
 
         // Fast path : already verified in this session.
         let key = (proof.challenge.publisher_pubkey, proof.challenge.topic);
-        if let Some(valid_until) = self.entries.get(&key) {
-            if *valid_until > Instant::now() {
-                return Ok((proof, payload));
-            }
+        if let Some(valid_until) = self.entries.get(&key)
+            && *valid_until > Instant::now()
+        {
+            return Ok((proof, payload));
         }
 
         // Slow path : full verify.

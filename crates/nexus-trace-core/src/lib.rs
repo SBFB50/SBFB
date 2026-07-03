@@ -66,21 +66,21 @@ pub fn set_trace_processors(new_processors: Vec<Box<dyn TraceProcessor>>) {
 }
 
 pub fn emit(event: &TraceEvent) {
-    if let Some(lock) = PROCESSORS.get() {
-        if let Ok(guard) = lock.read() {
-            for p in guard.iter() {
-                p.process(event);
-            }
+    if let Some(lock) = PROCESSORS.get()
+        && let Ok(guard) = lock.read()
+    {
+        for p in guard.iter() {
+            p.process(event);
         }
     }
 }
 
 pub fn shutdown_processors() {
-    if let Some(lock) = PROCESSORS.get() {
-        if let Ok(mut guard) = lock.write() {
-            for p in guard.drain(..) {
-                p.shutdown();
-            }
+    if let Some(lock) = PROCESSORS.get()
+        && let Ok(mut guard) = lock.write()
+    {
+        for p in guard.drain(..) {
+            p.shutdown();
         }
     }
 }

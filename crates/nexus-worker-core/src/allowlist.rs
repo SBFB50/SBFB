@@ -251,10 +251,10 @@ impl Allowlist {
     /// callers never need to `ensure_dirs` themselves.
     pub fn open(path: impl AsRef<Path>) -> AllowlistResult<Self> {
         let path = path.as_ref();
-        if let Some(parent) = path.parent() {
-            if !parent.as_os_str().is_empty() {
-                std::fs::create_dir_all(parent)?;
-            }
+        if let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(parent)?;
         }
         let mut conn = Connection::open(path)?;
         Self::prepare(&mut conn)?;

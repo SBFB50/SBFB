@@ -167,7 +167,7 @@ pub fn top_k_by_magnitude(values: &[f32], k: usize) -> Vec<(u32, f32)> {
 /// unit-tested in CI without a GGUF.
 #[must_use]
 pub fn hidden_token_count(hidden_len: usize, n_embd: usize) -> Option<usize> {
-    if n_embd == 0 || hidden_len == 0 || hidden_len % n_embd != 0 {
+    if n_embd == 0 || hidden_len == 0 || !hidden_len.is_multiple_of(n_embd) {
         return None;
     }
     Some(hidden_len / n_embd)

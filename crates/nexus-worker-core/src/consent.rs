@@ -413,15 +413,15 @@ pub fn should_accept_task(
     }
 
     // 2) Caps.
-    if let Some(max_w) = consent.caps.max_watts {
-        if task.estimated_watts > max_w {
-            return AllowOutcome::Reject(RejectReason::CapWatts);
-        }
+    if let Some(max_w) = consent.caps.max_watts
+        && task.estimated_watts > max_w
+    {
+        return AllowOutcome::Reject(RejectReason::CapWatts);
     }
-    if let Some(max_v) = consent.caps.max_vram_mb {
-        if task.estimated_vram_mb > max_v {
-            return AllowOutcome::Reject(RejectReason::CapVram);
-        }
+    if let Some(max_v) = consent.caps.max_vram_mb
+        && task.estimated_vram_mb > max_v
+    {
+        return AllowOutcome::Reject(RejectReason::CapVram);
     }
     if let Some(max_h) = consent.caps.max_hours_day {
         let used = usage.hours_used_today();
@@ -595,10 +595,10 @@ pub const SBFB_HOME_ENV: &str = "SBFB_HOME";
 /// rare platform where neither `SBFB_HOME` nor `HOME` /
 /// `USERPROFILE` is set.
 pub fn sbfb_home() -> Option<PathBuf> {
-    if let Ok(dir) = env::var(SBFB_HOME_ENV) {
-        if !dir.is_empty() {
-            return Some(PathBuf::from(dir));
-        }
+    if let Ok(dir) = env::var(SBFB_HOME_ENV)
+        && !dir.is_empty()
+    {
+        return Some(PathBuf::from(dir));
     }
     let home = env::var("HOME")
         .ok()
@@ -626,10 +626,10 @@ pub fn usage_state_path() -> Option<PathBuf> {
 // =================================================================
 
 fn atomic_write_json<T: Serialize>(path: &Path, value: &T) -> ConsentResult<()> {
-    if let Some(parent) = path.parent() {
-        if !parent.as_os_str().is_empty() {
-            fs::create_dir_all(parent)?;
-        }
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        fs::create_dir_all(parent)?;
     }
     let body = serde_json::to_vec_pretty(value)?;
     let tmp = path.with_extension("json.tmp");

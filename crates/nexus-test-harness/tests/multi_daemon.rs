@@ -282,21 +282,21 @@ async fn test_cross_daemon_storage_sync() {
             .send()
             .await;
 
-        if let Ok(resp) = list_resp {
-            if resp.status().is_success() {
-                let body: serde_json::Value = resp.json().await.unwrap_or_default();
-                let entries = body["entries"].as_array();
-                if let Some(entries) = entries {
-                    if entries.iter().any(|e| {
-                        e["key"]
-                            .as_str()
-                            .map(|k| k == "ideas/test-sync-1")
-                            .unwrap_or(false)
-                    }) {
-                        found = true;
-                        break;
-                    }
-                }
+        if let Ok(resp) = list_resp
+            && resp.status().is_success()
+        {
+            let body: serde_json::Value = resp.json().await.unwrap_or_default();
+            let entries = body["entries"].as_array();
+            if let Some(entries) = entries
+                && entries.iter().any(|e| {
+                    e["key"]
+                        .as_str()
+                        .map(|k| k == "ideas/test-sync-1")
+                        .unwrap_or(false)
+                })
+            {
+                found = true;
+                break;
             }
         }
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
@@ -451,13 +451,13 @@ async fn test_cross_daemon_feed_sync() {
             .send()
             .await;
 
-        if let Ok(resp) = resp {
-            if resp.status().is_success() {
-                let body: serde_json::Value = resp.json().await.unwrap_or_default();
-                if body["count"].as_u64() == Some(3) {
-                    synced = true;
-                    break;
-                }
+        if let Ok(resp) = resp
+            && resp.status().is_success()
+        {
+            let body: serde_json::Value = resp.json().await.unwrap_or_default();
+            if body["count"].as_u64() == Some(3) {
+                synced = true;
+                break;
             }
         }
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
@@ -559,18 +559,19 @@ async fn test_feed_offline_catchup() {
             .send()
             .await;
 
-        if let Ok(resp) = resp {
-            if resp.status().is_success() {
-                let body: serde_json::Value = resp.json().await.unwrap_or_default();
-                if body["count"].as_u64() == Some(5) {
-                    // Verify author stats match
-                    let authors = body["authors"].as_array();
-                    if let Some(authors) = authors {
-                        if authors.len() == 1 && authors[0]["count"].as_u64() == Some(5) {
-                            caught_up = true;
-                            break;
-                        }
-                    }
+        if let Ok(resp) = resp
+            && resp.status().is_success()
+        {
+            let body: serde_json::Value = resp.json().await.unwrap_or_default();
+            if body["count"].as_u64() == Some(5) {
+                // Verify author stats match
+                let authors = body["authors"].as_array();
+                if let Some(authors) = authors
+                    && authors.len() == 1
+                    && authors[0]["count"].as_u64() == Some(5)
+                {
+                    caught_up = true;
+                    break;
                 }
             }
         }
@@ -671,13 +672,13 @@ async fn test_feed_replay_idempotent() {
             .header("Host", format!("127.0.0.1:{}", cluster.nodes[1].http_port))
             .send()
             .await;
-        if let Ok(resp) = resp {
-            if resp.status().is_success() {
-                let body: serde_json::Value = resp.json().await.unwrap_or_default();
-                if body["count"].as_u64() == Some(2) {
-                    first_sync = true;
-                    break;
-                }
+        if let Ok(resp) = resp
+            && resp.status().is_success()
+        {
+            let body: serde_json::Value = resp.json().await.unwrap_or_default();
+            if body["count"].as_u64() == Some(2) {
+                first_sync = true;
+                break;
             }
         }
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;

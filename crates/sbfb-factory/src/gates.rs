@@ -222,30 +222,30 @@ pub fn run_gate_fg5_sandbox(workspace: &Path) -> Result<GateResult, FactoryError
     for entry in WalkDir::new(&canonical).follow_links(false) {
         let entry = entry?;
 
-        if entry.path_is_symlink() {
-            if let Ok(target) = fs::read_link(entry.path()) {
-                let abs_target = if target.is_absolute() {
-                    target
-                } else {
-                    entry.path().parent().unwrap_or(&canonical).join(target)
-                };
-                match dunce::canonicalize(&abs_target) {
-                    Ok(resolved) if !resolved.starts_with(&canonical) => {
-                        let rel = entry
-                            .path()
-                            .strip_prefix(&canonical)
-                            .unwrap_or(entry.path());
-                        issues.push(format!("symlink escapes workspace: {}", rel.display()));
-                    }
-                    Err(_) => {
-                        let rel = entry
-                            .path()
-                            .strip_prefix(&canonical)
-                            .unwrap_or(entry.path());
-                        issues.push(format!("broken symlink: {}", rel.display()));
-                    }
-                    _ => {}
+        if entry.path_is_symlink()
+            && let Ok(target) = fs::read_link(entry.path())
+        {
+            let abs_target = if target.is_absolute() {
+                target
+            } else {
+                entry.path().parent().unwrap_or(&canonical).join(target)
+            };
+            match dunce::canonicalize(&abs_target) {
+                Ok(resolved) if !resolved.starts_with(&canonical) => {
+                    let rel = entry
+                        .path()
+                        .strip_prefix(&canonical)
+                        .unwrap_or(entry.path());
+                    issues.push(format!("symlink escapes workspace: {}", rel.display()));
                 }
+                Err(_) => {
+                    let rel = entry
+                        .path()
+                        .strip_prefix(&canonical)
+                        .unwrap_or(entry.path());
+                    issues.push(format!("broken symlink: {}", rel.display()));
+                }
+                _ => {}
             }
         }
     }

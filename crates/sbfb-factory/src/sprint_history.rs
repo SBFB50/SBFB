@@ -192,11 +192,11 @@ pub fn all_sprints_data(root: &Path) -> AllSprintsResult {
                     .strip_prefix("sprint")
                     .and_then(|s| s.split('_').next())
                     .and_then(|s| s.parse::<u32>().ok())
+                    && name.contains("_kickoff.md")
+                    && seen.insert(n)
                 {
-                    if name.contains("_kickoff.md") && seen.insert(n) {
-                        let summary = build_sprint_summary(dir, n, version);
-                        sprints.push(summary);
-                    }
+                    let summary = build_sprint_summary(dir, n, version);
+                    sprints.push(summary);
                 }
             }
         }
@@ -352,13 +352,11 @@ fn detect_history_sprint(active_dir: &Path) -> Option<u32> {
             .strip_prefix("sprint")
             .and_then(|s| s.split('_').next())
             .and_then(|s| s.parse::<u32>().ok())
-        {
-            if (name.contains("_kickoff.md")
+            && (name.contains("_kickoff.md")
                 || (name.contains("_plan.md") && !name.contains("_audit_plan.md")))
-                && n > best
-            {
-                best = n;
-            }
+            && n > best
+        {
+            best = n;
         }
     }
     if best == 0 { None } else { Some(best) }
@@ -1076,10 +1074,10 @@ fn parse_unified_diff(raw: &str) -> Vec<FileDiff> {
 
     for line in raw.lines() {
         if line.starts_with("diff --git") {
-            if let Some(hunk) = current_hunk.take() {
-                if let Some(ref mut f) = current_file {
-                    f.hunks.push(hunk);
-                }
+            if let Some(hunk) = current_hunk.take()
+                && let Some(ref mut f) = current_file
+            {
+                f.hunks.push(hunk);
             }
             if let Some(f) = current_file.take() {
                 files.push(f);
@@ -1095,16 +1093,16 @@ fn parse_unified_diff(raw: &str) -> Vec<FileDiff> {
                 f.path = rest.to_string();
             }
         } else if let Some(rest) = line.strip_prefix("--- a/") {
-            if current_file.as_ref().map(|f| f.path.is_empty()) == Some(true) {
-                if let Some(ref mut f) = current_file {
-                    f.path = rest.to_string();
-                }
+            if current_file.as_ref().map(|f| f.path.is_empty()) == Some(true)
+                && let Some(ref mut f) = current_file
+            {
+                f.path = rest.to_string();
             }
         } else if let Some(cap) = hunk_re.captures(line) {
-            if let Some(hunk) = current_hunk.take() {
-                if let Some(ref mut f) = current_file {
-                    f.hunks.push(hunk);
-                }
+            if let Some(hunk) = current_hunk.take()
+                && let Some(ref mut f) = current_file
+            {
+                f.hunks.push(hunk);
             }
             old_line = cap[1].parse().unwrap_or(1);
             new_line = cap[2].parse().unwrap_or(1);
@@ -1148,10 +1146,10 @@ fn parse_unified_diff(raw: &str) -> Vec<FileDiff> {
         }
     }
 
-    if let Some(hunk) = current_hunk.take() {
-        if let Some(ref mut f) = current_file {
-            f.hunks.push(hunk);
-        }
+    if let Some(hunk) = current_hunk.take()
+        && let Some(ref mut f) = current_file
+    {
+        f.hunks.push(hunk);
     }
     if let Some(f) = current_file.take() {
         files.push(f);

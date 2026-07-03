@@ -229,24 +229,24 @@ async fn render_loop(
         .context("crossterm poll task panicked")?
         .context("crossterm poll failed")?;
 
-        if let Some(Event::Key(key)) = poll_result {
-            if key.kind == KeyEventKind::Press {
-                match key.code {
-                    KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc => {
-                        if let Some(tx) = shutdown_sender.take() {
-                            let _ = tx.send(());
-                        }
-                        // Exit the TUI loop as soon as we
-                        // asked the engine to stop. The caller
-                        // awaits engine_task for cleanup.
-                        return Ok(());
+        if let Some(Event::Key(key)) = poll_result
+            && key.kind == KeyEventKind::Press
+        {
+            match key.code {
+                KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc => {
+                    if let Some(tx) = shutdown_sender.take() {
+                        let _ = tx.send(());
                     }
-                    KeyCode::Up => ui.scroll(-1),
-                    KeyCode::Down => ui.scroll(1),
-                    KeyCode::PageUp => ui.scroll(-10),
-                    KeyCode::PageDown => ui.scroll(10),
-                    _ => {}
+                    // Exit the TUI loop as soon as we
+                    // asked the engine to stop. The caller
+                    // awaits engine_task for cleanup.
+                    return Ok(());
                 }
+                KeyCode::Up => ui.scroll(-1),
+                KeyCode::Down => ui.scroll(1),
+                KeyCode::PageUp => ui.scroll(-10),
+                KeyCode::PageDown => ui.scroll(10),
+                _ => {}
             }
         }
 

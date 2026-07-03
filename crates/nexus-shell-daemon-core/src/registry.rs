@@ -379,10 +379,11 @@ pub fn process_name_matches(observed: &str, expected: &str) -> bool {
         if observed_trimmed == root.as_str() {
             return true;
         }
-        if let Some(tail) = observed_trimmed.strip_prefix(&format!("{root}_")) {
-            if !tail.is_empty() && tail.chars().all(|c| c.is_ascii_hexdigit()) {
-                return true;
-            }
+        if let Some(tail) = observed_trimmed.strip_prefix(&format!("{root}_"))
+            && !tail.is_empty()
+            && tail.chars().all(|c| c.is_ascii_hexdigit())
+        {
+            return true;
         }
         // Linux /proc/[pid]/comm truncates to 15 chars. Accept if the
         // observed name is a prefix of a root and at least 15 chars long.

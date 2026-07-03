@@ -63,10 +63,10 @@ pub const NEXUS_GRID_ROOT_ENV: &str = "NEXUS_GRID_ROOT";
 /// should degrade gracefully: the runtime logs the failure and
 /// refuses to boot, which is safer than writing state to `.`.
 pub fn nexus_grid_root() -> Option<PathBuf> {
-    if let Ok(override_dir) = std::env::var(NEXUS_GRID_ROOT_ENV) {
-        if !override_dir.is_empty() {
-            return Some(PathBuf::from(override_dir));
-        }
+    if let Ok(override_dir) = std::env::var(NEXUS_GRID_ROOT_ENV)
+        && !override_dir.is_empty()
+    {
+        return Some(PathBuf::from(override_dir));
     }
     BaseDirs::new().map(|b| b.data_dir().join("nexus-grid"))
 }

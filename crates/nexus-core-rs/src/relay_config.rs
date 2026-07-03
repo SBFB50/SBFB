@@ -125,22 +125,21 @@ pub fn load_relay_map() -> Result<Option<RelayMap>> {
     }
 
     // 2. file
-    if let Some(path) = relays_file_path() {
-        if path.is_file() {
-            let raw = fs::read_to_string(&path).map_err(|e| {
-                NexusError::Endpoint(format!("failed to read {}: {e}", path.display()))
-            })?;
-            let cfg: RelayListFile = serde_json::from_str(&raw).map_err(|e| {
-                NexusError::Endpoint(format!("failed to parse {}: {e}", path.display()))
-            })?;
-            if !cfg.relays.is_empty() {
-                let nodes = cfg
-                    .relays
-                    .iter()
-                    .map(|entry| build_relay_entry(&entry.url))
-                    .collect::<Result<Vec<_>>>()?;
-                return Ok(Some(RelayMap::from_iter(nodes)));
-            }
+    if let Some(path) = relays_file_path()
+        && path.is_file()
+    {
+        let raw = fs::read_to_string(&path)
+            .map_err(|e| NexusError::Endpoint(format!("failed to read {}: {e}", path.display())))?;
+        let cfg: RelayListFile = serde_json::from_str(&raw).map_err(|e| {
+            NexusError::Endpoint(format!("failed to parse {}: {e}", path.display()))
+        })?;
+        if !cfg.relays.is_empty() {
+            let nodes = cfg
+                .relays
+                .iter()
+                .map(|entry| build_relay_entry(&entry.url))
+                .collect::<Result<Vec<_>>>()?;
+            return Ok(Some(RelayMap::from_iter(nodes)));
         }
     }
 
@@ -160,10 +159,10 @@ pub fn relays_file_path() -> Option<PathBuf> {
 /// `crates/nexus-shell-daemon-core::auth` — kept local to avoid a
 /// new cross-crate dep just for one path.
 fn sbfb_home() -> Option<PathBuf> {
-    if let Ok(dir) = env::var(SBFB_HOME_ENV) {
-        if !dir.is_empty() {
-            return Some(PathBuf::from(dir));
-        }
+    if let Ok(dir) = env::var(SBFB_HOME_ENV)
+        && !dir.is_empty()
+    {
+        return Some(PathBuf::from(dir));
     }
     let home = env::var("HOME")
         .ok()
@@ -207,15 +206,14 @@ pub fn validate_relay_url(raw: &str) -> Result<RelayUrl> {
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false);
 
-    if !dev_mode {
-        if let Some(host) = url.host_str() {
-            if host == "localhost" || host == "127.0.0.1" || host == "[::1]" || host == "::1" {
-                return Err(NexusError::Endpoint(format!(
-                    "relay url {raw:?} points to loopback ({host}); \
+    if !dev_mode
+        && let Some(host) = url.host_str()
+        && (host == "localhost" || host == "127.0.0.1" || host == "[::1]" || host == "::1")
+    {
+        return Err(NexusError::Endpoint(format!(
+            "relay url {raw:?} points to loopback ({host}); \
                      set {DEV_MODE_ENV}=1 if this is intentional"
-                )));
-            }
-        }
+        )));
     }
 
     Ok(url)

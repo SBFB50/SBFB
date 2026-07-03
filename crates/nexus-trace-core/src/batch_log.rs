@@ -89,11 +89,11 @@ impl TraceProcessor for BatchLogProcessor {
         if inner.bytes_written + line.len() as u64 > inner.max_bytes && inner.bytes_written > 0 {
             inner.rotate();
         }
-        if let Some(ref mut w) = inner.writer {
-            if w.write_all(&line).is_ok() {
-                let _ = w.flush();
-                inner.bytes_written += line.len() as u64;
-            }
+        if let Some(ref mut w) = inner.writer
+            && w.write_all(&line).is_ok()
+        {
+            let _ = w.flush();
+            inner.bytes_written += line.len() as u64;
         }
     }
 }

@@ -56,14 +56,14 @@ pub async fn list_tasks(
         "rejected",
         "timed_out",
     ];
-    if let Some(ref s) = query.state {
-        if !VALID_STATES.contains(&s.as_str()) {
-            return (
+    if let Some(ref s) = query.state
+        && !VALID_STATES.contains(&s.as_str())
+    {
+        return (
                 StatusCode::BAD_REQUEST,
                 Json(serde_json::json!({"error": format!("invalid state: {s}. valid: {VALID_STATES:?}")})),
             )
                 .into_response();
-        }
     }
     let db = match state.coordinator_db.lock() {
         Ok(db) => db,

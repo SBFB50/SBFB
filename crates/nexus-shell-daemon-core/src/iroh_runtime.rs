@@ -469,13 +469,13 @@ pub fn verify_signed_list_ingest<T: SignedList>(
     }
 
     // Step 8: revision rollback protection.
-    if let Some(stored) = stored_revision {
-        if entry.list_revision() <= stored {
-            return Err(SignedListIngestError::RevisionRollback {
-                new: entry.list_revision(),
-                stored,
-            });
-        }
+    if let Some(stored) = stored_revision
+        && entry.list_revision() <= stored
+    {
+        return Err(SignedListIngestError::RevisionRollback {
+            new: entry.list_revision(),
+            stored,
+        });
     }
 
     Ok(())
@@ -725,10 +725,10 @@ impl CuratorRuntime {
         // directory left in RAM on a failed locator rewrite is harmless because
         // `directory_snapshot` / `repull_directories` re-gate on `is_subscribed`.
         self.directories.remove(&pubkey);
-        if self.anchor_locators.remove(&pubkey).is_some() {
-            if let Err(e) = self.persist_anchors() {
-                warn!(error = %e, "failed to rewrite anchors.json after unsubscribe");
-            }
+        if self.anchor_locators.remove(&pubkey).is_some()
+            && let Err(e) = self.persist_anchors()
+        {
+            warn!(error = %e, "failed to rewrite anchors.json after unsubscribe");
         }
         Ok(pubkey)
     }
@@ -886,10 +886,10 @@ impl CuratorRuntime {
         // that survived eviction would itself need a cap, reopening the same
         // displacement question one level down — no extra defense, just
         // moved state.
-        if let Some(ts) = observed.get(&pubkey) {
-            if now.saturating_sub(*ts) < OBSERVED_REFRESH_MIN_SECS {
-                return false;
-            }
+        if let Some(ts) = observed.get(&pubkey)
+            && now.saturating_sub(*ts) < OBSERVED_REFRESH_MIN_SECS
+        {
+            return false;
         }
         // Cap: only a NEW key can grow the map past the bound.
         if !observed.contains_key(&pubkey) && observed.len() >= MAX_OBSERVED_DIRECTORIES {

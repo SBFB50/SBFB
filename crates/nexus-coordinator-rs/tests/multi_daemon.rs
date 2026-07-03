@@ -93,13 +93,13 @@ async fn test_new_node_full_sync_and_verify() {
             .header("Host", format!("127.0.0.1:{}", d2.http_port))
             .send()
             .await;
-        if let Ok(resp) = status_resp {
-            if let Ok(body) = resp.json::<serde_json::Value>().await {
-                final_count = body["count"].as_u64().unwrap_or(0);
-                final_last_seq = body["last_seq"].as_u64().unwrap_or(0);
-                if final_count >= 3 {
-                    break;
-                }
+        if let Ok(resp) = status_resp
+            && let Ok(body) = resp.json::<serde_json::Value>().await
+        {
+            final_count = body["count"].as_u64().unwrap_or(0);
+            final_last_seq = body["last_seq"].as_u64().unwrap_or(0);
+            if final_count >= 3 {
+                break;
             }
         }
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;

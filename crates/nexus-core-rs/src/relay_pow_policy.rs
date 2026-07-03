@@ -172,10 +172,10 @@ fn default_difficulty_default() -> u32 {
 /// Returns `None` on a platform where neither `SBFB_HOME` nor
 /// `HOME`/`USERPROFILE` is set.
 pub fn relay_pow_policy_file_path() -> Option<PathBuf> {
-    if let Ok(path) = env::var(CUSTOM_POW_POLICY_ENV) {
-        if !path.is_empty() {
-            return Some(PathBuf::from(path));
-        }
+    if let Ok(path) = env::var(CUSTOM_POW_POLICY_ENV)
+        && !path.is_empty()
+    {
+        return Some(PathBuf::from(path));
     }
     sbfb_home().map(|h| h.join(RELAY_POW_POLICY_FILE_NAME))
 }
@@ -183,10 +183,10 @@ pub fn relay_pow_policy_file_path() -> Option<PathBuf> {
 /// `$SBFB_HOME` / `~/.sbfb`. Mirror of the helper in
 /// [`crate::relay_config`].
 fn sbfb_home() -> Option<PathBuf> {
-    if let Ok(dir) = env::var(crate::relay_config::SBFB_HOME_ENV) {
-        if !dir.is_empty() {
-            return Some(PathBuf::from(dir));
-        }
+    if let Ok(dir) = env::var(crate::relay_config::SBFB_HOME_ENV)
+        && !dir.is_empty()
+    {
+        return Some(PathBuf::from(dir));
     }
     let home = env::var("HOME")
         .ok()

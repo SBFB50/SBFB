@@ -189,10 +189,10 @@ fn list_active_artifacts(active_dir: &Path) -> Vec<String> {
     let mut artifacts = Vec::new();
     if let Ok(entries) = std::fs::read_dir(active_dir) {
         for entry in entries.flatten() {
-            if let Some(name) = entry.file_name().to_str() {
-                if name.ends_with(".md") {
-                    artifacts.push(name.to_string());
-                }
+            if let Some(name) = entry.file_name().to_str()
+                && name.ends_with(".md")
+            {
+                artifacts.push(name.to_string());
             }
         }
     }
@@ -448,44 +448,43 @@ pub fn lint_planning_data(root: &Path) -> LintResult {
                 .strip_prefix("sprint")
                 .and_then(|s| s.split('_').next())
                 .and_then(|s| s.parse::<u32>().ok())
+                && current_sprint > 0
+                && file_sprint + 1 < current_sprint
             {
-                if current_sprint > 0 && file_sprint + 1 < current_sprint {
-                    warnings.push(LintDiagnostic {
-                        code: "ORPHAN_FILE".into(),
-                        message: format!(
-                            "file from sprint {file_sprint} in active/ (current: {current_sprint})"
-                        ),
+                warnings.push(LintDiagnostic {
+                    code: "ORPHAN_FILE".into(),
+                    message: format!(
+                        "file from sprint {file_sprint} in active/ (current: {current_sprint})"
+                    ),
+                    file: Some(name.clone()),
+                });
+            }
+
+            if name.contains("_review.md")
+                && !name.contains("codex")
+                && !name.contains("design")
+                && let Ok(content) = std::fs::read_to_string(entry.path())
+            {
+                let has_pass_pending = content.contains("PASS-PENDING");
+                let has_final_pass = has_final_pass_verdict(&content);
+                if has_pass_pending && !has_final_pass {
+                    errors.push(LintDiagnostic {
+                        code: "STALE_PASS_PENDING".into(),
+                        message: "review still at PASS-PENDING (not promoted to PASS)".into(),
                         file: Some(name.clone()),
                     });
                 }
-            }
-
-            if name.contains("_review.md") && !name.contains("codex") && !name.contains("design") {
-                if let Ok(content) = std::fs::read_to_string(entry.path()) {
-                    let has_pass_pending = content.contains("PASS-PENDING");
-                    let has_final_pass = has_final_pass_verdict(&content);
-                    if has_pass_pending && !has_final_pass {
-                        errors.push(LintDiagnostic {
-                            code: "STALE_PASS_PENDING".into(),
-                            message: "review still at PASS-PENDING (not promoted to PASS)".into(),
-                            file: Some(name.clone()),
-                        });
-                    }
-                    let has_verdict_pass_loose = content.lines().any(|l| {
-                        let t = l.trim();
-                        t.starts_with("## Verdict")
-                            && t.contains("PASS")
-                            && !t.contains("PASS-PENDING")
+                let has_verdict_pass_loose = content.lines().any(|l| {
+                    let t = l.trim();
+                    t.starts_with("## Verdict") && t.contains("PASS") && !t.contains("PASS-PENDING")
+                });
+                if has_verdict_pass_loose && !has_final_pass {
+                    errors.push(LintDiagnostic {
+                        code: "INVALID_VERDICT_FORMAT".into(),
+                        message: "review has a PASS-like verdict but not exact '## Verdict: PASS'"
+                            .into(),
+                        file: Some(name.clone()),
                     });
-                    if has_verdict_pass_loose && !has_final_pass {
-                        errors.push(LintDiagnostic {
-                            code: "INVALID_VERDICT_FORMAT".into(),
-                            message:
-                                "review has a PASS-like verdict but not exact '## Verdict: PASS'"
-                                    .into(),
-                            file: Some(name.clone()),
-                        });
-                    }
                 }
             }
         }

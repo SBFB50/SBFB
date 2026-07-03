@@ -133,11 +133,11 @@ pub async fn fork_from_search_hit(
 ) -> Result<ForkSource, ForkError> {
     // Prefer the forge clone: it yields the real, human-readable source the
     // fork author will edit and re-deploy.
-    if let Some(repo_url) = triplet.repo_url.as_deref() {
-        if is_https_url(repo_url) {
-            fork_from_forge(repo_url, triplet.commit_sha.as_deref(), dest).await?;
-            return Ok(ForkSource::Forge);
-        }
+    if let Some(repo_url) = triplet.repo_url.as_deref()
+        && is_https_url(repo_url)
+    {
+        fork_from_forge(repo_url, triplet.commit_sha.as_deref(), dest).await?;
+        return Ok(ForkSource::Forge);
     }
     // Fallback: reconstruct from the published archive bytes.
     if let Some(bytes) = blob_bytes {
@@ -169,10 +169,10 @@ pub async fn fork_from_forge(
     if !is_https_url(repo_url) {
         return Err(ForkError::NonHttpsRepo(repo_url.to_string()));
     }
-    if let Some(sha) = commit_sha {
-        if !is_valid_sha(sha) {
-            return Err(ForkError::InvalidCommitSha(sha.to_string()));
-        }
+    if let Some(sha) = commit_sha
+        && !is_valid_sha(sha)
+    {
+        return Err(ForkError::InvalidCommitSha(sha.to_string()));
     }
     run_git_clone(repo_url, commit_sha, dest).await?;
     // Post-clone size cap (mirrors deploy.rs): a squatted/malicious repo must
@@ -250,12 +250,11 @@ fn extract_zip(zip_bytes: &[u8], dest: &Path, max_decompressed: u64) -> Result<(
         // Defense in depth: the canonicalised parent must stay under dest.
         if let Some(parent) = out_path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| ForkError::Io(e.to_string()))?;
-            if let Some(dc) = &dest_canon {
-                if let Some(pc) = canonicalize_lossy(parent) {
-                    if !pc.starts_with(dc) {
-                        return Err(ForkError::UnsafePath(name));
-                    }
-                }
+            if let Some(dc) = &dest_canon
+                && let Some(pc) = canonicalize_lossy(parent)
+                && !pc.starts_with(dc)
+            {
+                return Err(ForkError::UnsafePath(name));
             }
         }
 

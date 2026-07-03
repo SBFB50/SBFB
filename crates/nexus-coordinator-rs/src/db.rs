@@ -889,10 +889,10 @@ impl CoordinatorDb {
         if now >= expires_at {
             return Ok(SeedInviteOutcome::Expired);
         }
-        if let Some(max) = max_uses {
-            if uses_count >= max {
-                return Ok(SeedInviteOutcome::NoUsesLeft);
-            }
+        if let Some(max) = max_uses
+            && uses_count >= max
+        {
+            return Ok(SeedInviteOutcome::NoUsesLeft);
         }
         self.conn.execute(
             "UPDATE seed_invite SET uses_count = uses_count + 1 WHERE token = ?1",

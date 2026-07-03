@@ -155,10 +155,10 @@ fn compute_proof_card_at(input: ProofCardInput, now: chrono::DateTime<chrono::Ut
     if freshness_state == FreshnessState::Stale {
         risk_factors.push("stale_source".into());
     }
-    if let Some(age) = age_days {
-        if age > OLD_RELEASE_THRESHOLD_DAYS {
-            risk_factors.push("old_release".into());
-        }
+    if let Some(age) = age_days
+        && age > OLD_RELEASE_THRESHOLD_DAYS
+    {
+        risk_factors.push("old_release".into());
     }
 
     // -- Score (additive, deterministic) -----------------------------

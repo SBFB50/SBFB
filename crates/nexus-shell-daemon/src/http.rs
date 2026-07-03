@@ -616,10 +616,10 @@ pub fn is_valid_origin(s: &str) -> bool {
     if host.is_empty() {
         return false;
     }
-    if let Some(p) = port_opt {
-        if p.parse::<u16>().is_err() {
-            return false;
-        }
+    if let Some(p) = port_opt
+        && p.parse::<u16>().is_err()
+    {
+        return false;
     }
     true
 }
@@ -644,10 +644,10 @@ pub fn is_loopback_origin(origin: &HeaderValue) -> bool {
     if host != "127.0.0.1" && host != "localhost" {
         return false;
     }
-    if let Some(p) = port_opt {
-        if p.parse::<u16>().is_err() {
-            return false;
-        }
+    if let Some(p) = port_opt
+        && p.parse::<u16>().is_err()
+    {
+        return false;
     }
     true
 }
@@ -1391,14 +1391,14 @@ pub(crate) async fn build_sign_announce_directory(
             node_pubkey,
             ticket,
         );
-        if let Ok(payload) = announcement.to_bytes() {
-            if let Ok(envelope) = wrap_payload_with_pow(state, &payload) {
-                let sender_guard = state.gossip_sender.read().await;
-                if let Some(sender) = sender_guard.as_ref() {
-                    if let Err(e) = sender.broadcast(envelope).await {
-                        debug!(error = %e, "node directory announce broadcast failed (non-fatal)");
-                    }
-                }
+        if let Ok(payload) = announcement.to_bytes()
+            && let Ok(envelope) = wrap_payload_with_pow(state, &payload)
+        {
+            let sender_guard = state.gossip_sender.read().await;
+            if let Some(sender) = sender_guard.as_ref()
+                && let Err(e) = sender.broadcast(envelope).await
+            {
+                debug!(error = %e, "node directory announce broadcast failed (non-fatal)");
             }
         }
     }
@@ -1614,10 +1614,9 @@ async fn set_keep_online(
         if let Some(arr) = archive_hash
             .as_deref()
             .and_then(crate::deploy::decode_hash_hex)
+            && let Err(e) = blobs.set_tag(&tag, arr).await
         {
-            if let Err(e) = blobs.set_tag(&tag, arr).await {
-                debug!(error = %e, "keep-online tag set failed (non-fatal)");
-            }
+            debug!(error = %e, "keep-online tag set failed (non-fatal)");
         }
     } else if let Err(e) = blobs.delete_tag(&tag).await {
         debug!(error = %e, "keep-online tag delete failed (non-fatal)");
@@ -1725,10 +1724,10 @@ fn directory_pull_providers(
         if hex_id == my_node_id {
             return;
         }
-        if let Ok(id) = iroh::EndpointId::from_str(hex_id) {
-            if !providers.contains(&id) {
-                providers.push(id);
-            }
+        if let Ok(id) = iroh::EndpointId::from_str(hex_id)
+            && !providers.contains(&id)
+        {
+            providers.push(id);
         }
     }
     let mut providers: Vec<iroh::EndpointId> = Vec::new();
@@ -1949,20 +1948,18 @@ pub(crate) async fn run_boot_seed_driver(
         // every row that was ALREADY enabled with this hash when the daemon
         // booted — only emit for an app this driver newly acquired/enabled,
         // so a configured app never double-announces in one boot.
-        if !was_already_announced {
-            if let Some(ref fs) = state.feed_sync_state {
-                if let Err(e) = crate::feed_sync::emit_seed_announced(
-                    fs,
-                    &state.coordinator_db,
-                    &state.pow_keypair,
-                    pid,
-                    &hash_hex,
-                )
-                .await
-                {
-                    warn!(project = %pid, error = %e, "boot seed driver: seed announce failed (non-fatal)");
-                }
-            }
+        if !was_already_announced
+            && let Some(ref fs) = state.feed_sync_state
+            && let Err(e) = crate::feed_sync::emit_seed_announced(
+                fs,
+                &state.coordinator_db,
+                &state.pow_keypair,
+                pid,
+                &hash_hex,
+            )
+            .await
+        {
+            warn!(project = %pid, error = %e, "boot seed driver: seed announce failed (non-fatal)");
         }
         info!(project = %pid, held_locally = already_held, "boot seed driver: app pinned + kept online");
         pinned += 1;
@@ -2371,8 +2368,8 @@ async fn seed_voluntary(
                 // the distant app, so the author + other peers see "Toi + N pairs"
                 // rise. The lock is taken+dropped inside the helper (never across
                 // the await). Best-effort: a feed hiccup must not undo the pin.
-                if let Some(ref fs) = state.feed_sync_state {
-                    if let Err(e) = crate::feed_sync::emit_seed_announced(
+                if let Some(ref fs) = state.feed_sync_state
+                    && let Err(e) = crate::feed_sync::emit_seed_announced(
                         fs,
                         &state.coordinator_db,
                         &state.pow_keypair,
@@ -2380,9 +2377,8 @@ async fn seed_voluntary(
                         &hash_hex,
                     )
                     .await
-                    {
-                        warn!(error = %e, "voluntary seed: SeedAnnounced emit failed (non-fatal)");
-                    }
+                {
+                    warn!(error = %e, "voluntary seed: SeedAnnounced emit failed (non-fatal)");
                 }
                 return (
                     StatusCode::OK,
@@ -3440,10 +3436,10 @@ async fn coordinator_submit_task(
     let keypair = (*state.pow_keypair).clone();
     match nexus_coordinator_rs::dispatcher::submit_task(&db, &keypair, submission) {
         Ok(entry) => {
-            if let Some(ref tx) = state.task_dispatch_tx {
-                if let Err(e) = tx.try_send(entry.clone()) {
-                    tracing::warn!("dispatch channel full or closed: {e}");
-                }
+            if let Some(ref tx) = state.task_dispatch_tx
+                && let Err(e) = tx.try_send(entry.clone())
+            {
+                tracing::warn!("dispatch channel full or closed: {e}");
             }
             // Hotfix #5 (maillon A): nudge the on-demand local worker so
             // a node executes its own tasks without a manual
@@ -3944,11 +3940,10 @@ async fn get_feed_entries(
                     return false;
                 }
             }
-            if let Some(ref ot) = params.op_type {
-                if row.op_type != *ot {
+            if let Some(ref ot) = params.op_type
+                && row.op_type != *ot {
                     return false;
                 }
-            }
             true
         })
         .take(limit as usize)

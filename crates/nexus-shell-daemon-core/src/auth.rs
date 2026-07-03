@@ -70,10 +70,10 @@ pub const TOKEN_HEX_LEN: usize = 64;
 /// (Windows). Returns `None` only on the rare platform where
 /// neither the override nor the home dir resolves.
 pub fn sbfb_home() -> Option<PathBuf> {
-    if let Ok(dir) = std::env::var("SBFB_HOME") {
-        if !dir.is_empty() {
-            return Some(PathBuf::from(dir));
-        }
+    if let Ok(dir) = std::env::var("SBFB_HOME")
+        && !dir.is_empty()
+    {
+        return Some(PathBuf::from(dir));
     }
     let home = std::env::var("HOME")
         .ok()
@@ -260,10 +260,10 @@ pub fn is_loopback_host(host: &str) -> bool {
     if !host_ok {
         return false;
     }
-    if let Some(p) = port_opt {
-        if p.parse::<u16>().is_err() {
-            return false;
-        }
+    if let Some(p) = port_opt
+        && p.parse::<u16>().is_err()
+    {
+        return false;
     }
     true
 }
@@ -666,10 +666,10 @@ pub fn validate_token_with_rotator(request_token: &str, rotator: &TokenRotator) 
     if constant_time_eq(request_token.as_bytes(), rotator.current.as_bytes()) {
         return true;
     }
-    if let Some(prev) = rotator.previous() {
-        if constant_time_eq(request_token.as_bytes(), prev.as_bytes()) {
-            return true;
-        }
+    if let Some(prev) = rotator.previous()
+        && constant_time_eq(request_token.as_bytes(), prev.as_bytes())
+    {
+        return true;
     }
     false
 }

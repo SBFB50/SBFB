@@ -160,12 +160,11 @@ impl JsonFileWriter {
 
 impl EventWriter for JsonFileWriter {
     fn write_event(&self, event: &SecurityEvent) -> Result<(), EventError> {
-        if self.path.exists() {
-            if let Ok(meta) = std::fs::metadata(&self.path) {
-                if meta.len() >= self.max_bytes {
-                    self.rotate()?;
-                }
-            }
+        if self.path.exists()
+            && let Ok(meta) = std::fs::metadata(&self.path)
+            && meta.len() >= self.max_bytes
+        {
+            self.rotate()?;
         }
         let record = AuditRecord {
             timestamp: Utc::now().to_rfc3339(),
@@ -314,10 +313,10 @@ pub fn init_emitter(writer: Box<dyn EventWriter>) {
 }
 
 pub fn emit_event(event: &SecurityEvent) {
-    if let Some(writer) = SECURITY_EMITTER.get() {
-        if let Err(e) = writer.write_event(event) {
-            tracing::warn!(error = %e, "failed to emit security event");
-        }
+    if let Some(writer) = SECURITY_EMITTER.get()
+        && let Err(e) = writer.write_event(event)
+    {
+        tracing::warn!(error = %e, "failed to emit security event");
     }
 }
 

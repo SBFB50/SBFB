@@ -310,13 +310,13 @@ pub fn validate_feed_operation(op: &Value) -> Result<(), String> {
     match try_parse_op(op) {
         Some(typed) => validate_known_operation(&typed)?,
         None => {
-            if let Some(ot) = op_type(op) {
-                if KNOWN_OP_TYPES.contains(&ot) {
-                    return Err(format!(
-                        "malformed {ot} operation: known op_type failed to parse \
+            if let Some(ot) = op_type(op)
+                && KNOWN_OP_TYPES.contains(&ot)
+            {
+                return Err(format!(
+                    "malformed {ot} operation: known op_type failed to parse \
                          (missing or wrong-typed required field)"
-                    ));
-                }
+                ));
             }
         }
     }
@@ -327,16 +327,16 @@ pub fn validate_feed_operation(op: &Value) -> Result<(), String> {
     // remote op could smuggle a spurious `sig` (or any extra) key that survives
     // into the stored raw `op`. Enforce the exact key set so the invariant holds
     // on the wire, not just at the producer.
-    if op_type(op) == Some("SeedAnnounced") {
-        if let Some(obj) = op.as_object() {
-            const ALLOWED: &[&str] = &["op_type", "project_id", "seeder_node_id", "archive_hash"];
-            if let Some(extra) = obj.keys().find(|k| !ALLOWED.contains(&k.as_str())) {
-                return Err(format!(
-                    "SeedAnnounced op carries an unexpected field '{extra}' \
+    if op_type(op) == Some("SeedAnnounced")
+        && let Some(obj) = op.as_object()
+    {
+        const ALLOWED: &[&str] = &["op_type", "project_id", "seeder_node_id", "archive_hash"];
+        if let Some(extra) = obj.keys().find(|k| !ALLOWED.contains(&k.as_str())) {
+            return Err(format!(
+                "SeedAnnounced op carries an unexpected field '{extra}' \
                      (allowed: op_type, project_id, seeder_node_id, archive_hash; \
                      no payload-level sig — F-3)"
-                ));
-            }
+            ));
         }
     }
     Ok(())
@@ -369,10 +369,10 @@ fn validate_known_operation(op: &PublicFeedOperation) -> Result<(), String> {
             if !is_hex_exact(&p.artifact_hash, 64) {
                 return Err("artifact_hash must be 64 hex characters".to_string());
             }
-            if let Some(ref ph) = p.provenance_hash {
-                if !is_hex_exact(ph, 64) {
-                    return Err("provenance_hash must be 64 hex characters".to_string());
-                }
+            if let Some(ref ph) = p.provenance_hash
+                && !is_hex_exact(ph, 64)
+            {
+                return Err("provenance_hash must be 64 hex characters".to_string());
             }
             if p.is_open_source && p.provenance_hash.is_none() {
                 return Err("is_open_source=true requires provenance_hash (spec §2.1)".to_string());

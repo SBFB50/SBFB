@@ -768,11 +768,11 @@ impl KeyStore for LocalFileKeyStore {
 
     fn wipe(&self) -> Result<(), KeyStoreError> {
         self.secure_unlink_blob(&self.blob_path())?;
-        if self.use_keyring {
-            if let Ok(entry) = keyring::Entry::new(&self.keyring_service, &self.keyring_account) {
-                // Ignore "no entry" errors — we want idempotent wipe.
-                let _ = entry.delete_credential();
-            }
+        if self.use_keyring
+            && let Ok(entry) = keyring::Entry::new(&self.keyring_service, &self.keyring_account)
+        {
+            // Ignore "no entry" errors — we want idempotent wipe.
+            let _ = entry.delete_credential();
         }
         Ok(())
     }

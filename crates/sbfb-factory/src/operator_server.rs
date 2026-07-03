@@ -312,29 +312,29 @@ async fn handle_bootstrap(State(boot): State<BootstrapState>, req: Request) -> R
         return (StatusCode::FORBIDDEN, "non-loopback Host rejected").into_response();
     }
 
-    if let Some(token) = req.uri().query().and_then(|q| query_param(q, "token")) {
-        if boot.auth.token_matches(token) {
-            // Valid bearer in the URL: mint the session cookie (the
-            // per-boot secret, never the bearer itself) and 303 to `/`
-            // so the token leaves the address bar.
-            let cookie = format!(
-                "{}={}; HttpOnly; SameSite=Strict; Path=/",
-                auth::OPERATOR_COOKIE,
-                boot.auth.session_secret()
-            );
-            return (
-                StatusCode::SEE_OTHER,
-                [
-                    (header::SET_COOKIE, cookie),
-                    (header::LOCATION, "/".to_string()),
-                    (header::REFERRER_POLICY, "no-referrer".to_string()),
-                ],
-                axum::body::Body::empty(),
-            )
-                .into_response();
-        }
-        // Wrong token -> fall through to the neutral index response.
+    if let Some(token) = req.uri().query().and_then(|q| query_param(q, "token"))
+        && boot.auth.token_matches(token)
+    {
+        // Valid bearer in the URL: mint the session cookie (the
+        // per-boot secret, never the bearer itself) and 303 to `/`
+        // so the token leaves the address bar.
+        let cookie = format!(
+            "{}={}; HttpOnly; SameSite=Strict; Path=/",
+            auth::OPERATOR_COOKIE,
+            boot.auth.session_secret()
+        );
+        return (
+            StatusCode::SEE_OTHER,
+            [
+                (header::SET_COOKIE, cookie),
+                (header::LOCATION, "/".to_string()),
+                (header::REFERRER_POLICY, "no-referrer".to_string()),
+            ],
+            axum::body::Body::empty(),
+        )
+            .into_response();
     }
+    // Wrong token -> fall through to the neutral index response.
 
     serve_bootstrap_index(&boot.bundle)
 }
@@ -499,15 +499,15 @@ fn default_model_for_provider(provider: &str) -> String {
 
 fn file_hash(root: &std::path::Path, rel: &str) -> serde_json::Value {
     let path = root.join(rel);
-    if path.exists() {
-        if let Ok(bytes) = std::fs::read(&path) {
-            let hash = blake3::hash(&bytes);
-            return serde_json::json!({
-                "path": rel,
-                "hash": &hash.to_hex()[..8],
-                "exists": true,
-            });
-        }
+    if path.exists()
+        && let Ok(bytes) = std::fs::read(&path)
+    {
+        let hash = blake3::hash(&bytes);
+        return serde_json::json!({
+            "path": rel,
+            "hash": &hash.to_hex()[..8],
+            "exists": true,
+        });
     }
     serde_json::json!({"path": rel, "exists": false})
 }
@@ -705,19 +705,18 @@ fn mark_project_role(
             detail: detail.to_string(),
         });
     }
-    if let Some(label) = label {
-        if !pinned
+    if let Some(label) = label
+        && !pinned
             .iter()
             .any(|p| p.path == path && p.role == role && p.source == source)
-        {
-            pinned.push(ProjectDocumentPinned {
-                path,
-                role: role.to_string(),
-                label: label.to_string(),
-                source: source.to_string(),
-                detail: detail.to_string(),
-            });
-        }
+    {
+        pinned.push(ProjectDocumentPinned {
+            path,
+            role: role.to_string(),
+            label: label.to_string(),
+            source: source.to_string(),
+            detail: detail.to_string(),
+        });
     }
 }
 

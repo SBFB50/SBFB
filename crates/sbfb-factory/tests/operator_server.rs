@@ -664,11 +664,10 @@ fn non_claude_intent_uses_selected_model() {
                 let after = &text[idx + "\"model\"".len()..];
                 if let Some(colon) = after.find(':') {
                     let rest = &after[colon + 1..];
-                    if let Some(q1) = rest.find('"') {
-                        if let Some(q2) = rest[q1 + 1..].find('"') {
-                            *captured_w.lock().unwrap() =
-                                Some(rest[q1 + 1..q1 + 1 + q2].to_string());
-                        }
+                    if let Some(q1) = rest.find('"')
+                        && let Some(q2) = rest[q1 + 1..].find('"')
+                    {
+                        *captured_w.lock().unwrap() = Some(rest[q1 + 1..q1 + 1 + q2].to_string());
                     }
                 }
             }

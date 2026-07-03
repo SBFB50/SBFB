@@ -1254,10 +1254,10 @@ impl DaemonRuntime {
         // write inside it is a single synchronous statement.
         if let Some(handle) = self.boot_driver_handle.take() {
             handle.abort();
-            if let Err(e) = handle.await {
-                if !e.is_cancelled() {
-                    warn!(error = %e, "boot driver task join failed");
-                }
+            if let Err(e) = handle.await
+                && !e.is_cancelled()
+            {
+                warn!(error = %e, "boot driver task join failed");
             }
         }
 
@@ -1274,10 +1274,10 @@ impl DaemonRuntime {
         if let Some(tx) = self.peer_shutdown.take() {
             let _ = tx.send(());
         }
-        if let Some(mut handle) = self.peer_handle.take() {
-            if let Err(e) = (&mut handle).await {
-                warn!(error = %e, "peer (UDS / NP) accept task join failed");
-            }
+        if let Some(mut handle) = self.peer_handle.take()
+            && let Err(e) = (&mut handle).await
+        {
+            warn!(error = %e, "peer (UDS / NP) accept task join failed");
         }
 
         if let Some(tx) = self.http_shutdown.take() {
@@ -1290,10 +1290,10 @@ impl DaemonRuntime {
         if let Some(tx) = self.feed_shutdown.take() {
             let _ = tx.send(true);
         }
-        if let Some(mut handle) = self.feed_handle.take() {
-            if let Err(e) = (&mut handle).await {
-                warn!(error = %e, "feed subscribe task join failed");
-            }
+        if let Some(mut handle) = self.feed_handle.take()
+            && let Err(e) = (&mut handle).await
+        {
+            warn!(error = %e, "feed subscribe task join failed");
         }
 
         if let Some(sender) = self.feed_join_shutdown.take() {
@@ -1317,19 +1317,19 @@ impl DaemonRuntime {
         if let Some(tx) = self.result_sync_shutdown.take() {
             let _ = tx.send(true);
         }
-        if let Some(mut handle) = self.result_sync_handle.take() {
-            if let Err(e) = (&mut handle).await {
-                warn!(error = %e, "result sync task join failed");
-            }
+        if let Some(mut handle) = self.result_sync_handle.take()
+            && let Err(e) = (&mut handle).await
+        {
+            warn!(error = %e, "result sync task join failed");
         }
 
         if let Some(tx) = self.dispatch_shutdown.take() {
             let _ = tx.send(());
         }
-        if let Some(mut handle) = self.dispatch_handle.take() {
-            if let Err(e) = (&mut handle).await {
-                warn!(error = %e, "dispatch loop task join failed");
-            }
+        if let Some(mut handle) = self.dispatch_handle.take()
+            && let Err(e) = (&mut handle).await
+        {
+            warn!(error = %e, "dispatch loop task join failed");
         }
 
         if let Some(node_arc) = self.node.take() {
@@ -1800,19 +1800,18 @@ fn spawn_gossip_subscribe_task(cfg: GossipTaskConfig) -> JoinHandle<()> {
                             // Best-effort DB persistence: gossip broadcast is the
                             // primary transport, the DB insert is boot-recovery only;
                             // a failed insert still allows in-memory replay.
-                            if let Ok(guard) = coordinator_db.lock() {
-                                if let Err(e) = guard.insert_outbox(&payload) {
+                            if let Ok(guard) = coordinator_db.lock()
+                                && let Err(e) = guard.insert_outbox(&payload) {
                                     warn!(error = %e, "outbox DB insert failed");
                                 }
-                            }
                             // Broadcast a freshly minted + stamped envelope through
                             // the SAME helper as every replay path (the just-published
                             // payload's ticket is already fresh, so the re-mint is a
                             // no-op here — one helper keeps all broadcast paths
                             // identical). Push the unwrapped payload AFTER the borrow.
-                            if neighbor_count > 0 {
-                                if let Some(addr) = current_replay_addr(&node).await {
-                                    if let Some(fresh) = remint_and_wrap_for_replay(
+                            if neighbor_count > 0
+                                && let Some(addr) = current_replay_addr(&node).await
+                                    && let Some(fresh) = remint_and_wrap_for_replay(
                                         &node,
                                         &pow_solve_cache,
                                         &pow_policy,
@@ -1822,13 +1821,9 @@ fn spawn_gossip_subscribe_task(cfg: GossipTaskConfig) -> JoinHandle<()> {
                                         &payload,
                                     )
                                     .await
-                                    {
-                                        if let Err(e) = sender.broadcast(fresh).await {
+                                        && let Err(e) = sender.broadcast(fresh).await {
                                             debug!(error = %e, "outbox broadcast failed");
                                         }
-                                    }
-                                }
-                            }
                             outbox.push(payload);
                         }
                         Some(GossipCmd::RequestBrowse) => {
@@ -2149,10 +2144,10 @@ fn normalize_outbox_payload(stored: &[u8]) -> Option<Vec<u8>> {
     }
     // Legacy shape (pre-S75): a PoW-wrapped envelope of our own — unwrap
     // structurally (no PoW re-verification; these are our trusted local bytes).
-    if let Ok((_proof, payload)) = nexus_core_rs::PowEnvelope::decode(stored) {
-        if publish::is_project_announcement(payload) {
-            return Some(payload.to_vec());
-        }
+    if let Ok((_proof, payload)) = nexus_core_rs::PowEnvelope::decode(stored)
+        && publish::is_project_announcement(payload)
+    {
+        return Some(payload.to_vec());
     }
     None
 }
@@ -2251,27 +2246,27 @@ async fn remint_and_wrap_for_replay(
 ) -> Option<Vec<u8>> {
     let payload = normalize_outbox_payload(stored)?;
     let mut ann = publish::ProjectAnnouncement::from_gossip_bytes(&payload).ok()?;
-    if ann.node_id == node.node_id() {
-        if let Some(stale) = ann.archive_ticket.as_deref() {
-            use std::str::FromStr;
-            if let Ok(ticket) = iroh_blobs::ticket::BlobTicket::from_str(stale) {
-                let (_addr, hash, _fmt) = ticket.into_parts();
-                // Self-heal (production): an OWN announcement whose archive blob
-                // is no longer held (GC'd) must NOT keep being advertised — a
-                // re-minted ticket would point at an address that serves nothing,
-                // surfacing a dead card that fails on open. Drop it from this
-                // replay pass. The boot prune (`prune_stale_outbox`) removes it
-                // from the outbox + DB once and for all; this guard additionally
-                // catches an app GC'd MID-session. Kept-online apps are pinned
-                // (skip-GC tag, M18) so their blob is never GC'd and they are
-                // never dropped here — only genuinely-retired apps are.
-                //
-                // Sprint 76 Phase B (B5): re-mint from the PRE-FETCHED pass
-                // address rather than querying the watcher per entry.
-                match mint_ticket_for_hash_with_addr(node, hash, addr).await {
-                    Ok(fresh) => ann.archive_ticket = Some(fresh),
-                    Err(_) => return None,
-                }
+    if ann.node_id == node.node_id()
+        && let Some(stale) = ann.archive_ticket.as_deref()
+    {
+        use std::str::FromStr;
+        if let Ok(ticket) = iroh_blobs::ticket::BlobTicket::from_str(stale) {
+            let (_addr, hash, _fmt) = ticket.into_parts();
+            // Self-heal (production): an OWN announcement whose archive blob
+            // is no longer held (GC'd) must NOT keep being advertised — a
+            // re-minted ticket would point at an address that serves nothing,
+            // surfacing a dead card that fails on open. Drop it from this
+            // replay pass. The boot prune (`prune_stale_outbox`) removes it
+            // from the outbox + DB once and for all; this guard additionally
+            // catches an app GC'd MID-session. Kept-online apps are pinned
+            // (skip-GC tag, M18) so their blob is never GC'd and they are
+            // never dropped here — only genuinely-retired apps are.
+            //
+            // Sprint 76 Phase B (B5): re-mint from the PRE-FETCHED pass
+            // address rather than querying the watcher per entry.
+            match mint_ticket_for_hash_with_addr(node, hash, addr).await {
+                Ok(fresh) => ann.archive_ticket = Some(fresh),
+                Err(_) => return None,
             }
         }
     }
@@ -2527,12 +2522,14 @@ async fn boot_storage_namespace(
             let ns_id = nexus_core_rs::docs::DocsNamespaceId::from(bytes);
             // Self-heal boundary (S81 Phase A2). The M8 row may point at a
             // namespace whose iroh-docs replica is gone (store reset, a DB
-            // carried over from another data dir). In iroh-docs 0.98
-            // `open_doc` NEVER returns `Ok(None)`: a legitimately absent
-            // replica surfaces as `Err(OpenError::NotFound)` whose message
-            // contains "Replica not found" (the typed variant is erased to a
-            // string by the RPC layer, so a message match is the only
-            // discriminator available here). Only that absence may recreate;
+            // carried over from another data dir). In iroh-docs 0.101
+            // (re-verified at the S81 Phase B bump: upstream store.rs:24-27
+            // Display byte-identical, api.rs:262-265 still hardcodes
+            // `Ok(Some)`) `open_doc` NEVER returns `Ok(None)`: a legitimately
+            // absent replica surfaces as `Err(OpenError::NotFound)` whose
+            // message contains "Replica not found" (the typed variant is
+            // erased to a string by the RPC layer, so a message match is the
+            // only discriminator available here). Only that absence may recreate;
             // any other error (redb/IO/actor) means the store is corrupted
             // and the boot must fail loudly instead of silently orphaning the
             // replicated entries under a fresh namespace id.
@@ -4211,8 +4208,9 @@ mod tests {
 
     // S81 Phase A2: the self-heal boundary is "Replica not found" (legitimate
     // absence -> recreate loudly) vs any other docs error (fail fast, M8 row
-    // untouched). In iroh-docs 0.98 open_doc never returns Ok(None), so the
-    // absence path is exercised through the Err(NotFound) discriminator.
+    // untouched). In iroh-docs 0.101 (re-verified at the S81 Phase B bump)
+    // open_doc never returns Ok(None), so the absence path is exercised
+    // through the Err(NotFound) discriminator.
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn boot_storage_namespace_recreates_loud_on_absent_replica() {

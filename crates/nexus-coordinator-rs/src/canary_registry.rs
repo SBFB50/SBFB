@@ -149,10 +149,10 @@ impl CanaryRegistry {
     }
 
     pub fn observe_canary(&mut self, obs: CanaryObservation) {
-        if let Some(prev) = self.canaries.get(&obs.pubkey_hex) {
-            if prev.date >= obs.date {
-                return;
-            }
+        if let Some(prev) = self.canaries.get(&obs.pubkey_hex)
+            && prev.date >= obs.date
+        {
+            return;
         }
         self.canaries.insert(obs.pubkey_hex.clone(), obs);
         if let Err(e) = self.persist() {
@@ -161,10 +161,10 @@ impl CanaryRegistry {
     }
 
     pub fn observe_duress_ack(&mut self, obs: DuressAckObservation) {
-        if let Some(prev) = self.duress_acks.get(&obs.pubkey_hex) {
-            if prev.date >= obs.date {
-                return;
-            }
+        if let Some(prev) = self.duress_acks.get(&obs.pubkey_hex)
+            && prev.date >= obs.date
+        {
+            return;
         }
         self.duress_acks.insert(obs.pubkey_hex.clone(), obs);
         if let Err(e) = self.persist() {
@@ -263,10 +263,11 @@ pub fn coerce_canary_payload(payload: &serde_json::Value) -> Result<CanaryObserv
         Some(o) => o.clone(),
         None => return Err("expected JSON object".into()),
     };
-    if obj.contains_key("v") && !obj.contains_key("version") {
-        if let Some(v) = obj.remove("v") {
-            obj.insert("version".into(), v);
-        }
+    if obj.contains_key("v")
+        && !obj.contains_key("version")
+        && let Some(v) = obj.remove("v")
+    {
+        obj.insert("version".into(), v);
     }
     serde_json::from_value(serde_json::Value::Object(obj)).map_err(|e| e.to_string())
 }
@@ -278,10 +279,11 @@ pub fn coerce_duress_ack_payload(
         Some(o) => o.clone(),
         None => return Err("expected JSON object".into()),
     };
-    if obj.contains_key("v") && !obj.contains_key("version") {
-        if let Some(v) = obj.remove("v") {
-            obj.insert("version".into(), v);
-        }
+    if obj.contains_key("v")
+        && !obj.contains_key("version")
+        && let Some(v) = obj.remove("v")
+    {
+        obj.insert("version".into(), v);
     }
     serde_json::from_value(serde_json::Value::Object(obj)).map_err(|e| e.to_string())
 }

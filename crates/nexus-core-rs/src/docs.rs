@@ -50,7 +50,7 @@ use crate::error::{NexusError, Result};
 
 /// Thin client around an [`iroh_docs::protocol::Docs`] handle.
 ///
-/// Owns a cheaply-cloned `Docs` handle (iroh-docs 0.97 derives
+/// Owns a cheaply-cloned `Docs` handle (iroh-docs 0.101 derives
 /// `Clone` with an internal `Arc`), so the client can be stored
 /// long-lived in a struct or passed across an FFI boundary without
 /// a lifetime parameter. This mirrors the Sprint 4 Day 0 change to
@@ -150,10 +150,13 @@ impl DocsClient {
 
     /// Open an existing document by its namespace id.
     ///
-    /// In iroh-docs 0.98 the RPC layer never yields `Ok(None)`: an
+    /// In iroh-docs 0.101 the RPC layer never yields `Ok(None)`: an
     /// absent replica surfaces as an `Err` whose message contains
     /// "Replica not found" (`OpenError::NotFound`, erased to a string
-    /// across RPC). The `Option` is kept to mirror the upstream
+    /// across RPC). Re-verified unchanged from 0.98 at the Sprint 81
+    /// Phase B bump (upstream v0.101.0: `store.rs:24-27` keeps the
+    /// byte-identical Display, `api.rs:262-265` still hardcodes
+    /// `Ok(Some)`). The `Option` is kept to mirror the upstream
     /// signature; callers that must distinguish legitimate absence
     /// from store corruption match on the error message.
     pub async fn open_doc(&self, id: NamespaceId) -> Result<Option<DocHandle>> {
@@ -385,23 +388,25 @@ impl DocHandle {
     /// Enter this document's live sync-set, optionally dialing `peers`.
     ///
     /// Opening a doc (`open_doc`/`create_doc`) does NOT enter the
-    /// sync-set — verified against iroh-docs 0.98: only `start_sync`
-    /// inserts the namespace into the engine's `SyncState`
-    /// (`engine/live.rs:414`). A node outside the sync-set (a) never
-    /// gossip-broadcasts its incremental `LocalInsert` writes (gated by
-    /// `is_syncing`, `engine/live.rs:714`) and (b) REJECTS every
-    /// incoming sync request with `AbortReason::NotFound`
-    /// (`engine/state.rs:97`). `share_write`/`share_read` and
-    /// `import_ticket` enter the sync-set as a side-effect; a
-    /// coordinator that only ever re-OPENS a persisted doc must call
-    /// this explicitly (Sprint 81 Phase A4 boot fix).
+    /// sync-set — verified against iroh-docs 0.101 (recalibrated at
+    /// the Sprint 81 Phase B bump; mechanism unchanged from 0.98):
+    /// only `start_sync` inserts the namespace into the engine's
+    /// `SyncState` (`engine/live.rs:408-414`). A node outside the
+    /// sync-set (a) never gossip-broadcasts its incremental
+    /// `LocalInsert` writes (gated by `is_syncing`,
+    /// `engine/live.rs:713`) and (b) REJECTS every incoming sync
+    /// request with `AbortReason::NotFound` (`engine/state.rs:97`).
+    /// `share_write`/`share_read` and `import_ticket` enter the
+    /// sync-set as a side-effect; a coordinator that only ever
+    /// re-OPENS a persisted doc must call this explicitly (Sprint 81
+    /// Phase A4 boot fix).
     ///
     /// With an empty `peers` list nothing is dialed by the caller, but
     /// iroh-docs merges the peers PERSISTED in the store
     /// (`register_useful_peer` / `get_sync_peers`) and re-dials them
-    /// (`DirectJoin`) — bounded by the store's known-peer list.
-    /// Idempotent on an already-syncing doc. Recalibrate the cited
-    /// internals against iroh-docs 0.101 at the version bump.
+    /// (`DirectJoin`) — bounded by the store's known-peer list
+    /// (`PEERS_PER_DOC_CACHE_SIZE = 5`, `store.rs:17`). Idempotent on
+    /// an already-syncing doc.
     pub async fn start_sync(&self, peers: Vec<iroh::EndpointAddr>) -> Result<()> {
         self.inner
             .start_sync(peers)

@@ -21,7 +21,7 @@ members = [
 [workspace.package]
 version = "1.0.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.91"
 license = "AGPL-3.0-or-later"
 authors = ["FlowUP"]
 repository = "https://github.com/SBFB50/SBFB"
@@ -30,15 +30,19 @@ readme = "README.md"
 # Shared dependency versions. Crates inherit with
 # `iroh = { workspace = true }` etc. so version bumps live in one place.
 #
-# iroh stack: upgraded to the 0.98.x line (published 2026-04-17, Sprint 32
-# Phase A). iroh-blobs uses independent versioning and is at 0.100.x for
-# this release train. Day 0 #3 (iroh 0.97 pin) formally lifted Sprint 32.
-# LT-6 trigger resolved.
+# iroh stack: upgraded to the 1.0 GA line (Sprint 81 Phase B; versions
+# re-checked against the crates.io API on 2026-07-03 — these four pins
+# are the exact max_stable versions, no 1.0.2 exists). Exact `=` pins
+# are deliberate: reproducibility + bisectability (iroh-docs pre-1.0
+# broke its wire twice in six weeks). iroh-docs 0.101 carries the
+# redb 2->4 on-disk auto-migration behind its default
+# `redb-v2-migration` feature (validated on a store COPY in Phase F) —
+# do NOT disable default features.
 [workspace.dependencies]
-iroh = "0.98"
-iroh-docs = "0.98"
-iroh-gossip = "0.98"
-iroh-blobs = "0.100"
+iroh = "=1.0.1"
+iroh-docs = "=0.101.0"
+iroh-gossip = "=0.101.0"
+iroh-blobs = "=0.103.0"
 
 # Async runtime
 tokio = { version = "1.40", features = ["full"] }

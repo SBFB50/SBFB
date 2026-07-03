@@ -338,10 +338,10 @@ fn extract_field(text: &str, key: &str, trailing: Option<&str>) -> Result<String
         let trimmed = line.trim_start();
         if let Some(rest) = trimmed.strip_prefix(key) {
             let mut value = rest.trim().to_string();
-            if let Some(suffix) = trailing {
-                if let Some(short) = value.strip_suffix(suffix) {
-                    value = short.trim_end().to_string();
-                }
+            if let Some(suffix) = trailing
+                && let Some(short) = value.strip_suffix(suffix)
+            {
+                value = short.trim_end().to_string();
             }
             if value.is_empty() {
                 return Err(CanaryError::BadHex(format!(
