@@ -356,6 +356,57 @@ mod tests {
         node.shutdown().await.ok();
     }
 
+    #[test]
+    fn blob_ticket_string_round_trips_under_current_lock() {
+        // Sprint 81 Phase D — locks the persisted-ticket string contract.
+        // The daemon persists `AnchorLocator.ticket` in `anchors.json` as a
+        // `BlobTicket` string (written at directory ingest, re-parsed by the
+        // boot re-pull via `BlobTicket::from_str`), so the encode/parse pair
+        // must stay stable under the pinned iroh-blobs. A POPULATED
+        // EndpointAddr (relay + direct addr) mirrors what a live node mints —
+        // an id-only addr would under-test the persisted shape. The addr must
+        // stay within what the ticket wire preserves — one relay + IP addrs
+        // (the encode keeps `relay_urls().next()` + `ip_addrs()` and drops
+        // extra relays / Custom transports by design), or the verbatim addr
+        // assert below would fail by wire design, not by regression. Pure
+        // encode/parse: no node, no store, no dial.
+        use std::net::SocketAddr;
+
+        use iroh_blobs::BlobFormat;
+
+        let id = EndpointId::from_str(&hex::encode(crate::KeyPair::generate().public_bytes()))
+            .expect("a fresh Ed25519 pubkey is a valid EndpointId");
+        let relay = iroh::RelayUrl::from_str("https://relay.sbfb.invalid./")
+            .expect("static relay URL parses");
+        let direct: SocketAddr = "192.0.2.7:4433".parse().expect("static socket addr parses");
+        let addr = iroh::EndpointAddr::new(id)
+            .with_relay_url(relay)
+            .with_ip_addr(direct);
+
+        let hash = Hash::new(b"anchors-json-ticket-contract");
+        let ticket = BlobTicket::new(addr.clone(), hash, BlobFormat::Raw);
+        let ticket_str = ticket.to_string();
+
+        let parsed =
+            BlobTicket::from_str(&ticket_str).expect("a minted ticket string must re-parse");
+        assert_eq!(
+            parsed.to_string(),
+            ticket_str,
+            "string encoding is idempotent"
+        );
+        let (got_addr, got_hash, got_format) = parsed.into_parts();
+        assert_eq!(got_hash, hash, "hash survives the string round-trip");
+        assert_eq!(
+            got_format,
+            BlobFormat::Raw,
+            "format survives the string round-trip"
+        );
+        assert_eq!(
+            got_addr, addr,
+            "populated EndpointAddr (id + relay + direct) survives verbatim"
+        );
+    }
+
     #[tokio::test]
     async fn two_nodes_fetch_blob_via_ticket() {
         // Regression test for Sprint 2 audit S7 finding: the
@@ -434,7 +485,7 @@ mod tests {
         // does NOT pin that the anchor is dialed strictly FIRST — the
         // anchor-first ordering of the vec is asserted at construction
         // (`fetch_provider_ordering`, daemon side), and the in-order
-        // consumption is iroh-blobs 0.100 documented behavior (blanket
+        // consumption is iroh-blobs 0.103 documented behavior (blanket
         // `ContentDiscovery for IntoIterator` yields iteration order);
         // instrumenting actual dial order would require a protocol shim.
         use std::time::Duration;
