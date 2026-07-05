@@ -1,0 +1,25 @@
+{
+  "suite": "sprint81-transport-e2-zero-n0-acceptance",
+  "kind": "named-live-check",
+  "iroh_lock": "iroh =1.0.1 / iroh-docs =0.101.0 / iroh-gossip =0.101.0 / iroh-blobs =0.103.0",
+  "date": "2026-07-05",
+  "vocabulary_note": "verdict uses the closed T2 vocabulary as a status+diagnosis pair (same shape as the A3/A4/E artefacts); this is the LIVE half of the Phase E2 zero-n0 acceptance (C8 plan B) — the hermetic halves are the discovery_override Tier-A suite (env->plan decision) and the node.rs two-node Tier-B test (assembly converges via an in-process self-hosted stack)",
+  "scoping_note": "this acceptance proves (once run) that the network converges and serves WITHOUT any n0 service — resilience to the n0 EOL 2026-09-30. It does NOT prove resilience to the death of the operator VPS: zero-n0 CONCENTRATES relay+pkarr+anchor onto operator infrastructure, so it is COMPLEMENTARY to (not a superset of) the S75 survives-VPS-death acceptance, which ran under presets::N0 with n0 alive; neither tests 'operator host dies while in zero-n0 mode'",
+  "paliers": {
+    "selfhost_binaries_available": {
+      "verdict": "PASS",
+      "criterion": "the two self-hosted services must exist on crates.io at the exact workspace pin version (wire-compat by construction): iroh-relay 1.0.1 with the server feature + bin, and iroh-dns-server 1.0.1 with GET and PUT on /pkarr",
+      "observed": "crates.io API probed 2026-07-05 (curl with UA): iroh-dns-server max_stable=1.0.1, released 2026-06-29 (same batch as iroh 1.0.1), desc 'A pkarr relay and DNS server'; crate tarball inspected: [[bin]] iroh-dns-server (required-features ring, on by default), README documents '/pkarr: GET and PUT for pkarr signed packets', config.dev.toml + config.prod.toml shipped; iroh-relay 1.0.1 already vendored in the lock, feature server + [[bin]] confirmed in vendored Cargo.toml:71-122"
+    },
+    "zero_n0_live_convergence": {
+      "verdict": "RIG-ABSENT",
+      "diagnosis": "the acceptance requires a dedicated public host/IP running iroh-relay in PROD TLS mode (ACME needs :80/:443 and QUIC address discovery needs UDP 7842 exposed directly; the existing anchor VPS is single-IP with nginx on :80, and co-locating relay+pkarr+anchor would recreate the SPOF the threat model flags) plus iroh-dns-server, then two SBFB nodes booted with SBFB_ZERO_N0=1. No dedicated host is allocated as of 2026-07-05 — a PO infrastructure decision inside the open C8 calendar window (provision deadline 2026-08-01, fleet switch 2026-08-25, plan B active 2026-09-15, n0 EOL 2026-09-30). Client code, config templates and the ops runbook (docs/release/IROH_SELFHOST_OPS.md) are DONE and hermetically tested; replay this palier after provisioning: boot 2 nodes with the §5 runbook env, publish an app on one, verify cross-Browse + blob fetch on the other with zero n0 traffic",
+      "criterion": "two SBFB nodes converge (discovery resolve by endpoint id + relay dial + app browse/fetch) with ZERO n0 services in the path: publish and resolve via the self-hosted iroh-dns-server, dial via the self-hosted iroh-relay; b3 PASS"
+    }
+  },
+  "hermetic_anchors": {
+    "tier_a_decision_suite": "discovery_override::tests (6 tests: returns_none_when_unset_or_disabled, fails_loud_on_unrecognised_gate_value, fails_loud_when_pkarr_relays_missing, fails_loud_when_custom_relays_missing, builds_plan_when_fully_configured, pkarr_url_policy_matches_relay_policy) — the pure env->DiscoveryPlan decision core: parse, https/loopback policy parity, fail-loud coupling with custom relays",
+    "tier_b_e2e_assembly": "node::tests::zero_n0_two_nodes_converge_via_self_hosted_stack — two endpoints built by the SAME apply_zero_n0_discovery function as production, connected BY ID ONLY through an in-process PUT+GET pkarr relay (raw-tokio fake; iroh's test-utils pkarr server only routes PUT) and an in-process iroh relay (test-utils run_relay_server); proves the assembly really omits n0 (fresh empty MemoryLookup per endpoint, no other lookup wired)"
+  },
+  "residual_risk": "zero-n0 relocates discovery+relay trust and availability from n0 to the SBFB operator: relay operator sees connection metadata (never plaintext), pkarr operator is the resolution authority bounded by Ed25519-signed packets (censor/stale possible, forge impossible); operator-host SPOF and the relay-metadata x anchor-content join are routed to Phase G (THREAT_MODEL §15.x zero-n0 line) together with the widened silent-loss window (self-hosted single host vs the four-region n0 fleet; pkarr death stays warn-only inside iroh, no SBFB health signal)"
+}

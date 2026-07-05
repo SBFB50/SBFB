@@ -203,6 +203,39 @@
   shard dépasse le mécanique. Default `presets::N0` conservé ; le plan B C8 est OBLIGATOIRE
   (gates calendaires 01/08 / 25/08 / 15/09 au kickoff).
 
+## Phase E2 — PLAN B C8 intégral « zéro-n0 » (ex-« E' », split préflight E)
+
+> *Déclarée à l'exécution du split PLAN-ADAPT du préflight E (le plan autorisait le
+> split, précédent A3/A4 ; « E' » du préflight = « E2 » au canon `Phase [A-Z]+[0-9]?`
+> README §4 ; déclencheur réel du split = le provisionnement C8, PAS le shard déjà
+> vert). Préflight = `sprint81_phase_e2_preflight.md` (périmètre contractuel =
+> préflight E §7.3 a-e).*
+
+- **But** : le réseau tient **sans aucun service n0** (EOL 2026-09-30) — mode
+  opt-in gated-env où publish + resolve d'adresses passent par un pkarr relay
+  self-hosted (`iroh-dns-server`) et la connectivité par un relais iroh
+  self-hosted ; `presets::N0` reste le défaut, C8 AJOUTE un mode.
+- **Jobs/surfaces** : `nexus-core-rs/src/discovery_override.rs` (NEUF, fonction de
+  décision pure env→`DiscoveryPlan`|Err fail-loud) ; `node.rs`
+  (`apply_zero_n0_discovery` sur base `presets::Minimal` + re-push
+  `memory_lookup` + `PkarrPublisher`/`PkarrResolver::builder` [Option B HTTP,
+  décision design (d) tranchée au préflight] + `RelayMode::Custom`, chokepoint
+  unique) ; `relay_config.rs` (policy URL partagée `enforce_url_policy`).
+- **Livrables** : code neuf ci-dessus + runbook `docs/release/IROH_SELFHOST_OPS.md`
+  + units `deploy/iroh-relay.service`/`iroh-dns-server.service` + templates env
+  client (`SBFB_ZERO_N0`, `SBFB_ZERO_N0_PKARR_RELAYS`, `SBFB_CUSTOM_RELAYS`) +
+  artefact T2 `sprint81_t2_e2_zero_n0.json` (palier binaires + palier live
+  RIG-gated).
+- **Delta tests attendu** : **+6..8 Rust hermétiques** (Tier A décision pure +
+  Tier B E2E 2-nœuds via dev-dep `iroh test-utils` — livré +7).
+- **T1** : preuve hermétique que l'assemblage zéro-n0 **omet réellement n0**
+  (2 nœuds convergent PAR ID via pkarr fake PUT+GET + relais custom in-process).
+- **Gate / scope-cut** : 0 bump wire ; 0 dep RUNTIME neuve (`test-utils` =
+  dev-dep ; `iroh-dns-server` = binaire externe hors lock) ; NON duress-gaté
+  (indistinguabilité) ; provisionnement live host/IP dédié = allocation PO
+  (fenêtre C8 jusqu'au 01/08) → palier T2 live `RIG-ABSENT` traçable acceptable ;
+  `DnsAddressLookup` non câblé (additif futur).
+
 ## Phase F — Migration on-disk redb 2→4 validée sur COPIE
 
 > *Assoupli à l'activation (décision PO C4/C5 : « il n'y a personne sur le réseau ») : le chemin

@@ -1,0 +1,71 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# Self-hosted iroh relay for the SBFB zero-n0 mode (Sprint 81
+# Phase E2, PO decision C8). Replaces the n0 relay fleet
+# (*.relay.n0.iroh.link, EOL 2026-09-30) for nodes booted with
+# SBFB_ZERO_N0=1. Ops runbook: docs/release/IROH_SELFHOST_OPS.md.
+#
+# Runs on a DEDICATED public host/IP (never the SBFB anchor):
+# ACME wants :80/:443 and QUIC address discovery wants UDP 7842
+# exposed directly, and co-locating relay + pkarr + anchor would
+# recreate the metadata-join SPOF the threat model flags.
+#
+# Install:
+#   useradd --system --home-dir /var/lib/iroh-relay --shell /usr/sbin/nologin iroh-relay
+#   cargo install iroh-relay --version 1.0.1 --features server   # match the workspace pin
+#   install -m 0755 ~/.cargo/bin/iroh-relay /usr/local/bin/
+#   install -d -o iroh-relay -g iroh-relay -m 0700 /etc/iroh-relay
+#   cp config.toml (runbook §4.1 template) /etc/iroh-relay/config.toml
+#   cp iroh-relay.service /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now iroh-relay
+
+[Unit]
+Description=iroh relay (SBFB zero-n0 self-hosted fleet)
+Documentation=https://github.com/sbfb/nexus-grid
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=iroh-relay
+Group=iroh-relay
+ExecStart=/usr/local/bin/iroh-relay --config-path /etc/iroh-relay/config.toml
+Restart=on-failure
+RestartSec=5
+
+# ACME certificates land under cert_dir (runbook template pins it
+# inside the StateDirectory). ProtectSystem=strict makes the rest
+# of the filesystem read-only for the unit.
+StateDirectory=iroh-relay
+StateDirectoryMode=0700
+
+# Hardening: same canonical systemd.exec set as
+# nexus-shell-daemon.service (S75 anchor, systemd-analyze security
+# 1.7), with ONE delta: the relay binds :80/:443 (< 1024), so it
+# needs CAP_NET_BIND_SERVICE instead of an empty capability set.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+RestrictAddressFamilies=AF_UNIX AF_NETLINK AF_INET AF_INET6
+RestrictNamespaces=yes
+MemoryDenyWriteExecute=yes
+LockPersonality=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

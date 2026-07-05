@@ -45,6 +45,7 @@ pub mod csp;
 pub mod curator;
 pub mod dht_quorum;
 pub mod discovery;
+pub mod discovery_override;
 pub mod dns_fallback;
 pub mod doc_sync;
 pub mod docs;
@@ -109,6 +110,10 @@ pub use curator::{
 };
 pub use dht_quorum::{QuorumError, QuorumRecord, QuorumResolver, redundant_resolve};
 pub use discovery::{DiscoveryClient, NodeAddrInfo};
+pub use discovery_override::{
+    DiscoveryPlan, ZERO_N0_ENV, ZERO_N0_PKARR_RELAYS_ENV, load_discovery_override,
+    validate_zero_n0_pkarr_url,
+};
 pub use dns_fallback::{
     DEFAULT_DNS_TIMEOUT, DEFAULT_DOMAIN_SUFFIX, DNS_FALLBACK_DOMAIN_ENV, DNS_FALLBACK_ENABLED_ENV,
     DOH_CLOUDFLARE_IP, DOH_CLOUDFLARE_TLS_NAME, DOH_GOOGLE_IP, DOH_GOOGLE_TLS_NAME, DOH_PORT,

@@ -139,6 +139,22 @@ tracing-subscriber = { workspace = true }
 tempfile = { workspace = true }
 criterion = { workspace = true }
 
+# Sprint 81 Phase E2 : the zero-n0 discovery override needs ONE
+# hermetic end-to-end proof that an endpoint assembled from a
+# DiscoveryPlan really omits n0 (the iroh Builder exposes no
+# pre-bind getter on its lookup list, so no assert-on-config test
+# can prove it). The load-bearing brick is `run_relay_server` (the
+# in-process iroh relay the two test endpoints dial through);
+# test-utils' own pkarr server is PUT-only, so the pkarr half is a
+# local PUT+GET fake — see node.rs
+# zero_n0_two_nodes_converge_via_self_hosted_stack.
+# MUST stay a dev-dependency : with cargo's v2 resolver a dev-dep
+# feature does not unify into release builds of dependent crates,
+# but moving this line into [dependencies] WOULD leak
+# iroh-relay/server (+ axum, ACME) into the shipped binaries and
+# break the "iroh strictly alone" runtime invariant.
+iroh = { workspace = true, features = ["test-utils"] }
+
 [[bench]]
 name = "pow"
 harness = false

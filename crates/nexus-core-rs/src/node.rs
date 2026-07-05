@@ -41,6 +41,7 @@ use std::fmt;
 use std::path::PathBuf;
 
 use iroh::address_lookup::memory::MemoryLookup;
+use iroh::address_lookup::{PkarrPublisher, PkarrResolver};
 use iroh::endpoint::presets;
 use iroh::protocol::{DynProtocolHandler, Router};
 use iroh::{Endpoint, RelayMode, SecretKey};
@@ -55,6 +56,7 @@ use iroh_gossip::net::Gossip;
 use tracing::{debug, info, warn};
 
 use crate::crypto::SECRET_KEY_BYTES;
+use crate::discovery_override::DiscoveryPlan;
 use crate::error::{NexusError, Result};
 
 /// ALPN for the Sprint 74 cross-node seed protocol. A 4th protocol
@@ -307,49 +309,88 @@ pub async fn create_node_with_protocols(
     cfg: NodeConfig,
     extra_protocols: Vec<(Vec<u8>, ExtraProtocolFactory)>,
 ) -> Result<Node> {
-    debug!("building iroh endpoint with the N0 preset");
-
     // Attach a MemoryLookup to every node. Callers seed it with
     // out-of-band peer addresses (e.g. parsed from blob tickets
     // or doc tickets) so that Endpoint::connect / Downloader can
     // resolve endpoint ids to dialable addrs without pkarr.
     let memory_lookup = MemoryLookup::new();
 
-    let mut builder = Endpoint::builder(presets::N0).address_lookup(memory_lookup.clone());
+    // Sprint 81 Phase E2 (PLAN B C8) : resolve the zero-n0
+    // discovery override BEFORE any builder exists. Fail-loud by
+    // design — a malformed or half-configured override aborts the
+    // boot here; it must never degrade into a silent partial n0
+    // dependency (the n0 fleet is EOL 2026-09-30 and "partially on
+    // n0" is indistinguishable from "working" until the day it is
+    // not). This is the single Endpoint::builder chokepoint of the
+    // workspace, so the override covers daemon, worker and
+    // coordinator alike with zero per-caller wiring.
+    let zero_n0_plan = crate::discovery_override::load_discovery_override()?;
+
+    let (mut builder, using_custom_relays, home_relay) = match &zero_n0_plan {
+        Some(plan) => {
+            let home_relay: String = plan
+                .relay_map
+                .urls::<Vec<_>>()
+                .into_iter()
+                .next()
+                .map(|u| u.to_string())
+                .unwrap_or_else(|| "custom-empty".to_string());
+            // Loud LOCAL log of the discovery posture (stdout /
+            // journal only, never a wire emission — local logs are
+            // duress-safe by construction; the §15.1 gating concerns
+            // what leaves the machine).
+            info!(
+                pkarr_relay_count = plan.pkarr_relays.len(),
+                relay_count = plan.relay_map.len(),
+                home_relay = %home_relay,
+                "zero-n0 discovery override active: relays + pkarr self-hosted, no n0 service wired"
+            );
+            let builder =
+                apply_zero_n0_discovery(Endpoint::builder(presets::Minimal), plan, &memory_lookup);
+            (builder, true, home_relay)
+        }
+        None => {
+            debug!("building iroh endpoint with the N0 preset");
+            let builder = Endpoint::builder(presets::N0).address_lookup(memory_lookup.clone());
+
+            // Sprint 18 Phase C : respect the operator's custom relay
+            // list when set (via SBFB_CUSTOM_RELAYS env or
+            // ~/.sbfb/relays.json). A missing / empty config falls
+            // through to the N0 preset's default relay set — which tracks
+            // whatever fleet the pinned iroh version ships (the hostnames
+            // DID change at the 1.0 bump: the iroh-canary label was
+            // dropped), not any historical set byte-for-byte.
+            let custom_relays = crate::relay_config::load_relay_map()
+                .map_err(|e| NexusError::Endpoint(format!("invalid relay config: {e}")))?;
+            let using_custom_relays = custom_relays.is_some();
+            let home_relay: String = match &custom_relays {
+                Some(map) => map
+                    .urls::<Vec<_>>()
+                    .into_iter()
+                    .next()
+                    .map(|u| u.to_string())
+                    .unwrap_or_else(|| "custom-empty".to_string()),
+                None => "preset::N0".to_string(),
+            };
+            let builder = if let Some(map) = custom_relays {
+                let relay_count = map.len();
+                info!(
+                    relay_count,
+                    home_relay = %home_relay,
+                    "using custom relay map from SBFB config"
+                );
+                builder.relay_mode(RelayMode::Custom(map))
+            } else {
+                debug!(home_relay = %home_relay, "no custom relay config — keeping N0 preset defaults");
+                builder
+            };
+            (builder, using_custom_relays, home_relay)
+        }
+    };
+
     if let Some(sk_bytes) = cfg.secret_key_bytes {
         let sk = SecretKey::from_bytes(&sk_bytes);
         builder = builder.secret_key(sk);
-    }
-
-    // Sprint 18 Phase C : respect the operator's custom relay
-    // list when set (via SBFB_CUSTOM_RELAYS env or
-    // ~/.sbfb/relays.json). A missing / empty config falls
-    // through to the N0 preset's default relay set — which tracks
-    // whatever fleet the pinned iroh version ships (the hostnames
-    // DID change at the 1.0 bump: the iroh-canary label was
-    // dropped), not any historical set byte-for-byte.
-    let custom_relays = crate::relay_config::load_relay_map()
-        .map_err(|e| NexusError::Endpoint(format!("invalid relay config: {e}")))?;
-    let using_custom_relays = custom_relays.is_some();
-    let home_relay: String = match &custom_relays {
-        Some(map) => map
-            .urls::<Vec<_>>()
-            .into_iter()
-            .next()
-            .map(|u| u.to_string())
-            .unwrap_or_else(|| "custom-empty".to_string()),
-        None => "preset::N0".to_string(),
-    };
-    if let Some(map) = custom_relays {
-        let relay_count = map.len();
-        info!(
-            relay_count,
-            home_relay = %home_relay,
-            "using custom relay map from SBFB config"
-        );
-        builder = builder.relay_mode(RelayMode::Custom(map));
-    } else {
-        debug!(home_relay = %home_relay, "no custom relay config — keeping N0 preset defaults");
     }
 
     let endpoint = builder
@@ -360,6 +401,7 @@ pub async fn create_node_with_protocols(
     info!(
         node_id = %endpoint.id(),
         custom_relays = using_custom_relays,
+        zero_n0 = zero_n0_plan.is_some(),
         home_relay = %home_relay,
         "iroh endpoint ready"
     );
@@ -421,6 +463,51 @@ pub async fn create_node_with_protocols(
         router,
         memory_lookup,
     })
+}
+
+/// Apply a validated zero-n0 [`DiscoveryPlan`] to an endpoint
+/// builder (Sprint 81 Phase E2 — PLAN B C8).
+///
+/// Base contract : the caller hands a builder created from
+/// `presets::Minimal` — a base that wires NOTHING n0-related
+/// (`Builder::empty()` + crypto provider only), so there is nothing
+/// to forget to clear. The alternative (`N0` +
+/// `clear_address_lookup`) was rejected : `clear_address_lookup`
+/// wipes the WHOLE lookup vector, including lookups pushed before
+/// it, which makes the assembly order-sensitive and footgun-prone.
+///
+/// Wired in order :
+///
+/// 1. the caller's [`MemoryLookup`] — load-bearing : it resolves
+///    peers from out-of-band ticket addresses (blob / doc tickets,
+///    seed / shard paths). Any assembly that drops it silently
+///    breaks ticket-based dialing.
+/// 2. one [`PkarrPublisher`] AND one [`PkarrResolver`] per
+///    self-hosted pkarr relay URL — publish and resolve both move
+///    off n0. The publisher keeps its default relay-only address
+///    filter, so no direct IP address leaks to the pkarr server
+///    (same posture as the `N0` preset).
+/// 3. `RelayMode::Custom` with the operator's relay map — the
+///    [`crate::discovery_override::load_discovery_override`]
+///    coupling guarantees it is non-empty (zero-n0 with no custom
+///    relay refuses to boot instead of silently homing on n0).
+///
+/// Kept as a dedicated function so the hermetic two-node test below
+/// exercises the EXACT assembly the production path uses (the iroh
+/// `Builder` exposes no pre-bind getter on its lookup list — this
+/// function boundary is the testable seam).
+fn apply_zero_n0_discovery(
+    builder: iroh::endpoint::Builder,
+    plan: &DiscoveryPlan,
+    memory_lookup: &MemoryLookup,
+) -> iroh::endpoint::Builder {
+    let mut builder = builder.address_lookup(memory_lookup.clone());
+    for url in &plan.pkarr_relays {
+        builder = builder
+            .address_lookup(PkarrPublisher::builder(url.clone()))
+            .address_lookup(PkarrResolver::builder(url.clone()));
+    }
+    builder.relay_mode(RelayMode::Custom(plan.relay_map.clone()))
 }
 
 #[cfg(test)]
@@ -600,5 +687,240 @@ mod tests {
         let data = blobs.get_bytes(hash).await.unwrap();
         assert_eq!(data, b"mem-mode");
         node.shutdown().await.ok();
+    }
+
+    /// Minimal in-process pkarr relay speaking the two HTTP verbs
+    /// the production client uses: `PUT /pkarr/{z32}` (what
+    /// [`iroh::address_lookup::PkarrPublisher`] sends) and
+    /// `GET /pkarr/{z32}` (what [`iroh::address_lookup::PkarrResolver`]
+    /// fetches). Needed because iroh's own `test_utils` pkarr server
+    /// only routes PUT — its tests resolve through the test DNS
+    /// server (`DnsAddressLookup`), which is NOT our production
+    /// resolve path (Option B rides `PkarrResolver` HTTP). Stored
+    /// payloads are opaque bytes: the signed packet round-trips
+    /// verbatim, so no pkarr decoding is required here. Raw-tokio
+    /// HTTP/1.1 on purpose — zero new (dev-)dependency.
+    async fn run_fake_pkarr_relay() -> (
+        url::Url,
+        std::sync::Arc<tokio::sync::Mutex<std::collections::HashMap<String, Vec<u8>>>>,
+        tokio::task::JoinHandle<()>,
+    ) {
+        use std::collections::HashMap;
+        use std::sync::Arc;
+
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        fn header_end(buf: &[u8]) -> Option<usize> {
+            buf.windows(4).position(|w| w == b"\r\n\r\n").map(|p| p + 4)
+        }
+
+        let store: Arc<tokio::sync::Mutex<HashMap<String, Vec<u8>>>> = Arc::default();
+        let listener = TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .expect("fake pkarr relay binds on loopback");
+        let addr = listener.local_addr().expect("bound addr");
+        let url: url::Url = format!("http://{addr}/pkarr").parse().expect("valid url");
+
+        let served = store.clone();
+        let handle = tokio::spawn(async move {
+            while let Ok((mut sock, _peer)) = listener.accept().await {
+                let store = served.clone();
+                tokio::spawn(async move {
+                    let mut buf = Vec::new();
+                    let mut tmp = [0u8; 4096];
+                    let head_len = loop {
+                        let Ok(n) = sock.read(&mut tmp).await else {
+                            return;
+                        };
+                        if n == 0 {
+                            return;
+                        }
+                        buf.extend_from_slice(&tmp[..n]);
+                        if let Some(pos) = header_end(&buf) {
+                            break pos;
+                        }
+                        if buf.len() > 64 * 1024 {
+                            return; // header flood — drop, test-only
+                        }
+                    };
+                    let head = String::from_utf8_lossy(&buf[..head_len]).to_string();
+                    let mut lines = head.lines();
+                    let request_line = lines.next().unwrap_or_default().to_string();
+                    let mut content_length = 0usize;
+                    for line in lines {
+                        if let Some(v) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                            content_length = v.trim().parse().unwrap_or(0);
+                        }
+                    }
+                    let mut body = buf[head_len..].to_vec();
+                    while body.len() < content_length {
+                        let Ok(n) = sock.read(&mut tmp).await else {
+                            return;
+                        };
+                        if n == 0 {
+                            break;
+                        }
+                        body.extend_from_slice(&tmp[..n]);
+                    }
+                    let mut parts = request_line.split_whitespace();
+                    let method = parts.next().unwrap_or_default().to_string();
+                    let path = parts.next().unwrap_or_default().to_string();
+                    let response: Vec<u8> = match method.as_str() {
+                        "PUT" => {
+                            store.lock().await.insert(path, body);
+                            b"HTTP/1.1 200 OK\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+                                .to_vec()
+                        }
+                        "GET" => match store.lock().await.get(&path) {
+                            Some(bytes) => {
+                                let mut r = format!(
+                                    "HTTP/1.1 200 OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+                                    bytes.len()
+                                )
+                                .into_bytes();
+                                r.extend_from_slice(bytes);
+                                r
+                            }
+                            None => {
+                                b"HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+                                    .to_vec()
+                            }
+                        },
+                        _ => {
+                            b"HTTP/1.1 405 Method Not Allowed\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+                                .to_vec()
+                        }
+                    };
+                    let _ = sock.write_all(&response).await;
+                    let _ = sock.shutdown().await;
+                });
+            }
+        });
+
+        (url, store, handle)
+    }
+
+    #[tokio::test]
+    async fn zero_n0_two_nodes_converge_via_self_hosted_stack() {
+        // Sprint 81 Phase E2 — the ONLY hermetic end-to-end proof
+        // that the zero-n0 assembly really omits n0: two endpoints
+        // built by the SAME `apply_zero_n0_discovery` function the
+        // production path uses, pointed at an in-process pkarr
+        // relay (PUT+GET fake above) and an in-process iroh relay
+        // (`run_relay_server`, dev-dep `test-utils`), then
+        // connected BY ENDPOINT ID ALONE. Resolution can only come
+        // from the self-hosted pkarr relay (each endpoint gets a
+        // FRESH, EMPTY MemoryLookup, so no out-of-band address can
+        // leak in) and the dial can only ride the self-hosted relay
+        // (the publisher's default filter publishes the relay URL
+        // only — no direct IP ever reaches the pkarr server).
+        //
+        // Split of proof duties: the env → plan decision logic
+        // (parse / policy / fail-loud coupling) is covered by the
+        // discovery_override Tier-A tests; the LIVE half (real VPS
+        // relay + real iroh-dns-server, zero n0 on the wire) is the
+        // T2 acceptance artefact, never a unit test (hermeticity —
+        // no DNS/network egress from the suite).
+        //
+        // Deltas vs the production assembly, all test-only: the
+        // in-process relay serves a self-signed certificate, hence
+        // `ca_tls_config(insecure_skip_verify)` (production trust
+        // stays WebPKI-only), and a test ALPN replaces the Router
+        // stack.
+        use std::time::Duration;
+
+        use iroh::test_utils::run_relay_server;
+        use iroh::tls::CaTlsConfig;
+
+        use crate::discovery_override::DiscoveryPlan;
+
+        const TEST_ALPN: &[u8] = b"sbfb/test/zero-n0";
+        const PUBLISH_TIMEOUT: Duration = Duration::from_secs(30);
+        const CONNECT_DEADLINE: Duration = Duration::from_secs(30);
+
+        let (pkarr_url, pkarr_store, _pkarr_task) = run_fake_pkarr_relay().await;
+        let (relay_map, _relay_url, _relay_guard) = run_relay_server()
+            .await
+            .expect("in-process iroh relay boots");
+
+        let plan = DiscoveryPlan {
+            pkarr_relays: vec![pkarr_url],
+            relay_map,
+        };
+
+        let build = |plan: &DiscoveryPlan| {
+            apply_zero_n0_discovery(
+                Endpoint::builder(presets::Minimal),
+                plan,
+                &MemoryLookup::new(),
+            )
+            .ca_tls_config(CaTlsConfig::insecure_skip_verify())
+            .alpns(vec![TEST_ALPN.to_vec()])
+        };
+
+        let ep1 = build(&plan)
+            .bind()
+            .await
+            .expect("ep1 binds under the zero-n0 assembly");
+        let ep2 = build(&plan)
+            .bind()
+            .await
+            .expect("ep2 binds under the zero-n0 assembly");
+
+        // Accept incoming connections on ep1 (loop instead of
+        // taking exactly one: retransmits can surface as extra
+        // accepts — upstream test_utils does the same).
+        let accept_task = tokio::spawn({
+            let ep1 = ep1.clone();
+            async move {
+                while let Some(incoming) = ep1.accept().await {
+                    if let Ok(accepting) = incoming.accept() {
+                        let _conn = accepting.await;
+                    }
+                }
+            }
+        });
+
+        // The publisher runs in a background task and republishes
+        // when the home relay is established — first make sure a
+        // PUT reached the fake pkarr relay at all (attributable
+        // failure: publish side vs resolve/dial side).
+        let publish_deadline = tokio::time::Instant::now() + PUBLISH_TIMEOUT;
+        loop {
+            if !pkarr_store.lock().await.is_empty() {
+                break;
+            }
+            assert!(
+                tokio::time::Instant::now() < publish_deadline,
+                "ep1 never published its address to the self-hosted pkarr relay"
+            );
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+
+        // Connect BY ID ONLY: no ticket, no memory-lookup seed, no
+        // n0 service anywhere in the graph. Retry inside a bounded
+        // deadline — the very first packet published may predate
+        // the home-relay establishment (no dialable addr yet); the
+        // publisher republishes as soon as the relay lands.
+        let connect_deadline = tokio::time::Instant::now() + CONNECT_DEADLINE;
+        let conn = loop {
+            match ep2.connect(ep1.id(), TEST_ALPN).await {
+                Ok(conn) => break conn,
+                Err(e) => {
+                    assert!(
+                        tokio::time::Instant::now() < connect_deadline,
+                        "ep2 must resolve ep1 via the self-hosted pkarr relay and dial \
+                         via the self-hosted iroh relay; last error: {e}"
+                    );
+                    tokio::time::sleep(Duration::from_millis(250)).await;
+                }
+            }
+        };
+        conn.close(0u32.into(), b"done");
+
+        accept_task.abort();
+        ep1.close().await;
+        ep2.close().await;
     }
 }

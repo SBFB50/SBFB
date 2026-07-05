@@ -199,11 +199,27 @@ pub fn validate_relay_url(raw: &str) -> Result<RelayUrl> {
     let url = RelayUrl::from_str(raw)
         .map_err(|e| NexusError::Endpoint(format!("relay url {raw:?} is not a valid URL: {e}")))?;
 
-    // RelayUrl derefs to url::Url ; use scheme() + host_str()
-    // directly off the deref target without naming the url crate.
+    // RelayUrl derefs to url::Url ; the shared policy check reads
+    // scheme() + host_str() off the deref target.
+    enforce_url_policy(&url, raw, "relay url")?;
+
+    Ok(url)
+}
+
+/// Shared policy check for every operator-supplied discovery URL
+/// (iroh relays here, zero-n0 pkarr relays in
+/// [`crate::discovery_override`]) : https-only + loopback rejection
+/// outside dev mode. Factored out at Sprint 81 Phase E2 so the two
+/// call sites cannot drift apart — the policy rationale lives on
+/// [`validate_relay_url`].
+///
+/// `what` names the URL kind in error messages (e.g. `"relay url"`,
+/// `"zero-n0 pkarr relay url"`) so operators can attribute a rejected
+/// URL to the right config knob.
+pub(crate) fn enforce_url_policy(url: &url::Url, raw: &str, what: &str) -> Result<()> {
     if url.scheme() != "https" {
         return Err(NexusError::Endpoint(format!(
-            "relay url {raw:?} must use https scheme (got {:?})",
+            "{what} {raw:?} must use https scheme (got {:?})",
             url.scheme()
         )));
     }
@@ -217,12 +233,12 @@ pub fn validate_relay_url(raw: &str) -> Result<RelayUrl> {
         && (host == "localhost" || host == "127.0.0.1" || host == "[::1]" || host == "::1")
     {
         return Err(NexusError::Endpoint(format!(
-            "relay url {raw:?} points to loopback ({host}); \
+            "{what} {raw:?} points to loopback ({host}); \
                      set {DEV_MODE_ENV}=1 if this is intentional"
         )));
     }
 
-    Ok(url)
+    Ok(())
 }
 
 /// Build a single iroh [`IrohRelayConfig`] entry from a raw URL.

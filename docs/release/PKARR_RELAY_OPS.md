@@ -14,6 +14,14 @@ audited_findings:
 
 # PKARR_RELAY_OPS — ops runbook self-hosted pkarr relay
 
+> **Portée (précision Sprint 81 Phase E2)** : ce runbook couvre l'image
+> pubky `pkarr-relay` adossée au DHT **Mainline** (port 6881), qui
+> alimente le **canari quorum anti-eclipse** (`SBFB_PKARR_RELAYS`) —
+> jamais la discovery de l'endpoint iroh. Pour le mode **zéro-n0**
+> (relais iroh + pkarr self-hosted face à l'EOL n0 2026-09-30, PLAN B
+> C8), voir [`IROH_SELFHOST_OPS.md`](IROH_SELFHOST_OPS.md) : autre
+> outil (`iroh-dns-server`), autre topologie, autres ports.
+
 Cible : sysadmin Linux moyen, **pas de Rust requis**, ~30 min
 pour un premier deploy fonctionnel sur Hetzner CX22 (ou
 equivalent, ~8 EUR/mois avril 2026).
