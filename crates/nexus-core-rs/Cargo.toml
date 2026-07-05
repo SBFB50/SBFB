@@ -155,6 +155,22 @@ criterion = { workspace = true }
 # break the "iroh strictly alone" runtime invariant.
 iroh = { workspace = true, features = ["test-utils"] }
 
+# Sprint 81 Phase F : on-disk redb migration proofs (tests/store_migration.rs).
+# Both redb versions below are ALREADY in the lock transitively (iroh-docs
+# 0.101 pulls redb 4.1 + redb_v3 3.1 via its default `redb-v2-migration`
+# feature), so these dev-deps add ZERO lock delta and cannot collide with the
+# Phase G `deny.toml:107` multiple-versions flip. `redb_v3` forges the legacy
+# tuple-tag docs fixture (`Legacy<T>` wrappers, upstream model
+# iroh-docs fs.rs test_migration_redb_v2_tuples); `redb` 4.1 reads the tables
+# back post-migration. NEVER add a `redb = "2.6"` dev-dep here — a THIRD redb
+# tree in the lock would collide with the Phase G convergence gate.
+redb = "4.1"
+redb_v3 = { package = "redb", version = "3.1" }
+# Reads the coordinator.db SQLite copy in the env-gated real-store test
+# (M8/M18/M19 survival asserts). Same workspace version as
+# nexus-coordinator-rs — zero lock delta.
+rusqlite = { workspace = true }
+
 [[bench]]
 name = "pow"
 harness = false

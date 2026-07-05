@@ -699,6 +699,7 @@ impl DaemonRuntime {
                     app_name,
                     doc_author,
                     identity_mode,
+                    Some(iroh_data_dir.as_path()),
                 )
                 .await
                 {
@@ -740,33 +741,38 @@ impl DaemonRuntime {
         // feed subscribe so the ingest path can record remote SeedAnnounced ops.
         let seed_registry = Arc::new(crate::seed_registry::SeedRegistry::new());
         let (feed_shutdown_tx, feed_shutdown_rx) = tokio::sync::watch::channel(false);
-        let (feed_sync_state, feed_handle) =
-            match boot_feed_namespace(&docs_client, &coordinator_db, doc_author, identity_mode)
-                .await
-            {
-                Ok(fs) => {
-                    info!(
-                        doc_id = %fs.doc.id(),
-                        "feed sync namespace ready"
-                    );
-                    let fs_arc = Arc::new(fs);
-                    let handle = crate::feed_sync::spawn_feed_subscribe(
-                        Arc::clone(&fs_arc),
-                        Arc::clone(&coordinator_db),
-                        Arc::clone(&node),
-                        Arc::clone(&feed_rate_limiter),
-                        Arc::clone(&seed_registry),
-                        node_id.clone(),
-                        feed_shutdown_rx,
-                    );
-                    (Some(fs_arc), Some(handle))
-                }
-                Err(e) => {
-                    // S81 Phase A2: same fail-fast rationale as the storage
-                    // namespace call-site above.
-                    return Err(e.context("failed to boot feed sync namespace"));
-                }
-            };
+        let (feed_sync_state, feed_handle) = match boot_feed_namespace(
+            &docs_client,
+            &coordinator_db,
+            doc_author,
+            identity_mode,
+            Some(iroh_data_dir.as_path()),
+        )
+        .await
+        {
+            Ok(fs) => {
+                info!(
+                    doc_id = %fs.doc.id(),
+                    "feed sync namespace ready"
+                );
+                let fs_arc = Arc::new(fs);
+                let handle = crate::feed_sync::spawn_feed_subscribe(
+                    Arc::clone(&fs_arc),
+                    Arc::clone(&coordinator_db),
+                    Arc::clone(&node),
+                    Arc::clone(&feed_rate_limiter),
+                    Arc::clone(&seed_registry),
+                    node_id.clone(),
+                    feed_shutdown_rx,
+                );
+                (Some(fs_arc), Some(handle))
+            }
+            Err(e) => {
+                // S81 Phase A2: same fail-fast rationale as the storage
+                // namespace call-site above.
+                return Err(e.context("failed to boot feed sync namespace"));
+            }
+        };
 
         // Sprint 75 audit (DURESS-BOOT-LEAK, P1): under duress the boot feed
         // republish (6c-5 + 6c-5b) is a no-op — a decoy must not re-emit the
@@ -2536,6 +2542,56 @@ fn restore_browse_from_outbox(
     restored
 }
 
+/// Backup file left behind by the iroh-docs redb 2->4 tuple migration
+/// (`migrate_redb_v2_tuples::run`: the migration writes a temp file,
+/// renames `docs.redb` to this sibling, then persists the temp over the
+/// original — the backup is KEPT on success). Sprint 81 Phase F: if the
+/// process crashes between the rename and the persist, `docs.redb` is
+/// ABSENT and the next boot creates a fresh EMPTY store that opens
+/// cleanly — every M8 replica then surfaces as a legitimate "Replica
+/// not found", which the A2 fail-loud does NOT catch (it only catches
+/// non-NotFound errors). The recreate guard below turns that silent
+/// data loss into a diagnosable refusal while the backup still holds
+/// the data. Filename mirrored (with upstream provenance) by
+/// `nexus-core-rs/tests/store_migration.rs`.
+pub(crate) fn docs_migration_backup_path(iroh_data_dir: &std::path::Path) -> std::path::PathBuf {
+    iroh_data_dir.join("docs.redb.backup-redb-v2-tuples")
+}
+
+/// Shared recreate guard for the two boot fns (Sprint 81 Phase F).
+/// Called on the "Replica not found" arm ONLY. The exact precondition
+/// it reacts to is "backup sibling EXISTS and replica ABSENT" — the
+/// signature of an interrupted redb 2->4 migration (fresh empty store
+/// after a crash mid-swap), where recreating would silently orphan the
+/// data still present in the backup. A backup next to a PRESENT
+/// replica is the normal trace of a migration that succeeded — that
+/// path never reaches this guard. Flip side (accepted, fail-loud
+/// recoverable): while a successful migration's backup lingers, a
+/// LATER legitimately-absent replica also refuses instead of
+/// self-healing — the remedy is deleting the backup once the migration
+/// has been verified (`docs/release/STORE_MIGRATION_OPS.md`), which
+/// re-arms the A2 self-heal.
+fn refuse_recreate_on_interrupted_migration(
+    iroh_data_dir: Option<&std::path::Path>,
+    what: &str,
+) -> Result<()> {
+    if let Some(dir) = iroh_data_dir {
+        let backup = docs_migration_backup_path(dir);
+        if backup.exists() {
+            return Err(anyhow!(
+                "{what} replica is absent BUT a redb migration backup exists at {} — an \
+                 interrupted redb migration (crash between rename and persist) leaves a fresh \
+                 empty docs store; refusing to silently recreate. Restore the backup over \
+                 docs.redb (or restore the tar snapshot) and reboot; if the migration is old \
+                 and already verified, delete the stale backup to re-arm the self-heal \
+                 (docs/release/STORE_MIGRATION_OPS.md)",
+                backup.display()
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Boot or reopen an iroh-docs storage namespace for a replicated
 /// app. Checks the M8 `storage_namespaces` table for a persisted
 /// NamespaceId. If found, reopens; otherwise creates a new namespace,
@@ -2565,6 +2621,7 @@ pub(crate) async fn boot_storage_namespace(
     app_name: &str,
     author: nexus_core_rs::docs::DocsAuthorId,
     identity_mode: nexus_core_rs::IdentityMode,
+    iroh_data_dir: Option<&std::path::Path>,
 ) -> Result<crate::storage_api::StorageNamespaceState> {
     use std::sync::atomic::AtomicU64;
 
@@ -2626,6 +2683,10 @@ pub(crate) async fn boot_storage_namespace(
                     (doc, ticket_str)
                 }
                 None => {
+                    refuse_recreate_on_interrupted_migration(
+                        iroh_data_dir,
+                        &format!("storage namespace for app {app_name} (ns {ns_id})"),
+                    )?;
                     warn!(
                         app = %app_name,
                         ns = %ns_id,
@@ -2644,6 +2705,9 @@ pub(crate) async fn boot_storage_namespace(
             }
         }
         None => {
+            // First boot (no M8 row): intentionally NOT migration-guarded —
+            // with no row there is nothing an interrupted migration could
+            // orphan; the guard only protects the row-present recreate arm.
             let doc = docs_client.create_doc().await?;
             let ticket = doc.share_write().await?;
             let ticket_str = ticket.to_string();
@@ -2695,6 +2759,7 @@ pub(crate) async fn boot_feed_namespace(
     coordinator_db: &std::sync::Arc<std::sync::Mutex<nexus_coordinator_rs::db::CoordinatorDb>>,
     author: nexus_core_rs::docs::DocsAuthorId,
     identity_mode: nexus_core_rs::IdentityMode,
+    iroh_data_dir: Option<&std::path::Path>,
 ) -> Result<crate::feed_sync::FeedSyncState> {
     let feed_key = crate::feed_sync::FEED_NAMESPACE_KEY;
 
@@ -2746,6 +2811,10 @@ pub(crate) async fn boot_feed_namespace(
                     (doc, ticket_str)
                 }
                 None => {
+                    refuse_recreate_on_interrupted_migration(
+                        iroh_data_dir,
+                        &format!("feed namespace (ns {ns_id})"),
+                    )?;
                     warn!(
                         ns = %ns_id,
                         "previous replica absent from local store — recreating fresh feed namespace"
@@ -2761,6 +2830,8 @@ pub(crate) async fn boot_feed_namespace(
             }
         }
         None => {
+            // First boot (no M8 row): intentionally NOT migration-guarded —
+            // mirror of the storage arm above.
             let doc = docs_client.create_doc().await?;
             let ticket = doc.share_write().await?;
             let ticket_str = ticket.to_string();
@@ -4334,12 +4405,17 @@ mod tests {
             .set_storage_namespace("sbfb-ideas", &stale, None)
             .unwrap();
 
+        // Some(empty dir) pins the PROD branch of the Phase F guard: a
+        // data dir WITHOUT the migration backup sibling must still
+        // self-heal (the guard only refuses when the backup exists).
+        let iroh_dir = tempfile::tempdir().unwrap();
         let state = boot_storage_namespace(
             &docs_client,
             &db,
             "sbfb-ideas",
             author,
             nexus_core_rs::IdentityMode::Normal,
+            Some(iroh_dir.path()),
         )
         .await
         .expect("absent replica (NotFound) must self-heal, not fail fast");
@@ -4374,11 +4450,14 @@ mod tests {
             .set_storage_namespace(feed_key, &stale, None)
             .unwrap();
 
+        // Some(empty dir): prod-branch pin, mirror of the storage test.
+        let iroh_dir = tempfile::tempdir().unwrap();
         let state = boot_feed_namespace(
             &docs_client,
             &db,
             author,
             nexus_core_rs::IdentityMode::Normal,
+            Some(iroh_dir.path()),
         )
         .await
         .expect("absent replica (NotFound) must self-heal, not fail fast");
@@ -4391,6 +4470,109 @@ mod tests {
             .expect("M8 row must still exist");
         assert_ne!(row.namespace_id, stale.to_vec());
         assert_eq!(row.namespace_id, state.doc.id().as_bytes().to_vec());
+        node.shutdown().await.unwrap();
+    }
+
+    /// Sprint 81 Phase F: an absent replica while the redb migration
+    /// backup sibling exists is an INTERRUPTED migration (crash between
+    /// rename and persist -> fresh empty store), not a legitimate
+    /// NotFound — the boot must refuse the silent recreate while the
+    /// backup still holds the data. NB: the guard keys on the backup's
+    /// PRESENCE alone (it cannot distinguish "interrupted" from "a
+    /// successful migration whose backup was never cleaned up" — both
+    /// refuse, the remedy line in the error covers both).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn boot_storage_namespace_refuses_recreate_on_interrupted_migration() {
+        let node = nexus_core_rs::create_node().await.unwrap();
+        let docs_client = nexus_core_rs::docs::DocsClient::new(node.docs());
+        let author = docs_client.author_create().await.unwrap();
+        let db = std::sync::Arc::new(std::sync::Mutex::new(
+            nexus_coordinator_rs::db::CoordinatorDb::open_in_memory().unwrap(),
+        ));
+        let stale: [u8; 32] = [0xAB; 32];
+        db.lock()
+            .unwrap()
+            .set_storage_namespace("sbfb-ideas", &stale, None)
+            .unwrap();
+
+        let iroh_dir = tempfile::tempdir().unwrap();
+        std::fs::write(docs_migration_backup_path(iroh_dir.path()), b"backup").unwrap();
+
+        let err = boot_storage_namespace(
+            &docs_client,
+            &db,
+            "sbfb-ideas",
+            author,
+            nexus_core_rs::IdentityMode::Normal,
+            Some(iroh_dir.path()),
+        )
+        .await
+        .expect_err("absent replica + migration backup must refuse the recreate");
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("interrupted redb migration"),
+            "diagnosable interrupted-migration marker expected, got: {msg}"
+        );
+        let row = db
+            .lock()
+            .unwrap()
+            .get_storage_namespace("sbfb-ideas")
+            .unwrap()
+            .expect("M8 row must still exist");
+        assert_eq!(
+            row.namespace_id,
+            stale.to_vec(),
+            "M8 row must be untouched when the recreate is refused"
+        );
+        node.shutdown().await.unwrap();
+    }
+
+    /// Sprint 81 Phase F: feed mirror of the interrupted-migration
+    /// recreate guard (same boundary, sibling arm — never a silent
+    /// sibling gap).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn boot_feed_namespace_refuses_recreate_on_interrupted_migration() {
+        let node = nexus_core_rs::create_node().await.unwrap();
+        let docs_client = nexus_core_rs::docs::DocsClient::new(node.docs());
+        let author = docs_client.author_create().await.unwrap();
+        let db = std::sync::Arc::new(std::sync::Mutex::new(
+            nexus_coordinator_rs::db::CoordinatorDb::open_in_memory().unwrap(),
+        ));
+        let feed_key = crate::feed_sync::FEED_NAMESPACE_KEY;
+        let stale: [u8; 32] = [0xCD; 32];
+        db.lock()
+            .unwrap()
+            .set_storage_namespace(feed_key, &stale, None)
+            .unwrap();
+
+        let iroh_dir = tempfile::tempdir().unwrap();
+        std::fs::write(docs_migration_backup_path(iroh_dir.path()), b"backup").unwrap();
+
+        let err = boot_feed_namespace(
+            &docs_client,
+            &db,
+            author,
+            nexus_core_rs::IdentityMode::Normal,
+            Some(iroh_dir.path()),
+        )
+        .await
+        .expect_err("absent replica + migration backup must refuse the recreate");
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("interrupted redb migration"),
+            "diagnosable interrupted-migration marker expected, got: {msg}"
+        );
+        let row = db
+            .lock()
+            .unwrap()
+            .get_storage_namespace(feed_key)
+            .unwrap()
+            .expect("M8 row must still exist");
+        assert_eq!(
+            row.namespace_id,
+            stale.to_vec(),
+            "M8 row must be untouched when the recreate is refused"
+        );
         node.shutdown().await.unwrap();
     }
 
@@ -4419,6 +4601,7 @@ mod tests {
             "sbfb-ideas",
             author,
             nexus_core_rs::IdentityMode::Normal,
+            None,
         )
         .await
         .expect_err("docs error after shutdown must fail fast, not recreate");
@@ -4462,6 +4645,7 @@ mod tests {
             &db,
             author,
             nexus_core_rs::IdentityMode::Normal,
+            None,
         )
         .await
         .expect_err("docs error after shutdown must fail fast, not recreate");

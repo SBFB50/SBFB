@@ -799,6 +799,7 @@ mod tests {
                     "sbfb-ideas",
                     author_a1,
                     nexus_core_rs::IdentityMode::Normal,
+                    None,
                 )
                 .await
                 .expect("first-boot storage namespace");
@@ -810,6 +811,7 @@ mod tests {
                     &db,
                     author_a1,
                     nexus_core_rs::IdentityMode::Normal,
+                    None,
                 )
                 .await
                 .expect("first-boot feed namespace");
@@ -869,13 +871,14 @@ mod tests {
                         "sbfb-ideas",
                         author_a2,
                         mode,
+                        None,
                     )
                     .await
                     .expect("reopen through the production boot fn")
                     .doc
                     .clone(),
                     SiblingKind::Feed => {
-                        crate::runtime::boot_feed_namespace(&docs_a2, &db, author_a2, mode)
+                        crate::runtime::boot_feed_namespace(&docs_a2, &db, author_a2, mode, None)
                             .await
                             .expect("reopen through the production boot fn")
                             .doc
