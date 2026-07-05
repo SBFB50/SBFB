@@ -324,8 +324,10 @@ pub async fn create_node_with_protocols(
     // Sprint 18 Phase C : respect the operator's custom relay
     // list when set (via SBFB_CUSTOM_RELAYS env or
     // ~/.sbfb/relays.json). A missing / empty config falls
-    // through to the N0 preset's default relay set, preserving
-    // pre-Sprint-18 behaviour byte-for-byte.
+    // through to the N0 preset's default relay set — which tracks
+    // whatever fleet the pinned iroh version ships (the hostnames
+    // DID change at the 1.0 bump: the iroh-canary label was
+    // dropped), not any historical set byte-for-byte.
     let custom_relays = crate::relay_config::load_relay_map()
         .map_err(|e| NexusError::Endpoint(format!("invalid relay config: {e}")))?;
     let using_custom_relays = custom_relays.is_some();

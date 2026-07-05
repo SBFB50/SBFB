@@ -29,19 +29,28 @@
 //!
 //! ## What this module does NOT deliver (Sprint 19 scope)
 //!
-//! No hook into the iroh 0.98 relay client is wired in this
-//! sprint. context7 verification of `/websites/rs_iroh` 2026-04-16
-//! confirmed that `relay::client::ClientBuilder` exposes
-//! `insecure_skip_cert_verify` only under `#[cfg(any(test,
-//! feature = "test-utils"))]`; no public hook for a custom
-//! `rustls::client::danger::ServerCertVerifier` exists. Sprint 19
-//! deliberately delivers the primitive + hot-reload + tests and
-//! marks the forked-connect-path wiring as tech debt tracked in
-//! `docs/rust/PATTERNS.md` §T20, pending upstream iroh
-//! contribution. This mirrors the Phase A (DHT quorum primitive
-//! then runtime wire) and Phase B (PoW primitive then gossip
-//! subscribe) pattern the sprint established for transport-layer
-//! hardening.
+//! No hook into the iroh relay client is wired by this module.
+//! At delivery time (iroh 0.97 per the S19 Phase C lockfile,
+//! context7 `/websites/rs_iroh` 2026-04-16) no public hook for a
+//! custom
+//! `rustls::client::danger::ServerCertVerifier` existed, so
+//! Sprint 19 deliberately shipped the primitive + hot-reload +
+//! tests and tracked the wiring as tech debt in
+//! `docs/rust/PATTERNS.md` §T20. **Re-verified at the S81 Phase E
+//! re-cert (iroh 1.0.1): the upstream blocker is GONE** —
+//! `iroh_relay::tls::CaTlsConfig::custom_server_cert_verifier`
+//! (`tls.rs:141`, mode `CustomServerCertVerifier`) accepts a
+//! `ServerCertVerifierBuilder` callback and reaches the endpoint
+//! through `iroh::endpoint::Builder::ca_tls_config`
+//! (`endpoint.rs:713`). T20 is therefore no longer
+//! upstream-blocked; the remaining work is the SBFB-side wiring
+//! of `PinValidator` into that hook (tracked in §T20, out of
+//! scope for the Phase E doc re-cert). Until that wiring lands,
+//! the live relay path remains WebPKI-only — even when a
+//! `relay-pins.json` file is present. This mirrors the Phase A
+//! (DHT quorum primitive then runtime wire) and Phase B (PoW
+//! primitive then gossip subscribe) pattern the sprint
+//! established for transport-layer hardening.
 //!
 //! ## Fail-open vs fail-closed policy
 //!

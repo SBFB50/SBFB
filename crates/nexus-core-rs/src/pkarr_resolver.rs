@@ -209,6 +209,38 @@ mod tests {
     }
 
     #[test]
+    fn default_pkarr_url_matches_iroh_upstream_const() {
+        // Sprint 81 Phase E — static half of the named pkarr-URL
+        // survival check. The default discovery path (`presets::N0`)
+        // resolves through iroh's *internal*
+        // `N0_DNS_PKARR_RELAY_PROD` constant, and
+        // `DEFAULT_PKARR_RELAY_URL` is our operator-facing copy of
+        // that address: if upstream ever moves the n0 pkarr relay
+        // — this URL has stayed byte-identical since 0.98.2, but
+        // the *relay* hostnames DID move at 1.0
+        // (`*.relay.n0.iroh-canary.iroh.link` ->
+        // `*.relay.n0.iroh.link`), so upstream drift is real —
+        // this tripwire fails at the next bump instead of the URL
+        // dying silently in production.
+        // The live half (does the endpoint actually answer?) is a
+        // T2 acceptance artefact, never a unit test (hermeticity —
+        // no DNS egress from the suite). Note: under
+        // `IROH_FORCE_STAGING_RELAYS` iroh's `n0_dns()` selects
+        // `N0_DNS_PKARR_RELAY_STAGING` instead — the live probe
+        // hits whatever the env selects; this static check pins
+        // the prod constant.
+        assert_eq!(
+            DEFAULT_PKARR_RELAY_URL,
+            iroh::address_lookup::N0_DNS_PKARR_RELAY_PROD,
+            "SBFB reference pkarr relay URL drifted from the iroh upstream default"
+        );
+        let parsed: Url = DEFAULT_PKARR_RELAY_URL
+            .parse()
+            .expect("default pkarr relay URL must stay a valid URL");
+        assert_eq!(parsed.scheme(), "https", "pkarr relay must stay HTTPS");
+    }
+
+    #[test]
     fn new_label_strips_port() {
         let url: Url = "https://pkarr.example.org:4443/pkarr".parse().unwrap();
         let r = PkarrQuorumResolver::new(url).expect("TLS config must build");

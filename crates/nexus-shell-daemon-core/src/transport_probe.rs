@@ -23,9 +23,14 @@
 //! from the relay client (cf. blog post
 //! `iroh-0-91-0-the-last-relay-break`). WebSockets / TLS over
 //! TCP 443 is the *only* mode the relay client speaks since 0.91,
-//! and 0.97 inherits that behaviour. The fall-back from a failed
-//! UDP QUIC hole-punch to a relay-WSS path is **automatic**
-//! inside iroh and requires no client-side configuration.
+//! and this is still true under iroh-relay 1.0.1 (re-verified at
+//! the S81 Phase E re-cert: the client data path is
+//! `tokio_websockets` in `client/conn.rs`; the separate
+//! `DEFAULT_RELAY_QUIC_PORT` 7842 serves QUIC *address
+//! discovery*, not a relay data path). The fall-back from a
+//! failed UDP QUIC hole-punch to a relay-WSS path is
+//! **automatic** inside iroh and requires no client-side
+//! configuration.
 //!
 //! Consequently this module is intentionally observability-only :
 //! it never reaches into [`iroh::Endpoint`] to mutate the relay

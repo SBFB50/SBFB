@@ -971,7 +971,31 @@ RAM afterwards.
 
 Audit reference: `.planning/sprint9_audit_findings.md` §I3-F2.
 
-### T20 — iroh 0.97 `relay::client::ClientBuilder` has no public hook for a custom cert verifier
+### T20 — relay cert-pinning wire: upstream hook LANDED in iroh 1.0 (was: no public hook in 0.97)
+
+> **Status update (S81 Phase E re-cert, 2026-07-05).** The upstream
+> blocker documented below is **gone**: iroh 1.0.1 exposes
+> `iroh_relay::tls::CaTlsConfig::custom_server_cert_verifier`
+> (`iroh-relay-1.0.1/src/tls.rs:141`, mode `CustomServerCertVerifier`
+> taking a `ServerCertVerifierBuilder` callback), reachable from the
+> endpoint via `iroh::endpoint::Builder::ca_tls_config`
+> (`iroh-1.0.1/src/endpoint.rs:713`). The endpoint hook that
+> fix-path 1 below set out to obtain via an upstream PR now exists
+> upstream, so **neither the PR nor the forked connect path
+> (fix-path 2) is needed**: build a verifier that composes
+> `PinValidator` with the
+> WebPKI fallback and hand it to `ca_tls_config` at the endpoint
+> builder site (`crates/nexus-core-rs/src/node.rs`). The remaining
+> work is SBFB-side wiring only — tracked in the S81 Phase E
+> preflight carry ledger (`sprint81_phase_e_preflight.md` §10),
+> NOT closed by the Phase E doc re-cert. Wiring caveat: the
+> verifier installed via `ca_tls_config` also gates pkarr-server
+> and DoH-resolver TLS (upstream doc `endpoint.rs:706-712`), and
+> `custom_server_cert_verifier` REPLACES WebPKI entirely — so the
+> fail-closed `NoPin` row must be scoped to relay hostnames only,
+> or the pinset would break discovery (`dns.iroh.link` is never
+> pinned). The body below is kept verbatim as the S19-era
+> historical record.
 
 Sprint 19 Phase C delivered the `nexus_core_rs::tls_pinning`
 primitive (SPKI hash extract + `PinValidator` + hot-reload file

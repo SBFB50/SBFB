@@ -2,11 +2,12 @@
 //! Custom relay configuration for multi-relai federation phase 1
 //! (Sprint 18 Phase C).
 //!
-//! iroh `presets::N0` wires the three n0-run relays (NA, EU, AP) by
-//! default. SBFB wants to let operators override that list with
-//! their own relays — ONG-run, self-hosted, or a mix — without
-//! hand-editing the iroh source. This module resolves the active
-//! relay set from three layered sources, in precedence order:
+//! iroh `presets::N0` wires the four n0-run relays (NA east, NA
+//! west, EU, AP) by default. SBFB wants to let operators override
+//! that list with their own relays — ONG-run, self-hosted, or a
+//! mix — without hand-editing the iroh source. This module
+//! resolves the active relay set from three layered sources, in
+//! precedence order:
 //!
 //! 1. `SBFB_CUSTOM_RELAYS` env var (comma-separated URLs). Takes
 //!    absolute precedence : intended for container / CI overrides
@@ -15,9 +16,14 @@
 //!    Human-editable list of relay URLs, same schema as what the
 //!    env var encodes. Non-existent file is a no-op (falls through).
 //! 3. Fallback to `iroh::defaults::prod::default_relay_map()` —
-//!    the three n0 production relays. Matches pre-Sprint 18
-//!    behaviour byte-for-byte, so upgrading the binary without
-//!    touching config produces the same relay set.
+//!    the four n0 production relays
+//!    (`use1-1`/`usw1-1`/`euc1-1`/`aps1-1` `.relay.n0.iroh.link`,
+//!    per the vendored iroh 1.0.1 `defaults.rs`). The concrete
+//!    hostnames follow whatever the pinned iroh version ships —
+//!    they DID change at the 1.0 bump (the `iroh-canary` label was
+//!    dropped from every host), so the fallback tracks the live n0
+//!    fleet automatically instead of matching any historical set
+//!    byte-for-byte. SBFB hardcodes no relay hostname of its own.
 //!
 //! Public API :
 //!

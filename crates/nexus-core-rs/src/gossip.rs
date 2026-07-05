@@ -255,8 +255,9 @@ impl GossipEvent {
 
 /// Thin client around an [`iroh_gossip::net::Gossip`] handle.
 ///
-/// Owns a cheaply-cloned `Gossip` (internal `Arc<Inner>` in
-/// iroh-gossip 0.97), so the client can be stored long-lived in a
+/// Owns a cheaply-cloned `Gossip` (internal `Arc<Inner>`, verified
+/// unchanged in iroh-gossip 0.101 `net.rs:84-86` at the S81 Phase E
+/// re-cert), so the client can be stored long-lived in a
 /// struct or passed across an FFI boundary without a lifetime
 /// parameter. The Sprint 2 audit P1 lifetime concern (a
 /// `&'a Gossip` field would block the Sprint 4 coordinator from
@@ -737,8 +738,10 @@ mod tests {
 
 // Note: end-to-end 2-node gossip message exchange is deliberately
 // not tested at this layer because it requires configuring peer
-// address injection against an iroh 0.98 API surface that is
-// orthogonal to the GossipClient wrapper itself. The wrapper is
-// exercised end-to-end in Sprint 4 when the coordinator uses it
-// to publish curator list announcements, which is the real
-// production path anyway.
+// address injection (`MemoryLookup` under iroh 1.0.1) against an
+// API surface that is orthogonal to the GossipClient wrapper
+// itself. The wrapper is exercised end-to-end in Sprint 4 when
+// the coordinator uses it to publish curator list announcements,
+// which is the real production path anyway. Two-node handshake
+// coverage at the transport layer lives in `shard.rs` (this
+// crate) and `seed_protocol.rs` (nexus-shell-daemon) instead.

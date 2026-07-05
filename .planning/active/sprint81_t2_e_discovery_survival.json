@@ -1,0 +1,27 @@
+{
+  "suite": "sprint81-transport-e-discovery-survival",
+  "kind": "named-live-check",
+  "iroh_lock": "iroh =1.0.1 / iroh-docs =0.101.0 / iroh-gossip =0.101.0 / iroh-blobs =0.103.0",
+  "date": "2026-07-05",
+  "vocabulary_note": "verdict uses the closed T2 vocabulary as a status+diagnosis pair (same shape as the A3/A4 artefacts); this is the LIVE half of the Phase E named pkarr/relay URL survival check — the static half is the hermetic tripwire test default_pkarr_url_matches_iroh_upstream_const (pkarr_resolver.rs)",
+  "probe_env_note": "the curl probe targets the prod constants directly (curl does not consult iroh env vars); relevance of IROH_FORCE_STAGING_RELAYS: a daemon running under that env would have iroh's n0_dns() select N0_DNS_PKARR_RELAY_STAGING instead of the prod URL probed here",
+  "method": "curl DNS+TLS+HTTP probe from the dev node (Windows, residential WAN), --max-time 15; liveness criterion = name resolves + TLS handshake completes + the HTTP service answers (any protocol-level status)",
+  "paliers": {
+    "pkarr_relay_prod": {
+      "verdict": "PASS",
+      "criterion": "https://dns.iroh.link/pkarr (== iroh::address_lookup::N0_DNS_PKARR_RELAY_PROD, byte-identical to SBFB DEFAULT_PKARR_RELAY_URL) must resolve and answer at the pkarr protocol layer",
+      "observed": "GET /pkarr -> 404 in 0.195s (remote 49.13.207.244, bare route without a key); GET /pkarr/<malformed-z32-key> -> 400 in 0.129s — the pkarr handler is alive and validating keys, not a dead vhost"
+    },
+    "relay_fleet_prod_1_0": {
+      "verdict": "PASS",
+      "criterion": "the four n0 relay hostnames shipped by vendored iroh-1.0.1 defaults.rs (auto-adopted by presets::N0, zero SBFB hardcode) must resolve and answer over HTTPS",
+      "observed": "use1-1.relay.n0.iroh.link -> 200 in 0.480s (87.99.151.110); usw1-1 -> 200 in 0.718s (5.78.69.43); euc1-1 -> 200 in 0.182s (91.99.237.97); aps1-1 -> 200 in 0.736s (5.223.65.62)",
+      "note": "the 0.98 fleet hostnames carried an iroh-canary label (*.relay.n0.iroh-canary.iroh.link, vendored iroh-0.98.2 defaults.rs) — the 1.0 fleet dropped it; SBFB picked the new set up automatically at the Phase B bump because it hardcodes no hostname: node.rs keeps the presets::N0 default relay set whenever relay_config::load_relay_map returns None"
+    }
+  },
+  "hermetic_anchors": {
+    "static_tripwire": "pkarr_resolver::tests::default_pkarr_url_matches_iroh_upstream_const (DEFAULT_PKARR_RELAY_URL == iroh::address_lookup::N0_DNS_PKARR_RELAY_PROD + Url parse + https scheme; catches upstream URL drift at the next bump)",
+    "existing_pkarr_hermetic_suite": "pkarr_resolver.rs label/parse/env tests (7 pre-existing tests, untouched by Phase E; the tripwire above is the 8th and the phase's +1 net)"
+  },
+  "residual_risk": "a live probe is a point-in-time fact — silent discovery death remains warn-only inside iroh (no SBFB health signal); routed to Phase G (THREAT_MODEL availability-silence line) and PLAN B C8 lives in split E' with its calendar gates (2026-08-01 provision / 2026-08-25 fleet switch / 2026-09-15 plan B active; n0 0.x relay EOL 2026-09-30)"
+}
