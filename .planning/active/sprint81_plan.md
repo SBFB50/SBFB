@@ -236,6 +236,41 @@
   (fenêtre C8 jusqu'au 01/08) → palier T2 live `RIG-ABSENT` traçable acceptable ;
   `DnsAddressLookup` non câblé (additif futur).
 
+## Phase E3 — Hot-join gossip du curateur souscrit (fix carry observé live E2)
+
+> *Déclarée à l'exécution (précédent A4/E2 ; canon `Phase [A-Z]+[0-9]?` README §4).
+> Déclencheur = défaut OBSERVÉ LIVE à l'acceptance zéro-n0 E2
+> (`sprint81_t2_e2_zero_n0.json` §residual : subscribe à chaud → browse vide, aucun
+> dial jusqu'au restart) + décision PO 2026-07-05 « E3 avant F ». Préflight =
+> `sprint81_phase_e3_preflight.md` (Workflow, verdict PLAN-ADAPT : prémisse « (a)
+> seul laisse le browse vide » falsifiée par le code — replay outbox sur NeighborUp ;
+> périmètre (b) pull-directory re-drive HORS-SCOPE, mécaniquement inapplicable au
+> 1er subscribe).*
+
+- **But** : « je m'abonne à un nœud → je vois ses apps **sans redémarrer et sans
+  action du pair** » — le pair souscrit à chaud est dialé immédiatement sur le
+  topic gossip vivant.
+- **Jobs/surfaces** : `nexus-core-rs/src/gossip.rs` (`TopicSender::join_peers`,
+  parse par-pair tolérant, miroir de `parse_bootstrap` jamais collect-abort) ;
+  `nexus-shell-daemon/src/runtime.rs` (variante interne
+  `GossipCmd::JoinPeers(Vec<String>)` + bras select miroir Outbox/RequestBrowse) ;
+  `http.rs` (push depuis le bras `Ok` de `subscribe_curator` via `gossip_cmd_tx`
+  existant, APRÈS l'early-return duress → duress-safe par construction).
+- **Livrables** : 4 edits ci-dessus + artefact T2
+  `sprint81_t2_e3_hot_subscribe.json` (palier live hot-subscribe RIG-gated =
+  décideur de suffisance).
+- **Delta tests attendu** : **+4 Rust hermétiques** (Normal-push CONTROL→GREEN /
+  Duress-empty / invalid-hex-empty / core wrapper skip-bad-ids).
+- **T1** : les tests channel-boundary hermétiques (jamais de mesh 2-nœuds
+  in-process committé — interdit comme flaky, `runtime.rs` note) ; la convergence
+  réelle = T2 LIVE.
+- **Gate / scope-cut** : 0 bump wire (`GossipCmd` mpsc interne ;
+  `Command::JoinPeers` actor iroh in-process, membership HyParView inchangée) ;
+  iroh strictement seul, pins intacts ; « Tes sources »/`from_subscribed` à chaud
+  = résidu Phase C accepté (carry) ; symétrie unsubscribe = pas d'API leave
+  iroh-gossip (carry G doc) ; carry S75 re-drive boot-SEED-driver orthogonal, NON
+  fermé par E3.
+
 ## Phase F — Migration on-disk redb 2→4 validée sur COPIE
 
 > *Assoupli à l'activation (décision PO C4/C5 : « il n'y a personne sur le réseau ») : le chemin

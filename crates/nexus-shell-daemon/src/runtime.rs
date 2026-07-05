@@ -1486,6 +1486,16 @@ pub enum GossipCmd {
     /// Broadcast a browse_request to all peers so they replay
     /// their outbox. Triggered by the "Rafraichir" button.
     RequestBrowse,
+    /// Hot-join the given peers (hex node ids) on the live curator
+    /// topic (Sprint 81 Phase E3). Pushed by `subscribe_curator`
+    /// so a peer subscribed at runtime is dialed immediately —
+    /// before E3 the bootstrap set was read once at boot and a hot
+    /// subscribe produced no dial until the next restart. The
+    /// subscribe HTTP handler is the ONLY producer of this variant
+    /// and it early-returns under duress BEFORE reaching its push
+    /// (see `curator_subscribe_in_duress`), so this arm — like
+    /// `RequestBrowse` — carries no duress gate of its own.
+    JoinPeers(Vec<String>),
 }
 
 /// Channel sender for [`GossipCmd`]. Stored in [`DaemonHttpState`]
@@ -1848,6 +1858,15 @@ fn spawn_gossip_subscribe_task(cfg: GossipTaskConfig) -> JoinHandle<()> {
                                 } else {
                                     info!("browse_request broadcast sent to peers");
                                 }
+                            }
+                        }
+                        Some(GossipCmd::JoinPeers(peers)) => {
+                            // Sprint 81 Phase E3: dial freshly subscribed peers on
+                            // the live topic. Best-effort like every other arm —
+                            // the join is a membership hint, the gossip swarm
+                            // remains the source of truth for connectivity.
+                            if let Err(e) = sender.join_peers(peers).await {
+                                debug!(error = %e, "hot join_peers failed");
                             }
                         }
                         None => {

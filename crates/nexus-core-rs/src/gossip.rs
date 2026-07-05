@@ -502,6 +502,42 @@ impl TopicSender {
             .await
             .map_err(|e| NexusError::Gossip(format!("broadcast failed: {e}")))
     }
+
+    /// Join additional peers on an already-subscribed topic
+    /// (hot-join, Sprint 81 Phase E3). Maps to iroh-gossip
+    /// `Command::JoinPeers`: the HyParView membership dials each
+    /// peer through the endpoint's active discovery, so a peer
+    /// subscribed at runtime is reachable without a daemon
+    /// restart. Idempotent: re-joining an active or pending peer
+    /// is a membership no-op upstream.
+    ///
+    /// Unlike the boot-time bootstrap parse (`parse_bootstrap`,
+    /// which collect-aborts on the first bad id), this hot-path
+    /// wrapper degrades per peer: a malformed node id is skipped
+    /// with a warn so one bad entry in a future batch caller can
+    /// never abort the join of the valid ones. Callers that
+    /// validate ids upstream (e.g. an attention-set subscribe)
+    /// always pass parseable keys, so the skip path is defense in
+    /// depth for future batch callers.
+    pub async fn join_peers(&self, peers: Vec<String>) -> Result<()> {
+        let parsed: Vec<PublicKey> = peers
+            .into_iter()
+            .filter_map(|s| match PublicKey::from_str(&s) {
+                Ok(pk) => Some(pk),
+                Err(e) => {
+                    warn!(peer = %s, error = %e, "join_peers: skipping unparseable node id");
+                    None
+                }
+            })
+            .collect();
+        if parsed.is_empty() {
+            return Ok(());
+        }
+        self.inner
+            .join_peers(parsed)
+            .await
+            .map_err(|e| NexusError::Gossip(format!("join_peers failed: {e}")))
+    }
 }
 
 /// Receiver half of a split topic handle.
@@ -731,6 +767,48 @@ mod tests {
             .join_topic(topic_id, vec!["not a real key".into()])
             .await;
         assert!(result.is_err(), "bad bootstrap must fail");
+
+        node.shutdown().await.ok();
+    }
+
+    #[tokio::test]
+    async fn join_peers_skips_bad_ids_and_enqueues_valid() {
+        // Sprint 81 Phase E3 core wrapper: hot-join on an isolated
+        // single-node topic. `join_peers` is a membership hint
+        // (enqueues `Command::JoinPeers` on the actor), never a
+        // connect-await — so a valid but unreachable id must still
+        // return Ok, and a garbage id in a batch must be skipped
+        // per peer (warn + continue), never collect-abort like the
+        // boot-time bootstrap parse.
+        let node = spawn_node().await;
+        let gossip = GossipClient::new(node.gossip());
+
+        let topic_id = *blake3::hash(b"nexus-grid-test/hot-join").as_bytes();
+        let topic = gossip
+            .subscribe_topic(topic_id, vec![])
+            .await
+            .expect("isolated subscribe succeeds");
+        let (sender, _receiver) = topic.split();
+
+        // (a) empty list short-circuits Ok without touching the actor.
+        sender
+            .join_peers(vec![])
+            .await
+            .expect("empty join is a no-op");
+
+        // (b) a valid (unreachable) node id enqueues Ok.
+        let valid = hex::encode(KeyPair::generate().public_bytes());
+        sender
+            .join_peers(vec![valid.clone()])
+            .await
+            .expect("valid id enqueues");
+
+        // (c) a garbage id in the batch degrades per peer: the
+        // valid one still enqueues, the call still returns Ok.
+        sender
+            .join_peers(vec!["not a real key".into(), valid])
+            .await
+            .expect("mixed batch degrades per peer, no abort");
 
         node.shutdown().await.ok();
     }

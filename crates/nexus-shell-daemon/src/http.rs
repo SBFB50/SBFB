@@ -887,13 +887,35 @@ async fn subscribe_curator(
             .into_response();
     }
     match state.curator_runtime.subscribe(&req.curator_pubkey_hex) {
-        Ok(_) => (
-            StatusCode::OK,
-            Json(SubscriptionsResponse {
-                subscribed_curators: state.curator_runtime.subscribed_pubkeys_hex(),
-            }),
-        )
-            .into_response(),
+        Ok(_) => {
+            // Sprint 81 Phase E3: hot-join the freshly subscribed peer on the
+            // live gossip topic. Before E3 the bootstrap set was read ONCE at
+            // boot (`spawn_gossip_subscribe_task`), so a runtime subscribe
+            // never dialed — the browse stayed empty until a daemon restart.
+            // Best-effort send, mirror of `browse_pull`: the attention-set
+            // mutation above is the durable state, the join is connectivity.
+            // The key is dialable iff it IS the peer's endpoint id (true for
+            // the observed subscribe-by-node-id flow); a pure signing-curator
+            // key makes the join a silent best-effort no-op, exactly like the
+            // boot-time bootstrap dial of that same key.
+            // Duress safety is by construction: the duress early-return above
+            // makes this push unreachable under the decoy key, and this
+            // handler is the ONLY producer of `GossipCmd::JoinPeers` (locked
+            // by the duress-empty channel test).
+            let _ = state
+                .gossip_cmd_tx
+                .send(crate::runtime::GossipCmd::JoinPeers(vec![
+                    req.curator_pubkey_hex.clone(),
+                ]))
+                .await;
+            (
+                StatusCode::OK,
+                Json(SubscriptionsResponse {
+                    subscribed_curators: state.curator_runtime.subscribed_pubkeys_hex(),
+                }),
+            )
+                .into_response()
+        }
         Err(e) => runtime_error_to_response(e).into_response(),
     }
 }
@@ -6592,6 +6614,127 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    /// Sprint 81 Phase E3 #1 (CONTROL→GREEN): a Normal-mode
+    /// subscribe must push exactly one `GossipCmd::JoinPeers` with
+    /// the subscribed pubkey so the live gossip task dials the
+    /// peer immediately. Pre-fix this channel stayed EMPTY (the
+    /// bootstrap set was read once at boot) — that emptiness was
+    /// the reproduced live defect (browse blank until restart).
+    #[tokio::test]
+    async fn subscribe_curator_pushes_hot_join_for_subscribed_peer() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<crate::runtime::GossipCmd>(8);
+        let state = mk_state_with_mode_tx(nexus_core_rs::IdentityMode::Normal, tx).await;
+        let app = build_test_router(Arc::clone(&state));
+        let kp = KeyPair::generate();
+        let hex_key = hex::encode(kp.public_bytes());
+
+        let body = serde_json::to_vec(&SubscribeCuratorRequest {
+            curator_pubkey_hex: hex_key.clone(),
+        })
+        .unwrap();
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/daemon/curators/subscribe")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // The handler awaits the send before responding, so the
+        // command is already in the channel once oneshot returns.
+        let cmd = rx.try_recv().expect("subscribe must push a gossip command");
+        let crate::runtime::GossipCmd::JoinPeers(peers) = cmd else {
+            panic!("expected GossipCmd::JoinPeers, got a different command");
+        };
+        assert_eq!(peers, vec![hex_key]);
+        // Exactly one push — no duplicate or stray command.
+        assert!(
+            matches!(
+                rx.try_recv(),
+                Err(tokio::sync::mpsc::error::TryRecvError::Empty)
+            ),
+            "subscribe must push exactly one JoinPeers"
+        );
+    }
+
+    /// Sprint 81 Phase E3 #2 (negative, duress): under Duress the
+    /// handler early-returns BEFORE the subscribe and its hot-join
+    /// push, so the gossip command channel must stay EMPTY — zero
+    /// new dials under the decoy key. This locks the
+    /// by-construction placement (the `Ok` arm is the ONLY
+    /// producer of `GossipCmd::JoinPeers`) against regression.
+    #[tokio::test]
+    async fn subscribe_curator_in_duress_pushes_no_hot_join() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<crate::runtime::GossipCmd>(8);
+        let state = mk_state_with_mode_tx(nexus_core_rs::IdentityMode::Duress, tx).await;
+        let app = build_test_router(Arc::clone(&state));
+
+        let body = serde_json::to_vec(&SubscribeCuratorRequest {
+            curator_pubkey_hex: "cd".repeat(32),
+        })
+        .unwrap();
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/daemon/curators/subscribe")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        // Duress still ACKs 200 (quiet UI) but never joins.
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert!(
+            matches!(
+                rx.try_recv(),
+                Err(tokio::sync::mpsc::error::TryRecvError::Empty)
+            ),
+            "duress subscribe must push nothing to the gossip task"
+        );
+    }
+
+    /// Sprint 81 Phase E3 #3 (negative, invalid key): a pubkey that
+    /// fails `parse_pubkey_hex` takes the `Err` arm (400) and must
+    /// not push any gossip command — the hot-join only ever fires
+    /// for a key the curator runtime actually accepted.
+    #[tokio::test]
+    async fn subscribe_curator_invalid_hex_pushes_no_hot_join() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<crate::runtime::GossipCmd>(8);
+        let state = mk_state_with_mode_tx(nexus_core_rs::IdentityMode::Normal, tx).await;
+        let app = build_test_router(Arc::clone(&state));
+
+        let body = serde_json::to_vec(&SubscribeCuratorRequest {
+            curator_pubkey_hex: "not-hex".to_string(),
+        })
+        .unwrap();
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/daemon/curators/subscribe")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        assert!(
+            matches!(
+                rx.try_recv(),
+                Err(tokio::sync::mpsc::error::TryRecvError::Empty)
+            ),
+            "a rejected subscribe must push nothing to the gossip task"
+        );
     }
 
     #[tokio::test]

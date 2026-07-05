@@ -1,0 +1,21 @@
+{
+  "suite": "sprint81-transport-e3-hot-subscribe-acceptance",
+  "kind": "named-live-check",
+  "iroh_lock": "iroh =1.0.1 / iroh-docs =0.101.0 / iroh-gossip =0.101.0 / iroh-blobs =0.103.0",
+  "date": "2026-07-05",
+  "vocabulary_note": "verdict uses the closed T2 vocabulary as a status+diagnosis pair (same shape as the A3/A4/E/E2 artefacts); this is the LIVE half of the Phase E3 hot-join acceptance — the hermetic halves are the three http.rs channel-boundary tests (Normal pushes exactly one JoinPeers, Duress pushes nothing, invalid hex pushes nothing) and the nexus-core-rs TopicSender::join_peers wrapper test (per-peer degradation, never collect-abort)",
+  "scoping_note": "per preflight E3 §2.1 the sufficiency of the hot-join fix is code-SUPPORTED but not runtime-PROVEN until this palier runs: on join_peers the subscribed peer emits NeighborUp and replays its outbox of project announcements (runtime.rs), so the fresh subscriber should see the peer's published apps WITHOUT restart and WITHOUT any action from the peer. This palier is the DECIDER for that hypothesis. It does NOT cover: 'Tes sources'/from_subscribed classification at hot-subscribe (accepted Phase C residual — the NodeDirectory announcement is live-only, never replayed from the outbox), the S75 boot-SEED-driver re-drive carry (orthogonal), and reconnect-after-drop (join_peers dials now but does not extend the boot bootstrap set; a link drop mid-session re-bootstraps only at reboot — keep the observation window in one continuous session)",
+  "paliers": {
+    "hot_subscribe_convergence": {
+      "verdict": "RIG-ABSENT",
+      "diagnosis": "no in-vivo two-node session orchestrated at commit time (same posture as the E2 commit; the E2 live palier was replayed same-day once the PO provisioned the infra). Replay procedure identical to the E2 rig: two EPHEMERAL SBFB nodes with throwaway stores (VPS /tmp + PC scratchpad — real daemon/store untouched, Phase F blocking rule held), any discovery stack (presets::N0 pre-EOL or the E2 zero-n0 self-hosted stack — E3 adds no discovery capability, it restores parity with the boot dial)",
+      "criterion": "node A boots fresh (empty attention set); node B has at least one published app in its outbox; A does POST /api/daemon/curators/subscribe {node_id of B} AT RUNTIME (no restart) -> A's log shows the hot join + dial to B (network_path relay or direct), B's log shows NeighborUp + outbox replay -> GET /api/daemon/browse on A lists B's app as reachable WITHOUT restarting A and WITHOUT any re-publish or action on B; blob fetch byte-integrity (sha256 identical to B's original) closes the palier",
+      "observed": "not run at commit time — hermetic anchors green (see below), RED-before-GREEN proven for the CONTROL test (send removed -> try_recv Empty reproduces the pre-fix defect; fix restored -> exactly one JoinPeers([pubkey]))"
+    }
+  },
+  "hermetic_anchors": {
+    "http_channel_boundary": "http::tests::subscribe_curator_pushes_hot_join_for_subscribed_peer (CONTROL→GREEN: exactly one GossipCmd::JoinPeers with the subscribed pubkey, nothing else in the channel) + subscribe_curator_in_duress_pushes_no_hot_join (duress early-return keeps the channel EMPTY — zero new dials under the decoy key, locks the by-construction single-producer placement) + subscribe_curator_invalid_hex_pushes_no_hot_join (Err arm pushes nothing)",
+    "core_wrapper": "gossip::tests::join_peers_skips_bad_ids_and_enqueues_valid — empty list short-circuits Ok; a valid unreachable id enqueues Ok (membership hint, not connect-await); a garbage id in a batch is skipped per peer (warn) without aborting the valid one"
+  },
+  "residual_risk": "if the live palier shows the browse staying empty DESPITE the dial (e.g. B's outbox empty at that instant, receiver-readiness race), reopen the analysis as a timing race — NOT as the (b) pull-directory path, which is mechanically inapplicable at first subscribe (no anchors.json locator exists for B yet, iroh_runtime.rs repull gate); unsubscribe asymmetry documented (iroh-gossip exposes no leave verb; the joined peer stays a HyParView neighbour until churn, ingest already dropped by the is_subscribed gate) — Phase G doc carry"
+}
