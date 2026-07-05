@@ -35,18 +35,19 @@ services self-hosted remplacent la flotte n0 :
 > (`SBFB_PKARR_RELAYS`), jamais la discovery de l'endpoint. Pour le mode
 > zéro-n0 iroh 1.0.1, c'est CE document qui fait foi.
 
-> **Statut 2026-07-05 (soir)** : code client livré et testé (mode
-> `SBFB_ZERO_N0`, cf. §5). **Décision PO 2026-07-05 : Topologie B**
-> (§4.4) — les deux services co-logés sur l'ancre VPS existante
-> (`sbfb-eu`, 135.181.42.188) derrière **Caddy** (qui y tient déjà
-> :80/:443 pour `ci.sbfb.world` ; nginx présent mais inactif ; UDP 7842
-> et :53 public libres — inspection 2026-07-05), coût 0 €. Action
-> pendante : **2 A-records chez Porkbun** (zone `sbfb.world`) —
-> `relay1` et `pkarr1` → `135.181.42.188` — puis déploiement §4.4 et
-> replay du palier T2 (`.planning/active/sprint81_t2_e2_zero_n0.json`,
-> RIG-gated). La Topologie A (host dédié) reste la cible « propre »
-> post-répétition (QUIC addr discovery + répartition SPOF), à
-> re-décider avant le gate 25/08.
+> **Statut 2026-07-05 (nuit) : INFRA LIVE + ACCEPTANCE PASS.** La
+> Topologie B (§4.4) est **déployée et en service** sur l'ancre
+> (`sbfb-eu`, 135.181.42.188) : DNS `relay1`/`pkarr1.sbfb.world` posés
+> chez Porkbun, `iroh-relay` 1.0.1 + `iroh-dns-server` 1.0.1 actifs
+> sous leurs units durcies (`deploy/*.service`), Caddy route + certs
+> auto. **Palier T2 `zero_n0_live_convergence` = PASS le jour même**
+> (`.planning/active/sprint81_t2_e2_zero_n0.json`) : deux nœuds
+> éphémères PC↔VPS, publish/resolve via pkarr1 + dial via relay1
+> (log `network_path=Relay{relay1.sbfb.world}` puis hole-punch
+> direct), app publiée → Browse `reachable` → `blob-serve` 200,
+> sha256 byte-identique. La Topologie A (host dédié) reste la cible
+> « propre » (QUIC addr discovery + répartition SPOF), à re-décider
+> avant le gate 25/08.
 
 ---
 
