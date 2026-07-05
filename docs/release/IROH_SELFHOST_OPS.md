@@ -35,11 +35,18 @@ services self-hosted remplacent la flotte n0 :
 > (`SBFB_PKARR_RELAYS`), jamais la discovery de l'endpoint. Pour le mode
 > zéro-n0 iroh 1.0.1, c'est CE document qui fait foi.
 
-> **Statut 2026-07-05** : code client livré et testé (mode
-> `SBFB_ZERO_N0`, cf. §5) ; **aucun host dédié encore provisionné** — le
-> relais exige un host/IP dédié (§2), allocation à décider avant le gate
-> 01/08. L'acceptance zéro-n0 LIVE est RIG-gated
-> (`.planning/active/sprint81_t2_e2_zero_n0.json`).
+> **Statut 2026-07-05 (soir)** : code client livré et testé (mode
+> `SBFB_ZERO_N0`, cf. §5). **Décision PO 2026-07-05 : Topologie B**
+> (§4.4) — les deux services co-logés sur l'ancre VPS existante
+> (`sbfb-eu`, 135.181.42.188) derrière **Caddy** (qui y tient déjà
+> :80/:443 pour `ci.sbfb.world` ; nginx présent mais inactif ; UDP 7842
+> et :53 public libres — inspection 2026-07-05), coût 0 €. Action
+> pendante : **2 A-records chez Porkbun** (zone `sbfb.world`) —
+> `relay1` et `pkarr1` → `135.181.42.188` — puis déploiement §4.4 et
+> replay du palier T2 (`.planning/active/sprint81_t2_e2_zero_n0.json`,
+> RIG-gated). La Topologie A (host dédié) reste la cible « propre »
+> post-répétition (QUIC addr discovery + répartition SPOF), à
+> re-décider avant le gate 25/08.
 
 ---
 
@@ -76,7 +83,8 @@ services self-hosted remplacent la flotte n0 :
 
 | Ressource | Spécification | Note |
 |---|---|---|
-| Host dédié | 1 vCPU / 2 GB (Hetzner CX22 ou équivalent) | **IP publique propre, PAS l'ancre existante** : le relais veut `:443` en direct (TLS + ACME TLS-ALPN-01) et `:80` (portail/redirect), le QUIC address-discovery veut l'UDP `7842` en direct — le nginx de l'ancre occupe déjà `:80`/`:443` ; et co-loger relais + pkarr + ancre sur une seule machine aggrave le SPOF et la jointure de métadonnées (THREAT_MODEL) |
+| Host — **Topologie A (dédiée)** | 1 vCPU / 2 GB (Hetzner CX22 ou équivalent) | **IP publique propre, PAS l'ancre existante** : le relais veut `:443` en direct (TLS + ACME TLS-ALPN-01) et `:80` (portail/redirect), le QUIC address-discovery veut l'UDP `7842` en direct — Caddy occupe déjà `:80`/`:443` sur l'ancre ; et co-loger relais + pkarr + ancre sur une seule machine aggrave le SPOF et la jointure de métadonnées (THREAT_MODEL) |
+| Host — **Topologie B (co-logée, 0 €)** | l'ancre VPS existante | Les deux services en loopback DERRIÈRE le Caddy déjà en place (§4.4) : viable car le data-plane relais = WSS sur :443 (proxifiable) ; **trade-off : QUIC address-discovery désactivé** (exige l'UDP `7842` + TLS terminé par le relais lui-même) + SPOF concentré. Retenue par décision PO 2026-07-05 pour la répétition générale |
 | DNS | 2 A-records, ex. `relay1.sbfb.world` + `pkarr1.sbfb.world` | même IP acceptable pour les deux services (ports distincts) |
 | OS | Debian 12 / Ubuntu 24.04 LTS | pattern ancre S75 |
 | Rust | toolchain stable ≥ 1.91 (1.94 recommandé, parité repo) | build des binaires — OU utiliser l'image Docker `n0computer/iroh-relay` (tag 1.0.1) ; **cargo-install recommandé pour la garantie de version exacte** |
@@ -184,6 +192,86 @@ ports < 1024 (`:80/:443` relais, `:53` DNS) →
 `CapabilityBoundingSet=CAP_NET_BIND_SERVICE` (au lieu de vide). Viser
 `systemd-analyze security` ≤ 2.0 (l'ancre S75 tient 1.7).
 
+### 4.4 Topologie B — co-logée derrière Caddy sur l'ancre (décision PO 2026-07-05, 0 €)
+
+État réel de l'ancre (`sbfb-eu`, inspection 2026-07-05) : Caddy actif
+sur `:80`/`:443` (sert `ci.sbfb.world` → Woodpecker Docker loopback
+`:8000`), nginx installé mais **inactif**, UDP `7842` et `:53` public
+**libres**. DNS : zone `sbfb.world` gérée chez **Porkbun**
+(`*.ns.porkbun.com`).
+
+**Prérequis DNS (action opérateur, une fois)** — chez Porkbun, zone
+`sbfb.world`, 2 enregistrements A : `relay1` → `135.181.42.188` et
+`pkarr1` → `135.181.42.188`.
+
+**Relais — config sans bloc `[tls]`** (voie supportée upstream : « TLS
+is disabled if not present and the Relay server will serve all
+services over plain HTTP » ; JAMAIS poser `dangerous_http_only` à la
+main). `enable_quic_addr_discovery` DOIT rester `false` (il exige un
+`[tls]`) — c'est le trade-off documenté §2 : les nœuds découvrent
+leurs adresses via le protocole relais classique (mécanisme pré-1.0,
+toujours supporté), pas via la sonde QUIC. Le port UDP `7842` du VPS
+restera muet : le client tentera la sonde best-effort et
+timeout-era en silence, non bloquant.
+
+```toml
+# /etc/iroh-relay/config.toml — Topologie B (loopback, TLS terminé par Caddy)
+enable_relay = true
+http_bind_addr = "127.0.0.1:3340"
+enable_quic_addr_discovery = false
+metrics_bind_addr = "127.0.0.1:9090"
+```
+
+**iroh-dns-server — bloc `[http]` loopback seul** (le `/pkarr` est du
+HTTP pur ; ni `[https]` ni ACME côté service) :
+
+```toml
+# /etc/iroh-dns-server/config.toml — Topologie B
+pkarr_put_rate_limit = "smart"
+
+[http]
+port = 8080
+bind_addr = "127.0.0.1"
+
+[dns]
+port = 5353
+bind_addr = "127.0.0.1"
+default_soa = "dns1.pkarr1.sbfb.world hostmaster.sbfb.world 0 10800 3600 604800 3600"
+default_ttl = 30
+origins = ["pkarr1.sbfb.world", "."]
+rr_a = "135.181.42.188"
+rr_ns = "ns1.pkarr1.sbfb.world."
+
+[mainline]
+enabled = false
+```
+
+**Caddy — 2 blocs à ajouter** (`/etc/caddy/Caddyfile`, certs
+automatiques ; Caddy gère l'upgrade WebSocket nativement pour le
+data-plane WSS du relais) :
+
+```caddyfile
+relay1.sbfb.world {
+    reverse_proxy localhost:3340
+}
+pkarr1.sbfb.world {
+    reverse_proxy localhost:8080
+}
+```
+
+Puis `systemctl reload caddy`. Les units systemd §4.3 restent
+utilisables telles quelles (les binds loopback > 1024 n'utilisent pas
+`CAP_NET_BIND_SERVICE`, qui reste sans effet nocif ; en Topologie B le
+`[dns]` est déplacé sur `5353` loopback — le DNS autoritaire public
+n'est PAS exposé, seul le `/pkarr` HTTP l'est via Caddy, ce qui suffit
+à l'Option B client publish+resolve).
+
+**Ce que la Topologie B ne donne PAS** (assumé, re-décision avant le
+gate 25/08) : QUIC address-discovery ; répartition du SPOF (relais +
+pkarr + ancre + CI sur UNE machine — la mort du VPS emporte tout) ;
+la jointure de métadonnées relais×ancre chez le même opérateur reste
+entière (THREAT_MODEL §15.x, carry Phase G).
+
 ## 5. Configuration client (chaque nœud SBFB)
 
 Le mode zéro-n0 est **opt-in par nœud** et **fail-loud** : toute config
@@ -197,7 +285,9 @@ SBFB_ZERO_N0=1
 # Pkarr self-hosted : publish (PUT) + resolve (GET). ≥ 2 URLs distinctes
 # recommandées, séparées par des virgules. Policy : https obligatoire,
 # loopback rejeté hors SBFB_DEV_MODE=1.
-SBFB_ZERO_N0_PKARR_RELAYS=https://pkarr1.sbfb.world:8443/pkarr
+# (Topologie B : port 443 implicite via Caddy ; en Topologie A directe
+# ce serait https://pkarr1.sbfb.world:8443/pkarr.)
+SBFB_ZERO_N0_PKARR_RELAYS=https://pkarr1.sbfb.world/pkarr
 
 # Relais self-hosted (knob S18 réutilisé — env OU ~/.sbfb/relays.json).
 # OBLIGATOIRE quand SBFB_ZERO_N0=1 : sans relais custom le nœud
@@ -230,7 +320,7 @@ curl -sI https://relay1.sbfb.world/ | head -1          # HTTP/2 200 (captive pag
 
 # 2. Handler pkarr vivant (GET nu = 404/405, jamais un timeout — même
 #    sémantique que la sonde T2 Phase E sur dns.iroh.link) :
-curl -s -o /dev/null -w '%{http_code}\n' https://pkarr1.sbfb.world:8443/pkarr
+curl -s -o /dev/null -w '%{http_code}\n' https://pkarr1.sbfb.world/pkarr
 
 # 3. Boot d'un nœud SBFB avec les env §5 → chercher le log
 #    "zero-n0 discovery override active" puis vérifier qu'un
