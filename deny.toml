@@ -51,17 +51,51 @@ yanked = "deny"
 # iroh/ratatui cut a new major that swaps them out.
 unmaintained = "workspace"
 # Every ignore lands with a `reason` string and tracks
-# remediation in HARDENING_ROADMAP §tracking-advisories.
+# remediation in HARDENING_ROADMAP front-matter `audited_findings`.
+#
+# Removed S81 Phase G: RUSTSEC-2026-0097 (rand 0.8 ThreadRng) — the
+# advisory no longer matches the lock (cargo-deny reported
+# `advisory-not-detected`; rand 0.8.6 is outside the revised advisory
+# range). The rand 0.9 upgrade exemption itself is unchanged (cascades
+# to ed25519-dalek 2.3 + rand_core 0.9, wants a dedicated sprint).
 ignore = [
-    # SBFB uses `rand::rngs::OsRng` directly (see
-    # crates/nexus-core-rs/src/crypto.rs and
-    # crates/nexus-shell-daemon-core/src/auth.rs). The unsoundness
-    # applies only to `ThreadRng` reseeding under a custom `log`
-    # logger, which SBFB does not use (logging is via `tracing`,
-    # no custom `log::Log` impl). Upgrade to rand 0.9.3 deferred:
-    # it cascades to ed25519-dalek 2.3 + rand_core 0.9 across the
-    # entire crypto stack and wants a dedicated sprint.
-    { id = "RUSTSEC-2026-0097", reason = "rand 0.8 unsound only via ThreadRng+custom log logger; SBFB uses OsRng directly with no custom logger. Upgrade path tracked for Sprint 19+." },
+    # --- hickory-resolver 0.24 root (S81 Phase G, carry S82) ---
+    # The four advisories below share one root: the SBFB pin
+    # `hickory-resolver = "0.24"` (workspace Cargo.toml), which pulls
+    # hickory-proto 0.24.4 + rustls 0.21.12 + rustls-webpki 0.101.7.
+    # Fixing them means bumping hickory-resolver 0.24 -> 0.26 (API
+    # churn in crates/nexus-core-rs/src/dns_fallback.rs: resolver
+    # construction + config types were reworked in 0.25). S81 is
+    # "iroh STRICTLY ALONE" (Day-0 #10 anti-bundle, bisectability),
+    # so the bump is carried to S82 (HICKORY-024-RUSTSEC, grouped
+    # with P2-AUDIT-2-RESIDUEL). Intrinsic classes differ: 0119 and
+    # 0104 are DoS-class; 0098/0099 are certificate name-constraint
+    # validation laxity (authentication-class, NOT DoS). The SBFB
+    # residual is bounded for all four by the same facts: the DNS
+    # fallback is opt-in (default `enabled: false`, env
+    # SBFB_DNS_FALLBACK_ENABLED), only talks to pinned reputable
+    # DoH/DoT resolvers (Cloudflare/Google defaults hardcoded in
+    # DnsFallbackConfig::default) whose certs chain normally
+    # (name-constrained intermediates are not part of that trust
+    # path), and DNS is not a trust anchor here — pkarr records stay
+    # Ed25519-verified downstream, so even a spoofed DNS answer
+    # cannot forge content.
+    { id = "RUSTSEC-2026-0119", reason = "hickory-proto 0.24.4 O(n^2) name compression DoS; reached only via opt-in default-off DNS fallback against pinned reputable TLS-validated resolvers (Cloudflare/Google defaults). Root = hickory-resolver 0.24 pin; bump to 0.26 carried to S82 (HICKORY-024-RUSTSEC), out of S81 iroh-only scope." },
+    { id = "RUSTSEC-2026-0098", reason = "rustls-webpki 0.101.7 URI name-constraint laxity; pulled only by hickory-resolver 0.24 dns-over-* features (opt-in default-off fallback). Fix rides the hickory 0.26 bump (rustls 0.23), carried to S82 (HICKORY-024-RUSTSEC)." },
+    { id = "RUSTSEC-2026-0099", reason = "rustls-webpki 0.101.7 wildcard name-constraint laxity; same bounded opt-in surface and same S82 remediation as RUSTSEC-2026-0098." },
+    { id = "RUSTSEC-2026-0104", reason = "rustls-webpki 0.101.7 reachable panic in CRL parsing; SBFB DNS fallback never feeds CRLs, surface opt-in default-off. Same S82 remediation as RUSTSEC-2026-0098." },
+    # --- quick-xml via iroh (upstream, S81 Phase G) ---
+    # quick-xml 0.39.4 is pulled exclusively by the pinned iroh
+    # `=1.0.1` chain (iroh -> netwatch -> netdev -> plist ->
+    # quick-xml) for macOS network-interface plist parsing. Both
+    # advisories are DoS-class parser issues on attacker-supplied
+    # XML; the plist input here is the local OS network
+    # configuration, not remote data. No SBFB code parses XML.
+    # Remediation depends on an upstream iroh release bumping
+    # plist/quick-xml; re-check at every iroh bump (watch trigger
+    # in HARDENING_ROADMAP front-matter).
+    { id = "RUSTSEC-2026-0194", reason = "quick-xml 0.39.4 quadratic duplicate-attribute check; reached only through iroh=1.0.1 -> netwatch -> plist on local OS config input. Upstream fix required; re-evaluated at each iroh bump." },
+    { id = "RUSTSEC-2026-0195", reason = "quick-xml 0.39.4 unbounded NsReader namespace allocation; same iroh-internal local-input path as RUSTSEC-2026-0194. Upstream fix required; re-evaluated at each iroh bump." },
 ]
 
 # --------------------------------------------------------------
@@ -104,7 +138,16 @@ exceptions = []
 # [bans] — crate/version denylist + duplicate detection
 # --------------------------------------------------------------
 [bans]
-multiple-versions = "warn"  # Tightened to "deny" in Sprint 19+
+# S81 Phase G convergence gate played: the flip to "deny" is BLOCKED.
+# iroh 1.0.1 (and 1.0.2) pin `ed25519-dalek = "=3.0.0-rc.0"`, so the
+# lock carries two ed25519-dalek trees (2.2.0 SBFB-stable +
+# 3.0.0-rc.0 iroh-internal) and two duplicated `-rc` pre-releases
+# (ed25519-dalek 3.0.0-rc.0 + curve25519-dalek 5.0.0-rc.0); 72
+# multi-version groups total. Flip deferred as P2-AUDIT-2-RESIDUEL
+# (carry S82); unblocks when an upstream iroh release moves
+# ed25519-dalek 3.x off the RC line. SBFB security-critical crypto
+# stays isolated on the stable 2.2.0/4.1.3 trees.
+multiple-versions = "warn"
 wildcards = "allow"         # Tightened in Sprint 19+
 highlight = "all"
 workspace-default-features = "allow"

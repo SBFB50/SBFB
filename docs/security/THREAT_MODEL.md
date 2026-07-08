@@ -19,7 +19,7 @@ pattern OWASP Threat Dragon.
 | **Blob-serve** | `crates/nexus-shell-daemon/src/blob_serve.rs` | HTTP origin separee iframe |
 | **Worker** | `crates/nexus-worker*` | Binaire GPU, claim-loop, Ollama runtime |
 | **NexusApp iframe** | `packages/nexus-app-*`, apps externes | Contenu untrusted, bridge postMessage |
-| **iroh stack** | `crates/nexus-core-rs` | QUIC, docs, gossip, blobs 0.97 |
+| **iroh stack** | `crates/nexus-core-rs` | QUIC, docs, gossip, blobs — iroh =1.0.1 / docs 0.101 / gossip 0.101 / blobs 0.103 (S81) |
 | **Keypair Ed25519** | `~/.sbfb/daemon.key` + `auth_token` | Identite node + bearer loopback |
 
 ### 1.2 Composants hors scope
@@ -192,7 +192,12 @@ mitigations livrees.
 | R | Peer nie avoir envoye une task | M | Task signee avec `task_id` + `claimant_id` (`crates/nexus-core-rs`) | **L** |
 | I | Metadata de l'annonce revele info sensible | M | ProjectAnnouncement champs publics par design (publique = public) | **L** |
 | D | Gossip flood | M | Rate limit iroh-gossip builtin + curator lists volontaires | **M** |
-| E | RCE via deserialization iroh | C | Version pinnee 0.98 (upgrade Sprint 32, Day 0 #3 leve) + `cargo-audit` | **M** |
+| E | RCE via deserialization iroh | C | Version pinnee =1.0.1 (upgrade S81 ; le wire-freeze 1.0 reduit le churn de la surface de deserialisation — neutre-a-positif, jamais un durcissement de confiance) + `cargo-deny check advisories` (RustSec) en CI | **M** |
+
+**Note S81 (upgrade ≠ audit)** : l'upgrade iroh 0.98→1.0.1 ne franchit
+PAS Gate 1 / Gate 3 — **R-iroh-audit reste une zone rouge P0** (iroh
+1.0 n'a aucun audit tiers public connu), le pilote reste ferme. Le
+residuel E ci-dessus reste **M** pour cette raison.
 
 ### 5.5 Loopback HTTP (coordinator + daemon)
 
@@ -813,9 +818,20 @@ epingle a `is_loopback_origin` (`operator_server.rs:103`, plus de
 `allow_origin(Any)`).
 
 **Amendement Sprint 80 Phase A (cookie de transport + garde cross-port).**
-Pour rendre SSE (`EventSource`) et WS exploitables en prod same-origin
-sous `ServeDir` (ils ne posent pas l'en-tete `x-sbfb-token`), le bearer
-a desormais **deux transports** : le header `x-sbfb-token` (essaye
+Pour rendre le streaming exploitable en prod same-origin sous
+`ServeDir`, le bearer a desormais **deux transports**. Precision de
+nommage (S81 G, nit audit S80-H-4) : le front S80 consomme le SSE via
+`fetch`+`ReadableStream` (jamais `EventSource`, invariant S80 C) —
+seule la correction du NOM d'API ; le raisonnement de fond est
+inchange : le front navigateur s'authentifie par le **cookie** pour
+TOUT, SSE inclus (`useTokenStream.ts:135` `credentials:
+'same-origin'`, aucun header pose) comme pour le WebSocket PTY (qui,
+lui, ne PEUT pas poser d'en-tete custom). Le header `x-sbfb-token`
+reste le transport des clients NON-navigateur (CLI, scripts, proxy
+Vite) et est essaye D'ABORD par le middleware. La protection CSRF du
+chemin cookie ne vient pas d'un en-tete : elle vient de
+SameSite=Strict + la garde `Sec-Fetch-Site: same-origin` (exigee sur
+le chemin cookie uniquement, `auth.rs`). Les deux transports : le header `x-sbfb-token` (essaye
 D'ABORD, inchange, intrinsequement CSRF-immune car le JS d'une page ne
 peut pas le poser cross-origin) ; et un **cookie `sbfb_operator`**
 HttpOnly + SameSite=Strict pose par le bootstrap `GET /?token` (D5). Le
@@ -1071,6 +1087,84 @@ borne par `min_rejoin_interval` (cooldown) pour eviter un storm de re-join sur d
 `NeighborDown` en rafale ; il ne s'execute que pour les docs importes via ticket (pas
 pour les docs injectes en test). Surface inchangee, residual nul au-dela du modele de
 confiance pkarr deja accepte.
+
+### 15.4 Extension Sprint 81 — mode zero-n0 self-hosted + hot-join + stores migres (E2/E3/F)
+
+S81 prepare l'EOL des services n0 (relais + pkarr publics, 2026-09-30)
+par un mode **zero-n0 opt-in gated-env** (`SBFB_ZERO_N0`,
+`discovery_override.rs` fonction de decision pure + chokepoint unique
+`apply_zero_n0_discovery` dans `node.rs` ; `presets::N0` reste le
+DEFAUT). Topologie live actee PO 2026-07-05 (`bf07960`) : **B
+co-logee** — iroh-relay + iroh-dns-server derriere Caddy sur l'ancre
+existante, cout 0 ; convergence LIVE prouvee (`a085853`, T2 PASS).
+Detail operationnel : `docs/release/IROH_SELFHOST_OPS.md` (§8 du
+runbook pointe vers cette section).
+
+**Relocation de confiance n0 → operateur, BORNEE Ed25519.** Le paquet
+pkarr reste signe par la cle du node : un relais pkarr hostile (ou
+compromis) peut au pire **refuser ou perimer** une reponse, jamais
+forger une adresse — meme borne que le modele pkarr deja accepte
+(§15.3 keepalive). Le relais iroh self-hosted voit les **metadonnees**
+de connexion (qui parle a qui, quand), jamais le contenu (QUIC
+chiffre de bout en bout). La relocation deplace la confiance
+*disponibilite + metadonnees* de n0 vers l'operateur ; elle ne cree
+aucune capacite de forge.
+
+| Menace | Exemple | Sev. brute | Mitigation | res |
+|---|---|:---:|---|:---:|
+| D | **SPOF operateur** : zero-n0 CONCENTRE relais + pkarr + ancre sur l'infra d'UN operateur ; la mort du host coupe discovery ET relay d'un coup (complementaire, PAS superset, de survives-VPS-death S75 — S75 prouvait la survie du RESEAU a la mort de l'ancre, pas la survie du mode zero-n0 a la mort de son host) | H | Runbook exige **>=2 relais pkarr DISTINCTS non-n0** (`SBFB_ZERO_N0_PKARR_RELAYS` liste) + recommande **host relais != host ancre** (`IROH_SELFHOST_OPS §7/§8`) ; Topologie B (co-logee) ACCEPTE temporairement ce cumul, cf. re-decision ci-dessous | **M** |
+| I | **Jointure metadonnees-relais x contenu-ancre** : en Topologie B le MEME operateur voit les metadonnees de connexion (relais) et sert le contenu (ancre/blob-serve) — capacite de correlation superieure a n0 (qui ne voyait pas le contenu) | M | Borne Ed25519 (0 forge) + contenu public par design (pilote ferme) ; separation des hosts = Topologie A, cf. re-decision | **M** |
+| D | **Silent-loss discovery ELARGIE** : 1 host operateur vs flotte n0 multi-region — une panne discovery silencieuse est plus probable et plus totale | M | **Fail-loud coupling** (E2) : `SBFB_ZERO_N0` sans relais pkarr configure = `Err` au boot, jamais un demarrage silencieusement sourd ; tripwire survie URL pkarr (Phase E, check nomme) | **L** |
+| S | Relais pkarr hostile forge une adresse | H | IMPOSSIBLE par construction : paquet pkarr signe Ed25519 par la cle du node, verifie par le resolveur pkarr d'iroh (`iroh::…::PkarrResolver`, cable au chokepoint zero-n0 `node.rs`) — meme modele de confiance pkarr que §15.3 | **Nil** |
+
+**Re-decision Topologie A-vs-B — AVANT le 25/08 (decision PO OUVERTE,
+tracee ici, PAS tranchee par S81-G).** B (co-logee, actuelle) accepte
+le SPOF-cumul + la jointure ci-dessus + **QUIC address discovery off**
+(constat acceptance `a085853`) contre un cout 0. A (host dedie pour
+relais+pkarr) reduit SPOF et jointure contre un cout host. Echeance
+alignee sur le gate calendaire C8 (bascule flotte 25/08).
+
+**Residuel T20 (carry, NON ferme par S81)** : la posture TLS du
+resolveur pkarr HTTP reste **WebPKI-only** — le hook amont
+`tls_pinning`/`PinValidator` existe dans iroh 1.0.1 mais
+`apply_zero_n0_discovery` prod ne pose pas de `ca_tls_config`
+(`insecure_skip_verify` reste `#[cfg(test)]`-only). Cablage
+PinValidator = carry S82+.
+
+**Hot-join du curateur souscrit (E3, `e05338f`)** — residuels doc :
+
+- **Asymetrie unsubscribe** : iroh-gossip 0.101 n'expose aucun verbe
+  `leave` (`Command` = Broadcast/BroadcastNeighbors/JoinPeers) → apres
+  desabonnement, le pair reste voisin HyParView jusqu'au churn
+  naturel ; l'ingest est droppe par `is_subscribed=false` → fuite
+  bornee au transport (metadonnees de voisinage), zero ingest.
+- **Boot-duress (residu PRE-EXISTANT, elargi par la surface)** : sous
+  cle leurre, le boot dial les subscribes + re-pull + rejoue l'outbox
+  (patterns reseau observables). E3 ne l'AGGRAVE pas : le hot-join est
+  duress-safe-par-placement (push apres l'early-return duress, 0 dial
+  nouveau sous duress, verrouille par test negatif).
+- **Reconnexion-apres-drop** : le hot-join n'ajoute PAS le pair au
+  bootstrap-set du topic fige — apres une rupture de transport, le
+  re-bootstrap ne reprend qu'au reboot (carry boot-only pattern, K).
+
+**Stores migres redb 2→4 (F, `70dd845`)** — residuels doc (detail
+operationnel : `docs/release/STORE_MIGRATION_OPS.md`) :
+
+- **T-STORE-MIGRATION-CRASHWINDOW (residuel L)** : fenetre
+  rename↔persist de la migration docs (temp+swap one-way) ; la garde
+  `refuse_recreate_on_interrupted_migration` (F, aux 2 boundaries)
+  refuse le recreate silencieux quand le backup a survecu (rename
+  FIRST par construction) ; tar snapshot OBLIGATOIRE avant toute
+  migration reelle (Win + Mac PRIS) ; caveat Linux rename-clobber.
+- **T-STORE-FIXTURE-LEAK** : la migration cree
+  `docs.redb.backup-redb-v2-tuples` (contient l'ancien
+  `NamespaceSecret`) + `docs.db.migrate<rand>` non auto-nettoyes →
+  nettoyage manuel au runbook.
+- **T-BLOBS-DURABILITY (degrade, note d'honnetete)** : ce §15 couvre
+  l'INTEGRITE (BLAKE3), pas la DURABILITE — un wipe blobs reste
+  re-importable depuis `iroh/blobs/data/*.data` (content-addressed),
+  et blobs v3 ouvre in-place sous 0.103 (le scenario wipe est moot
+  pour l'upgrade S81).
 
 ---
 
@@ -1503,3 +1597,23 @@ Historique versions :
   fork F, claim F2, primitives N0-N3 G/H/I, front J) reste LIVRE + teste
   hermetiquement. 0 bump wire, 0 dep, 0 nouvelle row STRIDE de surface (§5.9 =
   resume du catalogue §16 deja fige).
+- **v15 (Sprint 81 Phase G, 2026-07-08)** : consolidation doc de l'upgrade
+  **iroh 0.98 → =1.0.1** (docs/gossip 0.101, blobs 0.103). MAJ §1.1 (stack
+  versions), §5.4 row E (pin =1.0.1 + rationale wire-freeze reduit le churn
+  de deserialisation, **residuel reste M** + note « upgrade ≠ Gate 1/Gate 3,
+  R-iroh-audit P0 INCHANGE, pilote reste ferme »), §14 nit S80-H-4 (le SSE
+  front = fetch+ReadableStream, jamais EventSource ; le cookie couvre le
+  WebSocket PTY). Ajout **§15.4** — surface zero-n0 self-hosted (E2 :
+  relocation trust n0→operateur bornee Ed25519, SPOF-cumul + jointure
+  metadonnees×contenu en Topologie B, silent-loss elargie fail-loud,
+  re-decision Topologie A-vs-B AVANT 25/08 TRACEE decision PO ouverte,
+  residuel T20 PinValidator WebPKI-only carry) + residuels hot-join E3
+  (asymetrie unsubscribe sans verbe leave, boot-duress pre-existant
+  non-aggrave, reconnexion-apres-drop boot-only) + residuels stores F
+  (T-STORE-MIGRATION-CRASHWINDOW L, T-STORE-FIXTURE-LEAK, T-BLOBS-DURABILITY
+  degrade). Gate convergence supply-chain JOUE : lock NON convergent
+  (ed25519-dalek 2.2.0 + 3.0.0-rc.0 interne iroh) → **P2-AUDIT-2-RESIDUEL
+  carry S82**, `deny.toml` multiple-versions reste warn ; advisories
+  remediees (2 cargo update + 6 ignore-with-reason racines
+  hickory-0.24/quick-xml-iroh, carry HICKORY-024-RUSTSEC S82). 0 bump wire,
+  0 dep runtime neuve, 0 nouvelle row STRIDE hors §15.4.

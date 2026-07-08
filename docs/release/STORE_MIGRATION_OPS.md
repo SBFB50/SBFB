@@ -21,8 +21,11 @@
 
 1. **Snapshot tar AVANT toute migration réelle** (`NEXUS_GRID_ROOT`
    complet : `docs.redb` + `blobs/` + `coordinator.db*` + `node_key`).
-   Snapshots Phase B : Windows pris ; **Mac PENDING — aucun boot Mac
-   avant son snapshot**.
+   Snapshots : Windows PRIS (Phase B) ; **Mac PRIS 2026-07-08**
+   (`sbfb-snapshots/s81-phase-b/mac-nexus-grid-pre-s81h.tar.gz`,
+   contenu vérifié `node_key` + `coordinator.db` + `docs.redb` +
+   `blobs.db`, aucun process SBFB actif au tar) — plus aucun
+   prérequis snapshot ouvert pour la Phase H.
 2. **Rollback** (one-way) : restaurer le tar, OU renommer
    `docs.redb.backup-redb-v2-tuples` par-dessus `docs.redb`.
 3. **Crash pendant la migration** : une fenêtre existe entre le rename

@@ -1,6 +1,6 @@
 ---
 written: 2026-04-20  # S22 hors-sprint post Phase B `e9530c2`
-last_validated: 2026-06-03  # S73 Phase A : §2.1 portee daemon+Operator + §3 GET /result reordonne + §8.1 couverture Operator (P2-TIER-MODEL, P2-RESULT-TEXT-GUARDRAIL-ORDER)
+last_validated: 2026-07-08  # S81 Phase G (LOT-LOOPBACK-DOC, audit S80 H-1/2/3) : §3.1 revalide — +2 routes lecture S80 (GET /api/git/diff, GET /api/gates), double transport bearer header + cookie sbfb_operator HttpOnly (bootstrap GET /?token, S80 A), description terminal/ws corrigee (PTY live interactif S80 D, plus « lecture cast »). Precedent 2026-06-03 S73 Phase A : §2.1 portee daemon+Operator + §3 GET /result reordonne + §8.1 couverture Operator (P2-TIER-MODEL, P2-RESULT-TEXT-GUARDRAIL-ORDER)
 status: design-only T1/T2 (implementation S22 Phase F wrap-up + extension S25/S28/LT-4) ; §3.1 Operator = IMPLEMENTE+DURCI S71 C (`a0337c6`) ; Operator place dans le tier-model formel §2.1/§8.1 (S73 Phase A)
 triggers_revalidate:
   - "microsoft/sudo new elevation mode release"
@@ -107,7 +107,9 @@ G7 + G2). Inventaire à jour (P2-H-1, audit S71 Track H) :
 | `POST /api/chat/{id}/send` | off-sprint, durci S71 C | T0 + gate `SENSITIVE_ACTIONS` | T0 + gate | Enregistre le message + déclenche le spawn ; même gate |
 | `POST /api/actions/run` | S70 | T0 | T0 | Action allowlistée Operator (pas un shell libre) |
 | `POST /api/context-pack` | S70 | T0 | T0 | Génère un context-pack depuis le repo |
-| `GET /api/terminal/ws` | S70 | T0 | T0 | WebSocket terminal (lecture cast `.planning/terminal`, durci S71 D drive-prefix) |
+| `GET /api/terminal/ws` (**spawn + write stdin**) | S70 ; PTY live S80 D | T0 | T0 | WebSocket **PTY interactif** : le handler spawne un `claude` dans un pseudo-terminal et son stdin est pilotable depuis le navigateur (`terminal.rs` openpty + spawn + write stdin depuis le WS) — même classe spawn que `/api/chat/{id}/stream`. *(Correction S81 G, audit S80-H-3 : l'ancien libellé « lecture cast `.planning/terminal` » décrivait l'implémentation pré-S80.)* |
+| `GET /api/git/diff` | S80 Phase F | T0 | T0 | Lecture seule : diff working-tree calculé côté Rust (« le diff = vérité Rust », jamais recalculé par l'UI) *(ajout S81 G, audit S80-H-1)* |
+| `GET /api/gates` | S80 Phase G | T0 | T0 | Lecture seule : registre 1:1 des `GateStatus` (5 valeurs) — verdicts RESTITUÉS, jamais calculés par l'UI *(ajout S81 G, audit S80-H-1)* |
 | `GET /api/status` `…/lint` `…/audit/{rev}` `…/prompt/{kind}` `…/context` `…/providers` `…/actions/log` `…/chat/{id}/log` `…/sprint-history*` `…/terminal/sessions` | S70/S71 | T0 | T0 | Lecture seule sous le même middleware auth |
 
 Gate **G7** (S71 Phase C `a0337c6`) : middleware `auth_required`
@@ -117,6 +119,26 @@ Gate **G7** (S71 Phase C `a0337c6`) : middleware `auth_required`
 plus de `allow_origin(Any)`). Gate **G2** : `SENSITIVE_ACTIONS`
 (`const` ligne 34) dans `handle_chat_stream` AVANT le spawn (gate
 `:866`, spawn `:898`). Token réutilisé depuis `~/.sbfb/auth_token`.
+
+**Double transport du bearer (S80 Phase A, revalidation S81 G — audit
+S80-H-2).** Depuis S80, le middleware accepte le bearer par **deux
+transports** : (1) le header `x-sbfb-token`, essayé D'ABORD, inchangé,
+intrinsèquement CSRF-immune (le JS d'une page tierce ne peut pas le
+poser cross-origin) — c'est le chemin des clients **non-navigateur**
+(CLI, scripts, proxy Vite) ; (2) un **cookie `sbfb_operator`** HttpOnly
++ SameSite=Strict, posé par le bootstrap `GET /?token=…` (échange
+one-shot : le token en query est consommé et redirigé) — c'est le
+chemin du **front navigateur pour TOUT**, y compris le SSE consommé
+via `fetch`+`ReadableStream` (`useTokenStream.ts:135`
+`credentials: 'same-origin'`, aucun header posé) et le WebSocket PTY
+(qui, lui, ne peut pas poser d'en-tête custom). Le cookie est une
+autorité **ambiante** : la posture anti-CSRF du chemin cookie repose
+sur SameSite=Strict + la garde `Sec-Fetch-Site: same-origin` (exigée
+sur le chemin cookie uniquement — les cookies ne sont pas port-scopés
+RFC 6265 §8.5, la garde ferme le cross-port loopback) + les gardes
+`Host`/`Origin` (détail du modèle et des deux P1 cross-port fermés :
+`THREAT_MODEL.md §14`, amendement S80 A).
+
 Détail + noms de tests : `docs/shell/PATTERNS.md §P35`. Menaces
 catalogées : `THREAT_MODEL.md §14` (T-OPERATOR-CSRF / T-OPERATOR-SPAWN).
 

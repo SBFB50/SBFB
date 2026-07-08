@@ -79,9 +79,11 @@ DNS rebinding (S16-A mitigated, verify completeness).
 
 | Component | Version | Fichier |
 |---|---|---|
-| iroh gossip | 0.97 | `crates/nexus-core-rs/src/gossip.rs` |
-| iroh blobs | 0.99 | `crates/nexus-core-rs/src/blobs.rs` |
-| iroh DHT pkarr | 0.97 | `crates/nexus-shell-daemon-core/src/browse.rs` |
+| iroh (endpoint + pkarr discovery) | =1.0.1 (S81) | `crates/nexus-core-rs/src/node.rs`, `pkarr_resolver.rs` |
+| iroh gossip | 0.101.0 (S81) | `crates/nexus-core-rs/src/gossip.rs` |
+| iroh docs | 0.101.0 (S81) | `crates/nexus-core-rs/src/docs.rs` |
+| iroh blobs | 0.103.0 (S81) | `crates/nexus-core-rs/src/blobs.rs` |
+| iroh DHT pkarr (browse) | =1.0.1 (S81) | `crates/nexus-shell-daemon-core/src/browse.rs` |
 | TLS SPKI pinning (relay) | S19 | `crates/nexus-core-rs/src/transport.rs` |
 | PoW Hashcash gossip admission | S19 | `crates/nexus-core-rs/src/pow.rs` |
 | DNS fallback DoH+DoT | S24 | `crates/nexus-core-rs/src/dns_fallback.rs` |
@@ -91,10 +93,12 @@ pre-federation), gossip message authentication (Ed25519 required),
 PoW difficulty tuning (anti-DoS vs usability), DHT poisoning
 resistance (quorum 2/3 lookup).
 
-**Note** : iroh 0.97 lui-meme n'a pas d'audit public connu
+**Note** : iroh 1.0.1 lui-meme n'a pas d'audit public connu
 (zone rouge R-iroh-audit P0). L'audit SBFB couvre le **usage** de
 iroh, pas iroh interne. Un audit iroh dedié est un item futur
-séparé.
+séparé. *(Reconfirmee verbatim S81 Phase G apres l'upgrade
+0.98→=1.0.1 : l'upgrade ≠ Gate 1 / Gate 3, R-iroh-audit P0
+INCHANGE, le pilote reste ferme.)*
 
 ### 2.5 Sandbox
 
@@ -132,8 +136,25 @@ Concrete checklist:
 | FROST version | `cargo tree -p frost-ed25519 --depth 0` |
 | iroh pinned | `cargo tree -p iroh --depth 0` |
 | iroh-blobs pinned | `cargo tree -p iroh-blobs --depth 0` |
+| iroh-gossip pinned (S81) | `cargo tree -p iroh-gossip --depth 0` |
+| iroh-docs pinned (S81) | `cargo tree -p iroh-docs --depth 0` |
 | opentelemetry (if wired) | `cargo tree -p opentelemetry --depth 0` |
 | Scope freeze commit | `git rev-parse --short HEAD` at freeze time |
+
+**Replay S81 Phase G (2026-07-08, lock at `70dd845` pre-commit)** —
+checklist rejouee apres l'upgrade iroh 0.98→1.0 :
+
+- `ed25519-dalek` → **ambiguous** : `2.2.0` (SBFB security-critical,
+  workspace pin `"2.1"`) **et** `3.0.0-rc.0` (interne a iroh 1.0.1).
+  C'est la preuve de NON-convergence du lock : le gate
+  `deny.toml [bans] multiple-versions warn→deny` reste bloque →
+  **P2-AUDIT-2-RESIDUEL (carry S82)**. La crypto SBFB
+  (canary/curator/provenance/task) reste isolee sur l'arbre stable
+  2.2.0/curve25519 4.1.3 — aucun chemin SBFB ne linke le RC.
+- `aes-gcm 0.10.3` ; `frost-ed25519 3.0.0` ; `iroh 1.0.1` ;
+  `iroh-blobs 0.103.0` ; `iroh-gossip 0.101.0` ; `iroh-docs 0.101.0`
+  — tous conformes aux pins workspace.
+- opentelemetry : non wire (inchange).
 
 The scope freeze commit must be recorded in §7 Timeline and
 communicated to the vendor as the exact revision to audit. Any

@@ -30,14 +30,20 @@ readme = "README.md"
 # Shared dependency versions. Crates inherit with
 # `iroh = { workspace = true }` etc. so version bumps live in one place.
 #
-# iroh stack: upgraded to the 1.0 GA line (Sprint 81 Phase B; versions
-# re-checked against the crates.io API on 2026-07-03 — these four pins
-# are the exact max_stable versions, no 1.0.2 exists). Exact `=` pins
-# are deliberate: reproducibility + bisectability (iroh-docs pre-1.0
-# broke its wire twice in six weeks). iroh-docs 0.101 carries the
-# redb 2->4 on-disk auto-migration behind its default
-# `redb-v2-migration` feature (validated on a store COPY in Phase F) —
-# do NOT disable default features.
+# iroh stack: upgraded to the 1.0 GA line (Sprint 81 Phase B). Exact
+# `=` pins are deliberate: reproducibility + bisectability (iroh-docs
+# pre-1.0 broke its wire twice in six weeks). Sprint 81 Phase G
+# re-check (crates.io API, 2026-07-08): iroh 1.0.2 exists (patch
+# 2026-07-06, no breaking changes — relay rate-limit, recv fairness,
+# Windows regression test, dns bench) and STILL pins
+# ed25519-dalek "=3.0.0-rc.0", so it would not unblock the
+# supply-chain convergence gate (deny.toml [bans]); the =1.0.1 pin is
+# kept by choice. Watch triggers (HARDENING_ROADMAP front-matter):
+# iroh-docs 0.102+ (pre-1.0 wire), yank of ed25519-dalek 3.0.0-rc.0
+# (deny.toml yanked="deny" would break the iroh exact pin), RustSEC.
+# iroh-docs 0.101 carries the redb 2->4 on-disk auto-migration behind
+# its default `redb-v2-migration` feature (validated on a store COPY
+# in Phase F) — do NOT disable default features.
 [workspace.dependencies]
 iroh = "=1.0.1"
 iroh-docs = "=0.101.0"
