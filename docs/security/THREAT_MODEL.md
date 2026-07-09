@@ -1166,6 +1166,34 @@ operationnel : `docs/release/STORE_MIGRATION_OPS.md`) :
   et blobs v3 ouvre in-place sous 0.103 (le scenario wipe est moot
   pour l'upgrade S81).
 
+### 15.5 Extension Sprint 81 — operation de flip LIVE 0.98 → 1.0.1 (H)
+
+§15.4 couvre le MECANISME (mode zero-n0, hot-join, migration des
+stores) ; cette section couvre l'OPERATION : la session same-day qui
+bascule les 3 noeuds live (dev Win, Mac M2, ancre VPS) du binaire
+0.98 au binaire 1.0.1. Runbook : `docs/release/LIVE_FLIP_RUNBOOK.md` ;
+mecanique store + rollback : `docs/release/STORE_MIGRATION_OPS.md`.
+Contexte de menace decisif (C4/C5) : **aucun noeud tiers n'existe** —
+toutes les menaces du flip sont self-inflicted et ne touchent que
+les donnees de l'operateur ; les severites residuelles sont bornees
+en consequence.
+
+| Menace | Exemple | Sev. brute | Mitigation | res |
+|---|---|:---:|---|:---:|
+| D | **Partition totale intra-fenetre** : wire docs/gossip 0.98↔1.0 non-retrocompat — toute paire mixte est partitionnee, quel que soit l'ordre de flip | M | Flag-day same-day UNE session + gel publish/ingest (discipline operateur, aucun verrou code) ; l'ordre ne borne PAS la partition, il minimise le downtime du seeder (VPS dernier) ; sous C4/C5 seuls NOS 3 noeuds perdent la cross-gossip pendant la fenetre | **L** |
+| D/I | **Perte de store sur flip rate** : crash mid-migration ou rollback incorrect — restaurer le tar PUIS rebooter sous 1.0.1 RE-MIGRE immediatement (migration automatique a l'ouverture, one-way) et rejoue le flip rate au lieu de l'annuler | H | Rollback = **DEUX gestes** (restore tar + redeploy binaire 0.98 conserve cote-a-cote) ; tar per-noeud daemon-ARRETE NON-skippable (seul filet universel de la crash-window) ; garde `refuse_recreate_on_interrupted_migration` (§15.4) ; sur VPS Linux : TAR, jamais rename (clobber) | **L** |
+| S/D | **Regression d'identite silencieuse** : `load_or_generate_node_key` REGENERE en warn-only si `node_key` != 32 octets (tar tronque, restore partiel) → nouveau `node_id`, locators abonnes casses SANS erreur | M | Assert empirique post-boot : `flip_convergence_check.sh` compare `node_id` a la reference capturee pre-flip (`EXPECT_NODE_ID`) ; sur le VPS le mode **fail-closed `REQUIRE_NODE_ID=1` est OBLIGATOIRE** (une reference absente = RIG-ABSENT, jamais un skip silencieux — cet assert est le SEUL backstop automatique de la regen warn-only ; la sante LOCALE seule ne detecte PAS une regeneration, blob-serve est content-addressed) → BLOCK + STOP + rollback ; re-install stock INTERDIT (D3 cond.5/R1) ; verif restaurabilite du tar (node_key 32 octets) ; `SBFB_IDENTITY_SECRET_HEX` interdit dans la session. Le residuel L est CONTINGENT a cette discipline sur le VPS | **L** |
+| I | **Faux verdict de convergence** : verdict prose/curl manuel — un flip rate passe pour reussi et la fenetre se referme sur un etat divergent | M | Harness committe `scripts/acceptance/flip_convergence_check.sh` (contrat JSON vocabulaire ferme PASS/BLOCK/RIG-ABSENT) : sante LOCALE par noeud + convergence CROSS-noeud des le 2e noeud 1.0 (couple E3 : browse reachable + sha256 byte-identique) ; artefact T2 committe | **L** |
+| D | **Flip pas fait avant l'EOL n0 (30/09)** : la flotte reste sur 0.98 avec des relais publics morts | H | Gate calendaire C8 15/09 → plan B self-hosted ACTIF (`IROH_SELFHOST_OPS.md`, pre-provisionne E2, T2 zero-n0 PASS `a085853`) ; ~2 mois de runway au preflight H (09/07) | **L** |
+
+**Non-menaces (cadrage honnete)** : le gel publish/ingest est une
+discipline anti-split-brain, pas une frontiere de securite (aucun
+attaquant tiers pendant la fenetre sous C4/C5) ; la "fenetre bornee"
+vient du same-day + zero-tiers, PAS de l'ordre de bascule ; la
+propriete "partition totale 0.98↔1.0" est une propriete UPSTREAM
+(iroh) non verifiable depuis SBFB — a confirmer empiriquement au flip
+et logger dans l'artefact T2.
+
 ---
 
 ## 16. Surface sharding inference (Sprint 77)
@@ -1617,3 +1645,19 @@ Historique versions :
   remediees (2 cargo update + 6 ignore-with-reason racines
   hickory-0.24/quick-xml-iroh, carry HICKORY-024-RUSTSEC S82). 0 bump wire,
   0 dep runtime neuve, 0 nouvelle row STRIDE hors §15.4.
+- **v16 (Sprint 81 Phase H, 2026-07-09)** : ajout **§15.5** — l'OPERATION
+  de flip LIVE 0.98 → 1.0.1 comme surface distincte du mecanisme §15.4
+  (gap de completude releve au preflight H, verdict PLAN-ADAPT). 5 rows
+  STRIDE-lite, toutes residuelles **L** sous C4/C5 (aucun noeud tiers,
+  menaces self-inflicted) : partition totale intra-fenetre (flag-day
+  same-day, l'ordre ne borne PAS la partition), perte de store sur flip
+  rate (rollback corrige = **DEUX gestes** restore tar + redeploy 0.98 —
+  le restore seul RE-MIGRE au reboot ; R2 REFUTED au preflight), regression
+  d'identite silencieuse (regeneration warn-only `node_key` != 32 octets →
+  assert empirique `EXPECT_NODE_ID` du harness), faux verdict de
+  convergence (harness committe `flip_convergence_check.sh`, contrat JSON
+  vocabulaire ferme), EOL n0 30/09 (gate C8 15/09 → plan B). Runbook
+  operationnel neuf `docs/release/LIVE_FLIP_RUNBOOK.md` + corrections
+  `STORE_MIGRATION_OPS.md` (rollback 2 gestes, portee snapshot DEUX roots
+  + checklist survivants, TAR-pas-rename sur VPS Linux). 0 bump wire,
+  0 dep, 0 code runtime (phase operationnelle, delta tests 0).

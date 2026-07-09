@@ -348,6 +348,14 @@
   la validation sur copie (Phase F) n'est pas PASS** (R2). Gate calendaire C8 : **15/09** —
   Phase H pas faite → plan B ACTIF.
 
+> **PLAN-ADAPT (preflight H, 2026-07-09)** : la procédure opérationnelle CANONIQUE vit dans
+> `docs/release/LIVE_FLIP_RUNBOOK.md` + `STORE_MIGRATION_OPS.md`. Les « Livrables » ci-dessus
+> restent le snapshot kickoff mais NE PAS suivre verbatim leur périmètre snapshot ni leur
+> rollback : le preflight a réfuté le rollback à 1 geste (le restore tar seul RE-MIGRE au
+> reboot 1.0.1 — il faut restore tar ET redeploy 0.98) et sous-spécifié la portée snapshot
+> (DEUX roots + checklist survivants, `node_key` inclus) ; la « convergence après CHAQUE
+> nœud » se scinde en santé LOCALE par nœud + convergence CROSS-nœud dès le 2e nœud 1.0.
+
 ## Phase I — Orchestrateur de session sharding in-vivo (ex-S78) [décision PO C1]
 
 - **But** : livrer l'orchestrateur de session in-vivo dont l'absence a rendu S77/S76

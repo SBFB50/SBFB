@@ -3,8 +3,9 @@
 > Runbook minimal opérateur pour la migration du store iroh au bump
 > iroh-docs 0.98 → 0.101 (redb 2.x → 4.1). La procédure de flip LIVE
 > complète (ordre des nœuds, gel publish/ingest, convergence par nœud)
-> est un livrable **Phase H** — ce document couvre uniquement la
-> mécanique de migration et son rollback.
+> vit dans [`LIVE_FLIP_RUNBOOK.md`](LIVE_FLIP_RUNBOOK.md) (Phase H) —
+> ce document couvre uniquement la mécanique de migration et son
+> rollback.
 
 ## Ce qui se passe à l'ouverture
 
@@ -19,15 +20,37 @@
 
 ## Règles opérateur
 
-1. **Snapshot tar AVANT toute migration réelle** (`NEXUS_GRID_ROOT`
-   complet : `docs.redb` + `blobs/` + `coordinator.db*` + `node_key`).
+1. **Snapshot tar AVANT toute migration réelle, daemon ARRÊTÉ**
+   (un tar à chaud déchire le WAL SQLite/redb). Le daemon écrit
+   **DEUX roots** (cf. `deploy/nexus-shell-daemon.service`) : le tar
+   doit couvrir les deux, ou vérifier que `SBFB_HOME` est niché sous
+   `NEXUS_GRID_ROOT` (cas VPS : `/var/lib/nexus-grid/.sbfb` — un tar
+   du root le capte ; sur dev Win/Mac, vérifier où `SBFB_HOME`
+   résout AVANT de tar). Checklist des survivants requis dans
+   l'archive : `node_key` (l'IDENTITÉ — 32 octets exactement ; un
+   fichier tronqué régénère un `node_id` neuf en warn-only,
+   `runtime.rs::load_or_generate_node_key`), `coordinator.db` +
+   `-wal`/`-shm`, `docs.redb`, `blobs.db` + `blobs/`, `anchors.json`,
+   `subscriptions.json`, `config.toml`, et sous `.sbfb/` :
+   `auth_token`, `tokens.json`, `directory_revision.json` (le floor
+   anti-rollback — sa perte casse la ré-annonce monotone).
+   Vérifier la **restaurabilité** (extract jetable : `node_key`
+   présent et 32 octets, `directory_revision.json` présent).
    Snapshots : Windows PRIS (Phase B) ; **Mac PRIS 2026-07-08**
    (`sbfb-snapshots/s81-phase-b/mac-nexus-grid-pre-s81h.tar.gz`,
    contenu vérifié `node_key` + `coordinator.db` + `docs.redb` +
-   `blobs.db`, aucun process SBFB actif au tar) — plus aucun
-   prérequis snapshot ouvert pour la Phase H.
-2. **Rollback** (one-way) : restaurer le tar, OU renommer
-   `docs.redb.backup-redb-v2-tuples` par-dessus `docs.redb`.
+   `blobs.db`, aucun process SBFB actif au tar) ; **VPS À PRENDRE au
+   flip** (Phase H, daemon arrêté).
+2. **Rollback** (one-way) : **DEUX gestes, jamais un seul** —
+   (a) restaurer le tar du root complet **ET** (b) re-déployer le
+   **binaire 0.98** conservé côte-à-côte. La migration `docs.redb`
+   est AUTOMATIQUE à l'ouverture : restaurer le tar puis rebooter
+   sous 1.0.1 **re-migre immédiatement** et rejoue le flip raté au
+   lieu de l'annuler. Sur le **VPS Linux, utiliser le TAR, pas le
+   rename** du backup (`rename(2)` clobber silencieux — caveat
+   Phase F) ; le rename `docs.redb.backup-redb-v2-tuples` →
+   `docs.redb` reste un raccourci acceptable sur Win/Mac seulement,
+   et toujours accompagné du geste (b).
 3. **Crash pendant la migration** : une fenêtre existe entre le rename
    et le persist — `docs.redb` est alors absent et un reboot créerait
    un store vide. Le daemon détecte ce cas (S81 Phase F) : si le backup
