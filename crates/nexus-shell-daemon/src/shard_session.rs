@@ -411,6 +411,16 @@ impl ShardSessionRegistry {
         })
     }
 
+    /// Lifecycle status of a mounted session (`None` = not mounted). The
+    /// generate route reads it for a best-effort 409 precheck (review Cible
+    /// 2 P2 — GPT-5.6 Sol): the atomic check-and-set in `generate_session`
+    /// remains the real backstop against a double-drive, but the precheck
+    /// lets a concurrent generate see `409 already generating` instead of a
+    /// misleading `202 accepted` whose spawned drive silently no-ops.
+    pub fn status_of(&self, session_id: &str) -> Option<ShardSessionStatus> {
+        self.lock().get(session_id).map(|r| r.status)
+    }
+
     /// Result data for the result route (`None` = not mounted). Fields
     /// stay `None` until a drive completes; `failure` carries the clean
     /// diagnostic of a failed drive.
@@ -598,7 +608,12 @@ async fn probe_shard_readiness(
     tokio::time::timeout(deadline, async {
         let conn = open_shard_connection(endpoint, lookup, addr)
             .await
-            .map_err(|e| format!("readiness: shard {worker_hex} dial failed: {e}"))?;
+            .map_err(|e| {
+                format!(
+                    "readiness: shard {worker_hex} dial failed: {}",
+                    sanitize_diagnostic(&e.to_string())
+                )
+            })?;
         // Wait (inside the same shared deadline) for the transport to
         // sample the path RTT — the perf-map signal the placement consumes.
         loop {
@@ -737,13 +752,16 @@ async fn drive_hop(conn: &Connection, input: &[u8], deadline: Duration) -> Resul
         let (mut send, mut recv) = conn
             .open_bi()
             .await
-            .map_err(|e| format!("open_bi failed: {e}"))?;
-        write_frame(&mut send, input)
-            .await
-            .map_err(|e| format!("frame write failed: {e}"))?;
+            .map_err(|e| format!("open_bi failed: {}", sanitize_diagnostic(&e.to_string())))?;
+        write_frame(&mut send, input).await.map_err(|e| {
+            format!(
+                "frame write failed: {}",
+                sanitize_diagnostic(&e.to_string())
+            )
+        })?;
         let out = read_frame(&mut recv)
             .await
-            .map_err(|e| format!("frame read failed: {e}"))?
+            .map_err(|e| format!("frame read failed: {}", sanitize_diagnostic(&e.to_string())))?
             .ok_or_else(|| "stream finished before an output frame".to_string())?;
         send.finish().ok();
         Ok(out)
@@ -755,6 +773,46 @@ async fn drive_hop(conn: &Connection, input: &[u8], deadline: Duration) -> Resul
              (SI-9 withholding guard — covers open/write/read)"
         )
     })?
+}
+
+/// Scrub a transport-error string before it is logged or projected into
+/// `/result` (review Cible 2 P1 — GPT-5.6 Sol). A byzantine worker
+/// controls its QUIC application-close reason, so `open_bi failed: {e}` /
+/// `frame read failed: {e}` carry attacker-influenced bytes. This:
+/// - strips control characters (log-injection / newline splitting) and
+///   collapses whitespace to single spaces;
+/// - **redacts any hex run >= 32 chars** — a full 32-byte pubkey is 64 hex
+///   chars, so an identity echoed into a close reason never reaches the
+///   projection (SI-3/SI-4). Our own 8-byte (16-hex) truncations survive;
+/// - caps the length so a pathological reason cannot bloat the store/log.
+pub fn sanitize_diagnostic(s: &str) -> String {
+    const REDACT_HEX_RUN: usize = 32;
+    const MAX_LEN: usize = 240;
+    let mut out = String::with_capacity(s.len().min(MAX_LEN));
+    let mut hexrun = String::new();
+    let flush = |out: &mut String, hexrun: &mut String| {
+        if hexrun.len() >= REDACT_HEX_RUN {
+            out.push_str("[redacted-hex]");
+        } else {
+            out.push_str(hexrun);
+        }
+        hexrun.clear();
+    };
+    for ch in s.chars() {
+        if ch.is_ascii_hexdigit() {
+            hexrun.push(ch);
+        } else {
+            flush(&mut out, &mut hexrun);
+            out.push(if ch.is_control() { ' ' } else { ch });
+        }
+    }
+    flush(&mut out, &mut hexrun);
+    out.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .take(MAX_LEN)
+        .collect()
 }
 
 /// Drive one generation through the mounted session's pipeline (steps 4-6).
@@ -789,6 +847,13 @@ pub async fn generate_session(
             return Err(format!("session '{session_id}' is already generating"));
         }
         record.status = ShardSessionStatus::Generating;
+        // Clear the PREVIOUS run's outcome/failure now (review Cible 2 P1 —
+        // GPT-5.6 Sol): otherwise `/result` would serve the stale
+        // result_text / RunProof of the last drive while this one is in
+        // flight, and the harness poll loop (breaks on non-empty
+        // result_text) would false-green on old data.
+        record.outcome = None;
+        record.failure = None;
         (
             record.entry.clone(),
             record.addrs.clone(),
@@ -838,9 +903,13 @@ pub async fn generate_session(
             Ok(())
         }
         Err(diagnostic) => {
-            warn!(session = %session_id, %diagnostic, "shard drive failed clean");
-            registry.mark_failed(session_id, diagnostic.clone());
-            Err(diagnostic)
+            // Belt-and-braces: every drive_hop/dial diagnostic is already
+            // sanitized at its source, but scrub once more at the single
+            // chokepoint that both logs and projects it (review Cible 2 P1).
+            let safe = sanitize_diagnostic(&diagnostic);
+            warn!(session = %session_id, diagnostic = %safe, "shard drive failed clean");
+            registry.mark_failed(session_id, safe.clone());
+            Err(safe)
         }
     }
 }
@@ -868,6 +937,12 @@ async fn drive_pipeline(
     let mut rx_bytes: u64 = 0;
     let mut tx_bytes: u64 = 0;
     let mut drops: u32 = 0;
+    // The workers that ACTUALLY executed each stage (primary on the healthy
+    // path, fallback on a reroute). The RunProof `participants` must be the
+    // real executors, never the plan's primaries (review Cible 2 P1 —
+    // GPT-5.6 Sol: a signed proof that names a dropped worker as participant
+    // is a factually false attestation).
+    let mut executed_by: Vec<[u8; 32]> = Vec::with_capacity(entry.manifest.plan.assignments.len());
 
     let assignments = entry.manifest.plan.assignments.clone();
     for (i, a) in assignments.iter().enumerate() {
@@ -894,7 +969,12 @@ async fn drive_pipeline(
                 )
                 .await
                 .map_err(|_| format!("stage {i} re-dial exceeded {readiness_deadline:?}"))?
-                .map_err(|e| format!("stage {i} dial failed: {e}"))?
+                .map_err(|e| {
+                    format!(
+                        "stage {i} dial failed: {}",
+                        sanitize_diagnostic(&e.to_string())
+                    )
+                })?
             }
         };
 
@@ -905,6 +985,7 @@ async fn drive_pipeline(
                 // Spent (one bi-stream per connection): park for teardown,
                 // never back into the reusable pool.
                 used.push(conn);
+                executed_by.push(a.worker_pubkey);
                 out
             }
             Err(hop_err) => {
@@ -956,6 +1037,9 @@ async fn drive_pipeline(
                     })?;
                 // Spent, same as the healthy path — park for teardown.
                 used.push(fb_conn);
+                // The FALLBACK executed this stage — record it, not the
+                // dropped primary (review Cible 2 P1).
+                executed_by.push(fallback);
                 out
             }
         };
@@ -981,8 +1065,11 @@ async fn drive_pipeline(
     };
 
     // Step 6 — collect: the driver's signed RunProof over the run it
-    // measured (the first production RunProofEntry::sign call-site).
-    let participants: Vec<[u8; 32]> = assignments.iter().map(|a| a.worker_pubkey).collect();
+    // measured (the first production RunProofEntry::sign call-site). The
+    // participants are the workers that ACTUALLY executed each stage
+    // (fallbacks substituted for dropped primaries), never the plan's
+    // primaries — an honest signed attestation (review Cible 2 P1).
+    let participants: Vec<[u8; 32]> = executed_by;
     let proof = RunProof::new(
         keypair.public_bytes(),
         session_id,
@@ -1071,6 +1158,15 @@ mod tests {
         async fn shutdown(self) {
             self.head.shutdown().await.ok();
             for (n, _, _) in self.workers {
+                n.shutdown().await.ok();
+            }
+        }
+
+        /// Shut down only the worker nodes (keep the head alive) so a
+        /// subsequent drive re-dials into dead addresses and fails —
+        /// used to exercise the stale-result-clear path.
+        async fn shutdown_workers(&mut self) {
+            for (n, _, _) in self.workers.drain(..) {
                 n.shutdown().await.ok();
             }
         }
@@ -1626,6 +1722,157 @@ mod tests {
             result.failure.is_none(),
             "a recovered drive is not a failure"
         );
+        // Review Cible 2 P1 (GPT-5.6 Sol): the signed RunProof must name the
+        // worker that ACTUALLY executed (the healthy fallback), NEVER the
+        // dropped primary — an honest attestation.
+        {
+            let sessions = registry.lock();
+            let run = sessions
+                .get("hand-built")
+                .unwrap()
+                .outcome
+                .as_ref()
+                .unwrap();
+            let participants = &run.run_proof.proof.participants;
+            assert!(
+                participants.contains(&healthy),
+                "the fallback that executed must be a signed participant"
+            );
+            assert!(
+                !participants.contains(&stalled),
+                "the dropped primary must NOT be signed as a participant"
+            );
+        }
+        rig.shutdown().await;
+    }
+
+    #[test]
+    fn sanitize_diagnostic_redacts_identity_and_control_chars() {
+        // Review Cible 2 P1 (GPT-5.6 Sol): a byzantine peer's QUIC close
+        // reason is attacker-controlled. A full 64-hex pubkey echoed into a
+        // transport error must be redacted before it reaches `failure` /
+        // logs; control chars (log injection) stripped; length capped.
+        let leak = "ab".repeat(32); // 64 hex chars = a full pubkey
+        let dirty = format!("open_bi failed: closed by peer\nreason={leak}\r\tinjected");
+        let clean = sanitize_diagnostic(&dirty);
+        assert!(
+            !clean.contains(&leak),
+            "a full-pubkey hex run must be redacted, got: {clean}"
+        );
+        assert!(clean.contains("[redacted-hex]"), "redaction marker present");
+        assert!(
+            !clean.contains('\n') && !clean.contains('\r') && !clean.contains('\t'),
+            "control chars must be stripped (no log injection)"
+        );
+        // Our own 8-byte (16-hex) truncations survive (< 32-hex threshold).
+        let ours = sanitize_diagnostic("stage 0 worker 0011223344556677 failed");
+        assert!(
+            ours.contains("0011223344556677"),
+            "a 16-hex truncation is preserved, got: {ours}"
+        );
+        // Length capped.
+        assert!(sanitize_diagnostic(&"z".repeat(1000)).len() <= 240);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn new_generation_clears_stale_result() {
+        // Review Cible 2 P1 (GPT-5.6 Sol): a second generation must not let
+        // `/result` serve the PREVIOUS run's result_text / RunProof (the
+        // harness polls on non-empty result_text -> false green). After a
+        // successful drive, a second drive that FAILS must clear the old
+        // success and surface the failure, not the stale text.
+        let mut rig = shard_rig(vec![Arc::new(EchoForwarder), Arc::new(EchoForwarder)]).await;
+        let registry = ShardSessionRegistry::default();
+        // Short deadlines so the second drive's re-dial into the dead
+        // workers fails fast rather than waiting the 10s default.
+        let req = MountSessionRequest {
+            session_id: "s81-i-stale".into(),
+            group: rig.group.clone(),
+            workers: rig.worker_specs(&[1_000, 1_000]),
+            model: two_shard_model(),
+            readiness_deadline_ms: Some(2_000),
+            hop_deadline_ms: Some(2_000),
+        };
+        mount_session(
+            rig.head.endpoint(),
+            rig.head.memory_lookup(),
+            &rig.head_kp,
+            &registry,
+            req,
+        )
+        .await
+        .expect("mount");
+        generate_session(
+            rig.head.endpoint(),
+            rig.head.memory_lookup(),
+            &rig.head_kp,
+            &registry,
+            "s81-i-stale",
+            "first-run",
+        )
+        .await
+        .expect("first drive");
+        assert_eq!(
+            registry
+                .result_data("s81-i-stale")
+                .unwrap()
+                .result_text
+                .as_deref(),
+            Some("first-run"),
+            "first drive result is readable"
+        );
+
+        // Drop the workers so the second drive re-dials into the void and
+        // fails — the OLD success must be gone, not served stale.
+        rig.shutdown_workers().await;
+        let _ = generate_session(
+            rig.head.endpoint(),
+            rig.head.memory_lookup(),
+            &rig.head_kp,
+            &registry,
+            "s81-i-stale",
+            "second-run",
+        )
+        .await;
+        let result = registry.result_data("s81-i-stale").unwrap();
+        assert!(
+            result.result_text.is_none(),
+            "the stale first-run result must be cleared, got: {:?}",
+            result.result_text
+        );
+        assert!(
+            result.run_proof.is_none(),
+            "the stale RunProof must be cleared"
+        );
+        assert!(
+            result.failure.is_some(),
+            "the second drive's failure is surfaced"
+        );
+        rig.head.shutdown().await.ok();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn status_of_reports_lifecycle() {
+        // Review Cible 2 P2 (GPT-5.6 Sol): the generate route's 409 precheck
+        // reads status_of. A mounted-but-undriven session is Ready; an
+        // unmounted id is None.
+        let rig = shard_rig(vec![Arc::new(EchoForwarder), Arc::new(EchoForwarder)]).await;
+        let registry = ShardSessionRegistry::default();
+        mount_session(
+            rig.head.endpoint(),
+            rig.head.memory_lookup(),
+            &rig.head_kp,
+            &registry,
+            mount_request(&rig, "s81-i-status", &[1_000, 1_000]),
+        )
+        .await
+        .expect("mount");
+        assert_eq!(
+            registry.status_of("s81-i-status"),
+            Some(ShardSessionStatus::Ready),
+            "a mounted, undriven session is Ready"
+        );
+        assert_eq!(registry.status_of("missing"), None, "unmounted -> None");
         rig.shutdown().await;
     }
 

@@ -7,7 +7,7 @@ review/audit) dans le workflow SBFB.
 
 | Driver | Verificateur | Notes |
 |--------|-------------|-------|
-| Claude | Codex | Actuel. Codex = CLI OpenAI GPT-5.6 Sol (`codex exec -m gpt-5.6-sol -c model_reasoning_effort=max` ; bascule 5.5→5.6 Sol 2026-07-10, tier flagship Pro au reasoning `max`, requiert CLI codex >=0.144.1). |
+| Claude | Codex | Actuel. Codex = CLI OpenAI GPT-5.6 Sol (`codex exec -m gpt-5.6-sol -c model_reasoning_effort=max` ; bascule 5.5→5.6 Sol 2026-07-10, tier flagship au reasoning `max`, acces verifie sur ce compte, CLI codex recent requis — cf. README §4.5.2 pour le piege de version PowerShell). |
 | Claude | Claude | Fallback si Codex indisponible. Meme session = biais, mais acceptable ponctuellement. |
 | Codex/GPT/local | Claude | Driver non-Claude code, Claude review-deep + audit. |
 | LLM local | LLM local | Full offline. Moins de profondeur (pas WebSearch/context7), meme workflow. |

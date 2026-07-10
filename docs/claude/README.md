@@ -976,9 +976,10 @@ processus a deux couches : une **orchestration Workflow ultracode**
 (fan-out d'agents Claude ultra-profonds, 1M tokens chacun, +
 verification adversariale + synthese) pour le preflight et la review,
 puis une verification croisee independante par Codex CLI (GPT-5.6 Sol,
-`gpt-5.6-sol` reasoning `max` — bascule 5.5→5.6 Sol 2026-07-10, le
-tier flagship du plan Pro au reasoning maximal ; a exige un upgrade CLI
-codex >=0.144.1, cf. §4.5.2).
+`gpt-5.6-sol` reasoning `max` — bascule 5.5→5.6 Sol 2026-07-10, le tier
+flagship, au reasoning maximal ; acces VERIFIE sur ce compte Codex, a
+exige un upgrade CLI codex — 0.142.5 refuse, 0.144.1 fonctionne, cf.
+§4.5.2).
 
 Le superviseur process (`nexus-process-supervisor`) et les
 consultations de gate GO/BLOCK (`G-SPAWN`/`G-PREFLIGHT`/`G-REVIEW`/
@@ -1071,7 +1072,7 @@ Get-Content ".git/CODEX_SPRINT{N}_PHASE_{X}.txt" -Raw | codex exec `
 
 | Parametre | Role |
 |-----------|------|
-| `-m gpt-5.6-sol` | Modele de la review croisee = GPT-5.6 Sol (tier flagship Pro). SCOPE la review SBFB sans toucher le default global `~/.codex/config.toml` des autres projets. Bascule 5.5→5.6 Sol 2026-07-10. Requiert CLI codex >=0.144.1 (sinon `400 requires a newer version of Codex`). Slug exact : `sol` (PAS `solar`/`sol-pro`/`codex-sol`, tous refuses en compte ChatGPT). |
+| `-m gpt-5.6-sol` | Modele de la review croisee = GPT-5.6 Sol (tier flagship, acces verifie sur ce compte). SCOPE la review SBFB sans toucher le default global `~/.codex/config.toml` des autres projets. Bascule 5.5→5.6 Sol 2026-07-10. Requiert un CLI codex recent (0.142.5 donne `400 requires a newer version of Codex`, 0.144.1 fonctionne — l'install que PowerShell resout doit etre a jour, cf. NOTE ci-dessous). Slug exact : `sol` (PAS `solar`/`sol-pro`/`codex-sol`, tous refuses en compte ChatGPT). |
 | `-c model_reasoning_effort=max` | Epingle l'effort `max` explicitement (independant du global) — la review croisee vise la profondeur maximale (directive PO 2026-07-10). Sol supporte aussi `ultra` au-dessus si une phase le justifie ; `xhigh` en-dessous si le budget temps l'exige. |
 | `--dangerously-bypass-approvals-and-sandbox` | Execution sans approbation interactive (equivalent de `--yolo`) |
 | `-o fichier.md` | Ecrit l'output dans un fichier lisible par Claude apres execution |
@@ -1081,6 +1082,7 @@ Get-Content ".git/CODEX_SPRINT{N}_PHASE_{X}.txt" -Raw | codex exec `
 | Anti-pattern | Symptome | Pourquoi |
 |---|---|---|
 | `-m o3` / `-m gpt-5.6-solar` / `-m gpt-5.6-sol-pro` | Erreur 400 "not supported when using Codex with a ChatGPT account" | Compte ChatGPT, pas API — le slug flagship valide est `gpt-5.6-sol` (Sol, pas `solar` ni `sol-pro`) |
+| Upgrade CLI cote Bash/fnm seulement | PowerShell garde l'ancienne version → `400 requires a newer version of Codex` sur `gpt-5.6-sol` | Deux installs Node coexistent (fnm-multishells pour Git Bash, `C:\Program Files\nodejs` → `AppData\Roaming\npm` pour PowerShell). La gate tourne via PowerShell → `npm install -g @openai/codex@latest` DOIT etre lance dans l'environnement Node que PowerShell resout (verifier `(Get-Command codex).Source` + `codex --version` EN PowerShell). |
 | Here-string PowerShell direct | Parsing errors sur apostrophes francaises | PowerShell interprete les guillemets internes |
 | Prompt inline en argument | Codex attend stdin quand pas d'argument | Le prompt doit passer par stdin ou fichier |
 | Prompt sans `-o` | Output pas recuperable par Claude | Toujours `-o fichier.md` pour lecture post-exec |

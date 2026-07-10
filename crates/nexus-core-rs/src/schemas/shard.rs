@@ -57,12 +57,13 @@ use crate::shard_plan::{RunMetrics, RunProof, ShardAssignment, ShardPlan, Sharde
 /// ADMISSION control, not a confidentiality guarantee, and a loopback caller
 /// still has no business enumerating who composes someone's pipeline.
 ///
-/// Scope, honestly bounded: the two fields here are everything a control-plane
-/// WITHOUT a running data plane can truthfully derive from a stored manifest.
-/// A richer runtime status (pipeline lifecycle, attained verification level)
-/// requires live telemetry from a running pipeline; it is added — additive,
-/// 0-bump — once the live data-plane store lands (deferred, Sprint 78).
-/// Shipping it now would be an un-populatable contract, not an honest one.
+/// Scope, honestly bounded: the aggregate fields here (`session_id`,
+/// `member_count`, `rtt_frontier_ms`) are everything a control-plane can
+/// truthfully expose from a mounted session WITHOUT leaking the private
+/// group's composition. A richer runtime status (pipeline lifecycle,
+/// attained verification level) stays additive / 0-bump; Sprint 81 Phase I
+/// landed the live registry + the readiness-barrier RTT, the deeper
+/// per-shard telemetry is the live-benchmark concern (Phase J).
 ///
 /// Defined in `nexus-core-rs` (not the daemon) so its `schema_for!` can live
 /// next to the other shard schemas: the daemon depends on core, so a core

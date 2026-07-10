@@ -2343,12 +2343,26 @@ async fn shard_session_generate(
         )
             .into_response();
     }
-    if state.shard_sessions.status_data(&session_id).is_none() {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({ "accepted": false, "error": "session not mounted" })),
-        )
-            .into_response();
+    match state.shard_sessions.status_of(&session_id) {
+        None => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "accepted": false, "error": "session not mounted" })),
+            )
+                .into_response();
+        }
+        // Best-effort 409 precheck (review Cible 2 P2): a concurrent drive
+        // sees an honest "already generating" instead of a 202 whose spawned
+        // task silently no-ops. The atomic guard in generate_session stays
+        // the real backstop for the residual check-then-spawn TOCTOU.
+        Some(crate::shard_session::ShardSessionStatus::Generating) => {
+            return (
+                StatusCode::CONFLICT,
+                Json(serde_json::json!({ "accepted": false, "error": "already generating" })),
+            )
+                .into_response();
+        }
+        Some(_) => {}
     }
     let node = Arc::clone(&state.node);
     let keypair = Arc::clone(&state.pow_keypair);

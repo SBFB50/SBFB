@@ -1,44 +1,52 @@
-Verdict global : **PARTIEL**, pas de P0/P1 trouvé. Le P1 interne SI-9 semble corrigé : le timeout couvre bien `open_bi + write_frame + read_frame`. Le diff est cohérent avec Phase I, mais il reste un vrai gap P2 sur la borne de readiness et quelques résidus P3 de documentation/worktree.
+Verdict round 2 : les 3 P1 sont corrigés. En revanche, le P2 concurrent reste partiellement ouvert et la prose P3 du harness n’est corrigée qu’à moitié. Verdict global : pas `CLEAN`.
 
-**Livrables**
-1. `shard_session.rs` : **PARTIEL**  
-   OK sur mint head-as-member (`crates/nexus-shell-daemon/src/shard_session.rs:491`), gate registre signature/binding/contiguite/membership/adresses/duplicate (`:337`, `:393`), Debug count-only (`:323`), manifest signé et rejet federation (`:513`, `:532`, `:571`), mount gate avant reseau + teardown readiness (`:648`, `:656`, `:679`), RunProof prod + verify (`:986`, `:989`), HUB + fallback replay (`:848`, `:938`).  
-   Gap P2 : `probe_shard_readiness` borne `open_shard_connection` par `deadline`, puis redémarre un budget RTT après l’ouverture (`:595`, `:602`, `:607`), donc le couple handshake+RTT peut durer presque 2x deadline.
+1. RunProof participants — CORRIGÉ
 
-2. `http.rs` routes shard-session : **OK**  
-   Routes dans `authed_routes`, avant middleware auth/Host/Origin (`crates/nexus-shell-daemon/src/http.rs:282`, `:323`, `:529`). Stub remplacé par lecture registre (`:2154`). Duress avant travail pour group/mount/generate (`:2219`, `:2268`, `:2326`). Generate 202 fire-and-forget + mismatch path/body (`:2335`, `:2357`). Result envelope `{found,result}` avec champs harness (`:2381`, `:2388`). Empty-envelope et privacy testés (`:5503`, `:5541`, `:6536`).
+- `executed_by` suit l’ordre des stages et reçoit exactement le primaire après succès ou le fallback après reroutage : [shard_session.rs:940-945](/C:/Users/FlowUP/Documents/Code/nexus/crates/nexus-shell-daemon/src/shard_session.rs:940), [shard_session.rs:983-989](/C:/Users/FlowUP/Documents/Code/nexus/crates/nexus-shell-daemon/src/shard_session.rs:983), [shard_session.rs:1038-1043](/C:/Users/FlowUP/Documents/Code/nexus/crates/nexus-shell-daemon/src/shard_session.rs:1038).
+- Ce vecteur est transmis sans reconstruction à `RunProof::new` : [shard_session.rs:1067-1080](/C:/Users/FlowUP/Documents/Code/nexus/crates/nexus-shell-daemon/src/shard_session.rs:1067).
+- Le test exige bien la présence du fallback et l’absence du primaire : [shard_session.rs:1725-1744](/C:/Users/FlowUP/Documents/Code/nexus/crates/nexus-shell-daemon/src/shard_session.rs:1725).
+- Test exécuté : PASS.
 
-3. Schémas core : **OK**  
-   `ShardSessionView.rtt_frontier_ms` nullable requis (`crates/nexus-core-rs/src/schemas/shard.rs:79`). Nouveaux DTO result (`:108`, `:158`), schemas (`:205`), snapshots (`:255`), whitelist view/result sans identités (`:398`, `:433`). `lib.rs` et `schemas/mod.rs` ré-exportent (`crates/nexus-core-rs/src/lib.rs:182`, `crates/nexus-core-rs/src/schemas/mod.rs:45`). `check-frontier-contracts` est vert.
+2. État/résultat stale — CORRIGÉ
 
-4. CLI opérateur : **OK**  
-   Sous-commande complète (`crates/nexus-shell-daemon/src/cli.rs:155`, `:178`). Clef persistante avec refus taille invalide (`crates/nexus-shell-daemon/src/main.rs:128`). Auto-discovery `running.json` + token bootstrap (`:171`, `:189`). `serve` vérifie group signé + `is_member`, expose `SHARD_ALPN` + EchoForwarder, imprime JSON (`:250`, `:257`, `:265`, `:274`). Aucun changement de dépendances détecté.
+- Sous le même verrou, la transition vers `Generating` efface immédiatement `outcome` et `failure` : [shard_session.rs:841-856](/C:/Users/FlowUP/Documents/Code/nexus/crates/nexus-shell-daemon/src/shard_session.rs:841).
+- Le test réalise une première génération réussie, tue les workers, relance une génération défaillante puis vérifie l’absence de l’ancien texte et de l’ancien RunProof : [shard_session.rs:1777-1827](/C:/Users/FlowUP/Documents/Code/nexus/crates/nexus-shell-daemon/src/shard_session.rs:1777), [shard_session.rs:1828-1850](/C:/Users/FlowUP/Documents/Code/nexus/crates/nexus-shell-daemon/src/shard_session.rs:1828).
+- Test exécuté : PASS.
 
-5. Web API : **OK**  
-   Zod accepte `rtt_frontier_ms` nullable optional pour version-skew (`web/src/api/daemon.ts:545`, `:553`). Envelope reste `.strict()` (`:569`). Test fixture renforcé avec RTT (`web/src/api/__tests__/daemon.test.ts:1017`) et nouveau test old-daemon tolerance (`:1036`).
+3. Fuite d’identité QUIC — CORRIGÉ
 
-6. `sprint81_plan.md` : **PARTIEL**  
-   L’amendement Phase J pose bien baseline HUB, pas Petals direct-s2s, churn et RunProof driver (`.planning/active/sprint81_plan.md:381`). Mais le bloc Phase I garde une formulation ambiguë “session shard 2-machines réelle” (`:368`), contraire au cadrage “Phase J = live 2-machines”.
+- `sanitize_diagnostic` remplace les runs hexadécimaux d’au moins 32 caractères, neutralise les caractères de contrôle/espaces et borne la sortie à 240 caractères : [shard_session.rs:778-816](/C:/Users/FlowUP/Documents/Code/nexus/crates/nexus-shell-daemon/src/shard_session.rs:778).
+- Les trois erreurs de `drive_hop` sont nettoyées : [shard_session.rs:750-765](/C:/Users/FlowUP/Documents/Code/nexus/crates/nexus-shell-daemon/src/shard_session.rs:750).
+- Readiness et re-dial primaire sont nettoyés : [shard_session.rs:601-615](/C:/Users/FlowUP/Documents/Code/nexus/crates/nexus-shell-daemon/src/shard_session.rs:601), [shard_session.rs:959-977](/C:/Users/FlowUP/Documents/Code/nexus/crates/nexus-shell-daemon/src/shard_session.rs:959).
+- Le fallback repasse par la readiness nettoyée, puis toutes les erreurs sont rescrubbées avant log et stockage dans `failure` : [shard_session.rs:1017-1037](/C:/Users/FlowUP/Documents/Code/nexus/crates/nexus-shell-daemon/src/shard_session.rs:1017), [shard_session.rs:905-912](/C:/Users/FlowUP/Documents/Code/nexus/crates/nexus-shell-daemon/src/shard_session.rs:905).
+- Une pubkey contiguë de 64 caractères hex ne peut donc plus atteindre `failure` par ces chemins. Les encodages alternatifs ou hex séparé ne font pas partie du motif traité.
+- Le test couvre la clé 64-hex, les contrôles, la conservation des identifiants courts et la longueur : [shard_session.rs:1749-1774](/C:/Users/FlowUP/Documents/Code/nexus/crates/nexus-shell-daemon/src/shard_session.rs:1749). PASS. Il reste un test unitaire du sanitizer, pas une injection QUIC end-to-end.
 
-7. Artefacts process : **OK**  
-   Preflight en `PLAN-ADAPT` (`.planning/active/sprint81_phase_i_preflight.md:3`). Review avec header unique `PASS-PENDING` et boucle post-FAIL documentée (`.planning/active/sprint81_phase_i_review.md:3`, `:5`).
+4. Generate concurrent 202/202 — PARTIEL
 
-**Invariants**
-- 0 bump wire : **OK**. `compute_group.rs`, `shard_plan.rs`, data-plane `shard.rs` non modifiés; `sbfb/shard/1`, plan/run/feed v1 inchangés.
-- 0 dépendance nouvelle : **OK**. Aucun `Cargo.toml`, `Cargo.lock`, `package.json` dans le diff.
-- Privacy SI-3/SI-4 : **OK fonctionnel**. Projections/test JSON excluent identités complètes; registry Debug count-only.
-- Duress : **OK** pour group/mount/generate.
-- Delta tests annoncé : **OK**. Vérifié 15 tests in-module shard session, 3 tests HTTP shard-session dont 1 net-new duress, 6 tests schemas shard dont whitelist result, 51 tests Vitest daemon.
+- Le précheck existe et renvoie bien `409 already generating` lorsqu’il observe déjà `Generating` : [http.rs:2346-2365](/C:/Users/FlowUP/Documents/Code/nexus/crates/nexus-shell-daemon/src/http.rs:2346).
+- La garde atomique sous verrou demeure : [shard_session.rs:841-850](/C:/Users/FlowUP/Documents/Code/nexus/crates/nexus-shell-daemon/src/shard_session.rs:841), avec test PASS : [shard_session.rs:2001-2040](/C:/Users/FlowUP/Documents/Code/nexus/crates/nexus-shell-daemon/src/shard_session.rs:2001).
+- Mais le défaut HTTP 202/202 reste possible : deux handlers peuvent lire `Ready` avant que l’une des tâches créées ligne 2371 n’exécute la transition atomique. Les deux réponses seront alors `202`, même si une seule génération s’exécute : [http.rs:2367-2387](/C:/Users/FlowUP/Documents/Code/nexus/crates/nexus-shell-daemon/src/http.rs:2367).
+- Le commentaire reconnaît lui-même ce TOCTOU. Il faut réserver atomiquement la session avant d’émettre `202` pour fermer réellement le P2.
 
-**Vérifications lancées**
-- `cargo test -p nexus-shell-daemon shard_session::tests --locked` : 15 passed.
-- `cargo test -p nexus-shell-daemon shard_session_ --locked` : 3 passed.
-- `cargo test -p nexus-core-rs schemas::shard::tests --locked` : 6 passed.
-- `cd web && npm run test:unit -- daemon.test.ts` : 51 passed.
-- `bash scripts/check-frontier-contracts.sh` : clean.
+5. Proses P3 — PARTIEL
 
-**GAPs**
+- `ShardSessionView` ne dit plus « two fields » et énumère correctement les trois champs : [shard.rs:60-66](/C:/Users/FlowUP/Documents/Code/nexus/crates/nexus-core-rs/src/schemas/shard.rs:60). CORRIGÉ.
+- Le bloc preflight du harness dit maintenant que l’orchestrateur existe : [b3_shard_pipeline.sh:223-239](/C:/Users/FlowUP/Documents/Code/nexus/scripts/acceptance/b3_shard_pipeline.sh:223).
+- Mais l’en-tête du même fichier affirme encore exactement l’inverse : orchestrateur « NOT yet wired », route « Phase J STUB », aucun caller production et gate structurellement inaccessible : [b3_shard_pipeline.sh:41-56](/C:/Users/FlowUP/Documents/Code/nexus/scripts/acceptance/b3_shard_pipeline.sh:41). Le P3 n’est donc pas entièrement fermé.
+
+6. Régressions — AUCUNE NOUVELLE RÉGRESSION RUST DÉTECTÉE
+
+- `cargo fmt --all --check` : PASS.
+- Tests ciblés `shard_session` : 18/18 PASS.
+- `cargo nextest run -p nexus-shell-daemon -p nexus-core-rs --locked --no-fail-fast` : 912/912 PASS.
+- Clippy sur les deux paquets, tous targets, `-D warnings` : PASS.
+- `bash -n scripts/acceptance/b3_shard_pipeline.sh` et `git diff --check bb6c4f9` : PASS.
+- Un test de convergence hors diff a échoué une première fois par timeout, puis a passé isolément et dans le rerun exhaustif ; aucune régression attribuable au diff n’est démontrée.
+
+GAPs restants :
+
 - P0 : aucun.
 - P1 : aucun.
-- P2 : readiness deadline non holistique dans `probe_shard_readiness` (`shard_session.rs:595`, `:602`, `:607`).
-- P3 : teardown fallback non explicite si le fallback `drive_hop` échoue après readiness (`shard_session.rs:943`), résidus prose “pas de live store / Phase J” dans front/tests/harness, et fichier untracked hors scope `.planning/research/psyche_nous_analysis_2026-07.md`.
+- P2 : fenêtre TOCTOU permettant encore deux réponses HTTP `202/202`.
+- P3 : prose contradictoire aux lignes 41–56 du harness `b3_shard_pipeline.sh`.

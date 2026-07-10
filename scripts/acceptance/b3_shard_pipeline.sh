@@ -37,31 +37,28 @@
 # The cross-machine sharding CORE is delivered and hermetically tested
 # (placement, routing, N0-N3 verification, the `sbfb/shard/1`
 # data-plane boundary-frame forwarder over a long-lived bi-stream with
-# admission, the forked layer-block backend, the worker claim). What is
-# NOT yet wired is the
-# production SESSION ORCHESTRATOR that mounts a shard session, drives a
-# token-by-token cross-shard generation, measures TTFT/tok-s, and
-# collects an in-vivo signed RunProof:
-#   - the daemon read-only route `GET /api/daemon/shard-session/{id}`
-#     is a Phase J STUB (`live_shard_session` returns `None`, so the
-#     envelope is always `{found:false, session:null}`);
-#   - no production caller constructs or signs a `RunProof` in-vivo;
-#     the only `RunProof::new` / `RunProofEntry::sign` call-sites live
-#     under `#[cfg(test)]`;
-#   - `open_shard_connection` documents a "caller" that drives a
-#     long-lived bi-stream generation — that caller does not exist in
-#     production yet.
-# So `ttft_s` / `toks_per_s` / `run_proof` are populated by NO
-# production path, and `pass()` (which REQUIRES a non-empty run_proof
-# AND toks_per_s >= 1) is structurally unreachable today, with or
-# without the 2-machine rig. This harness therefore reports RIG-ABSENT
-# with a precise diagnosis. This is PLANNED by plan §14.4 (the shard
-# feature stays PROVISIONAL + carry P1 into S78); the JSON `status`
-# field is the verdict, never a prose excuse.
-# The harness is written FORWARD: once the S78 session orchestrator
-# lands, the `session-mount` stage returns a live session and the
-# generation/measurement/churn stages below run unchanged, producing a
-# real PASS or BLOCK.
+# admission, the forked layer-block backend, the worker claim). Since
+# S81 Phase I the production SESSION ORCHESTRATOR EXISTS: it mounts a
+# shard session, drives a token-by-token cross-shard generation,
+# measures TTFT/tok-s, and collects an in-vivo signed RunProof:
+#   - the daemon route `GET /api/daemon/shard-session/{id}` reads the
+#     live session registry and answers `{found:true, ...}` once a
+#     session is mounted (the empty `{found:false}` envelope is now
+#     only the UNMOUNTED state);
+#   - `mount_session` populates the registry and `generate_session`
+#     is the first production `RunProof::new` / `RunProofEntry::sign`
+#     call-site (no longer `#[cfg(test)]`-only);
+#   - the driver that `open_shard_connection` documents now exists
+#     (`shard_session::drive_pipeline`).
+# So `ttft_s` / `toks_per_s` / `run_proof` ARE populated once the
+# operator mounts a session and drives it. What remains before a real
+# PASS is the LIVE 2-machine rig + convergence (Phase J). Absent a
+# mounted session or the rig, this harness reports RIG-ABSENT with a
+# precise diagnosis; the JSON `status` field is the verdict, never a
+# prose excuse.
+# The harness runs FORWARD: mount a session (nexus-shell-daemon
+# shard-session group + serve + mount), set SHARD_SESSION_ID, and the
+# generation/measurement/churn stages below run to a real PASS or BLOCK.
 #
 # Rig config as DATA: drop a gitignored
 # `scripts/acceptance/rig.local.env` (override path with RIG_ENV)
@@ -221,22 +218,23 @@ N_SHARDS=$((10#$N_SHARDS))
 log "=== preflight (orchestrator + 2-machine rig presence + project reconciliation) ==="
 
 # STRUCTURAL precondition first (hardware-independent): is there even a
-# shard session to drive? Today there is not — no production orchestrator
-# creates one (the daemon route is a Phase J read-only stub), so a sharded
-# generation cannot be driven end-to-end on ANY rig. This is THE reason T2
-# is RIG-ABSENT, independent of the 5080/Mac hardware, and the honest
-# primary diagnosis for the S78 carry.
+# shard session to drive? Since S81 Phase I the production orchestrator
+# EXISTS (nexus-shell-daemon shard-session mount populates the live
+# registry), so the operator must MOUNT a session and pass its id here
+# before this gate can drive it. An unset id means the operator has not
+# mounted one yet — RIG-ABSENT on setup, independent of the 5080/Mac rig.
 if [ -z "$SHARD_SESSION_ID" ]; then
-  rig_absent "no shard session to drive: SHARD_SESSION_ID is unset and no production \
-orchestrator creates one. The sbfb/shard/1 data-plane serves a long-lived bi-stream, \
-forwarding each boundary frame through one layer block with admission control, but no \
-production caller drives a token-by-token cross-shard generation, measures TTFT/tok-s, \
-or emits an in-vivo RunProof. \
-The HTTP route GET /api/daemon/shard-session/{id} is a Phase J read-only STUB \
-(live_shard_session -> None). The sharding CORE (placement, routing, N0-N3 verification, \
-the data-plane forwarder + admission, the forked layer-block backend, the worker claim) is \
-delivered and hermetically tested; only the live SESSION ORCHESTRATOR remains — an S78 \
-carry. Set SHARD_SESSION_ID once it lands and a session can be mounted."
+  rig_absent "no shard session to drive: SHARD_SESSION_ID is unset. Mount one first via the \
+orchestrator (nexus-shell-daemon shard-session group + serve on each worker + mount, S81 Phase I), \
+then pass its id as SHARD_SESSION_ID. The sbfb/shard/1 data-plane serves a long-lived bi-stream, \
+forwarding each boundary frame through one layer block with admission control; the orchestrator \
+drives a token-by-token cross-shard generation, measures TTFT/tok-s, \
+and emits an in-vivo RunProof. \
+The HTTP route GET /api/daemon/shard-session/{id} reads the live session registry (S81 Phase I) \
+and answers found:true once a session is mounted. The sharding CORE (placement, routing, \
+N0-N3 verification, the data-plane forwarder + admission, the forked layer-block backend, the \
+worker claim) is delivered and hermetically tested, and the live SESSION ORCHESTRATOR now exists \
+(S81 Phase I, ex-S78 carry). Mount a session and set SHARD_SESSION_ID."
 fi
 
 [ -n "$PROJECT_ID" ]  || rig_absent "PROJECT_ID unset (set it in env or $RIG_ENV)"
