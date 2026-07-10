@@ -63,7 +63,7 @@ tout role. La profondeur varie selon les capacites.
 | Provider | Contexte max | Outils specifiques | Roles naturels | Limites |
 |----------|-------------|-------------------|----------------|---------|
 | Claude (Opus/Sonnet) | 1M tokens | WebSearch, context7, Read 1M, Agent spawn | Tous | Pas d'execution shell autonome sans session |
-| Codex (GPT 5.5) | Variable | `codex exec`, shell sandbox | `codex-verifier`, `driver` | Output brut ; pas de web search |
+| Codex (GPT-5.6 Sol) | Variable | `codex exec -m gpt-5.6-sol -c model_reasoning_effort=max`, shell sandbox | `codex-verifier`, `driver` | Output brut ; pas de web search ; requiert CLI >=0.144.1 |
 | GPT (4o/o1/5) | 128K-1M | WebSearch, code interpreter | `driver`, `reviewer`, `researcher` | Pas de context7 ; adapter references |
 | Local (Ollama, llama.cpp) | 8K-128K | Aucun externe | `driver` (bounded), `reviewer` (bounded) | Pas de web ; prompt court ; taches bornees |
 | Humain | Illimite | Tous les outils manuels | Tous | Lenteur ; fatigue ; autorite finale |

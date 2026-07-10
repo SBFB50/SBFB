@@ -82,7 +82,7 @@ Process courant (ne pas réinventer) :
     code JAMAIS une phase en parallèle ; l'écriture d'une phase reste
     main-thread, séquentielle, un commit atomique par phase.
   - PAS DE SUPERVISEUR (amendement 2026-06-17) : ne crée aucun teammate
-    supervisor, n'attends aucun verdict GO-*/BLOCK-*. Codex (GPT 5.5) = vérif
+    supervisor, n'attends aucun verdict GO-*/BLOCK-*. Codex (GPT-5.6 Sol) = vérif
     croisée externe après review Workflow PASS-PENDING. Seul gate automatisé
     au commit = hook phase-precommit-lightcheck.sh.
   - Modèle agents : ID explicite claude-opus-4-8[1m], jamais l'alias « opus »,
@@ -895,7 +895,7 @@ déclenche un nouveau cycle.
 
 **Verification croisee Codex (depuis S65, cf. §4.5).** Apres que
 toutes les suites sont vertes et que la review Claude a produit un
-verdict `PASS-PENDING`, lancer la verification Codex GPT 5.5 pour
+verdict `PASS-PENDING`, lancer la verification Codex GPT-5.6 Sol pour
 TOUTES les phases sans exception (§4.5.6). Sequence complete avant
 commit phase :
 
@@ -969,13 +969,16 @@ etc.) + Meta-track LOC estimations (transverse P3-S22A-1 +
 P3-B-1 + P2-E-2 + Phase D déviation LOC = 4 occurrences du
 même pattern à fermer S23 chore planning).
 
-### 4.5 Verification Process — Workflow ultracode + Codex GPT 5.5
+### 4.5 Verification Process — Workflow ultracode + Codex GPT-5.6 Sol
 
 Depuis Sprint 65, chaque phase de chaque sprint est verifiee par un
 processus a deux couches : une **orchestration Workflow ultracode**
 (fan-out d'agents Claude ultra-profonds, 1M tokens chacun, +
 verification adversariale + synthese) pour le preflight et la review,
-puis une verification croisee independante par Codex CLI (GPT 5.5).
+puis une verification croisee independante par Codex CLI (GPT-5.6 Sol,
+`gpt-5.6-sol` reasoning `max` — bascule 5.5→5.6 Sol 2026-07-10, le
+tier flagship du plan Pro au reasoning maximal ; a exige un upgrade CLI
+codex >=0.144.1, cf. §4.5.2).
 
 Le superviseur process (`nexus-process-supervisor`) et les
 consultations de gate GO/BLOCK (`G-SPAWN`/`G-PREFLIGHT`/`G-REVIEW`/
@@ -1021,7 +1024,7 @@ Workflow phase review (fan-out dimensions + verif adversariale)
   |  6+ dimensions, synthese -> verdict PASS-PENDING/CONCERN/FAIL
   v
 Codex verification (codex exec, prompt structure, findings)
-  |  Review croisee independante GPT 5.5
+  |  Review croisee independante GPT-5.6 Sol
   v
 Claude reconciliation (lit Codex, corrige/documente, promeut review.md a PASS)
   |
@@ -1059,6 +1062,7 @@ plus de superviseur ni de consultation GO/BLOCK entre les etapes.
 
 # 2. Pipe via stdin vers codex exec
 Get-Content ".git/CODEX_SPRINT{N}_PHASE_{X}.txt" -Raw | codex exec `
+  -m gpt-5.6-sol -c model_reasoning_effort=max `
   --dangerously-bypass-approvals-and-sandbox `
   -o ".planning/active/sprint{N}_phase_{X}_codex_review.md"
 ```
@@ -1067,6 +1071,8 @@ Get-Content ".git/CODEX_SPRINT{N}_PHASE_{X}.txt" -Raw | codex exec `
 
 | Parametre | Role |
 |-----------|------|
+| `-m gpt-5.6-sol` | Modele de la review croisee = GPT-5.6 Sol (tier flagship Pro). SCOPE la review SBFB sans toucher le default global `~/.codex/config.toml` des autres projets. Bascule 5.5→5.6 Sol 2026-07-10. Requiert CLI codex >=0.144.1 (sinon `400 requires a newer version of Codex`). Slug exact : `sol` (PAS `solar`/`sol-pro`/`codex-sol`, tous refuses en compte ChatGPT). |
+| `-c model_reasoning_effort=max` | Epingle l'effort `max` explicitement (independant du global) — la review croisee vise la profondeur maximale (directive PO 2026-07-10). Sol supporte aussi `ultra` au-dessus si une phase le justifie ; `xhigh` en-dessous si le budget temps l'exige. |
 | `--dangerously-bypass-approvals-and-sandbox` | Execution sans approbation interactive (equivalent de `--yolo`) |
 | `-o fichier.md` | Ecrit l'output dans un fichier lisible par Claude apres execution |
 
@@ -1074,7 +1080,7 @@ Get-Content ".git/CODEX_SPRINT{N}_PHASE_{X}.txt" -Raw | codex exec `
 
 | Anti-pattern | Symptome | Pourquoi |
 |---|---|---|
-| `-m o3` | Erreur "model not available" | Compte ChatGPT, pas API — utiliser le default GPT 5.5 |
+| `-m o3` / `-m gpt-5.6-solar` / `-m gpt-5.6-sol-pro` | Erreur 400 "not supported when using Codex with a ChatGPT account" | Compte ChatGPT, pas API — le slug flagship valide est `gpt-5.6-sol` (Sol, pas `solar` ni `sol-pro`) |
 | Here-string PowerShell direct | Parsing errors sur apostrophes francaises | PowerShell interprete les guillemets internes |
 | Prompt inline en argument | Codex attend stdin quand pas d'argument | Le prompt doit passer par stdin ou fichier |
 | Prompt sans `-o` | Output pas recuperable par Claude | Toujours `-o fichier.md` pour lecture post-exec |
@@ -2137,7 +2143,7 @@ phase.
     review + verification adversariale, synthese -> verdict (§4.5.7).
     Remplace l'agent unique `nexus-phase-review-deep` + le gate
     superviseur. Plus aucune consultation GO/BLOCK.
-  - Codex (GPT 5.5) reste la verification croisee externe apres la
+  - Codex (GPT-5.6 Sol) reste la verification croisee externe apres la
     review Workflow PASS-PENDING.
   - L'unique gate AUTOMATISE avant commit est le hook mecanique
     `phase-precommit-lightcheck.sh` (staging coherence, body 9
@@ -2344,11 +2350,13 @@ procédure lui-même (sauf Cas D hotfix).
       autorise directement le passage a Codex.
 
     APRÈS review PASS-PENDING, AVANT commit (Codex §4.5) :
-      Lancer la verification croisee Codex GPT 5.5 pour TOUTES
+      Lancer la verification croisee Codex GPT-5.6 Sol pour TOUTES
       les phases sans exception (§4.5.6 zero exemption).
       Ecrire prompt `.git/CODEX_SPRINT{N}_PHASE_{X}.txt`, lancer via
-      `Get-Content | codex exec -o .planning/active/
-      sprint{N}_phase_{X}_codex_review.md`.
+      `Get-Content | codex exec -m gpt-5.6-sol -c
+      model_reasoning_effort=max -o .planning/active/
+      sprint{N}_phase_{X}_codex_review.md` (slug exact `sol`, effort
+      `max`, requiert CLI codex >=0.144.1, cf. §4.5.2 pour les parametres).
       Le fichier codex_review.md DOIT etre l'output BRUT de
       `codex exec -o`. Claude NE DOIT PAS le reecrire, le
       condenser, ni le resumer. Le hook lightcheck Check 7 verifie
