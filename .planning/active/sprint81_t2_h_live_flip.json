@@ -1,0 +1,52 @@
+{
+  "suite": "sprint81-transport-h-live-flip-acceptance",
+  "kind": "named-live-check",
+  "iroh_lock": "iroh =1.0.1 / iroh-docs =0.101.0 / iroh-gossip =0.101.0 / iroh-blobs =0.103.0",
+  "date": "2026-07-10",
+  "deployed_commit": "58cef6d",
+  "vocabulary_note": "verdict uses the closed T2 vocabulary as a status+diagnosis pair (same shape as the A3/A4/E/E2/E3 artefacts); every palier below is the raw JSON emitted by scripts/acceptance/flip_convergence_check.sh (FLIP_ARTIFACT per node/stage, never prose)",
+  "scoping_note": "this is the LIVE flip of the REAL fleet (real daemons, real stores — NOT the ephemeral-store rig of E2/E3): dev Windows RTX 5080 + Mac M2 + anchor VPS Hetzner sbfb-eu, flipped same-day in ONE session per LIVE_FLIP_RUNBOOK.md, order dev Win -> Mac -> VPS LAST, publish/seed/subscribe freeze held for the whole window. Rollback never triggered. Binaries: win e4d346b4d4967943aa751a4df47742a3d041e6df2f188165aac9c83e8b156fd1 (target/release), mac arm64 d96ce2fecff70d3345a57845f942e83aa8b5ab0e2f95a6bd338591a50ac220b0 (built on-device from git bundle at 58cef6d, cargo 1.95), linux/VPS f382a75c229cbae61f4344388f6919e89bad13b14fcbeb8112960fafa6b53526 (sbfb-ci rust:1.94 container); 0.98 binaries kept side-by-side on all 3 nodes (win: worktree build at fdb8ad7 sha 389f104b..., mac: nexus-shell-daemon.098, vps: /usr/local/bin/nexus-shell-daemon.098 sha 8c10d2f4...). Fresh pre-flip tar snapshots (daemon STOPPED) on all 3 nodes, restorability verified (node_key 32 bytes, directory_revision.json present): win C:/Users/FlowUP/sbfb-snapshots/s81-phase-h/ (sbfb-home 2.1G + roaming daemon + local legacy), mac ~/sbfb-snapshots/s81-phase-h/, vps /root/sbfb-snapshots/vps-nexus-grid-pre-flip-20260710.tar.gz. GO/NO-GO fully walked: cargo deny green on 58cef6d, SBFB_IDENTITY_SECRET_HEX absent on all 3 envs + systemd unit, harness present on 3 nodes, stray non-systemd VPS daemon PID 1304217 (58-day residue noted in commit 8872596, separate roots /root/.sbfb) stopped at window open",
+  "baselines": {
+    "win": {"expect_node_id": "fe7a4898a1eff3a48685a59938a7d077623a031fe9e915030384e3b33b622e47", "archive_hash": "d9660a95c2c15b881ff43bf54fd43effaf25064241c7d79363ecb4be34c79e6c", "baseline_sha256": "a8a57f51c1942db8e0c6421fedd6d18f2dacf873e02ef573ac8ea13199576d7f", "captured_on": "0.98 worktree binary (fdb8ad7) booted on the real store, then stopped"},
+    "mac": {"expect_node_id": "6944503a3c50f34b73c2a24e8bd26dbff0db1f2ccd73cc055646392dadbba341", "local_app": "NONE (browse empty pre-flip, verified) — local health = boot + fail-closed identity; the app-serving leg is covered by the CROSS palier against the PC's app", "captured_on": "0.98 binary (.098, Jun 19 build) booted on the real store, then stopped"},
+    "vps": {"expect_node_id": "e77fd22535b32537a0478824d05c82d42a43076c9fe1b736744e7318ed5ca335", "archive_hash": "d9660a95c2c15b881ff43bf54fd43effaf25064241c7d79363ecb4be34c79e6c", "baseline_sha256": "a8a57f51c1942db8e0c6421fedd6d18f2dacf873e02ef573ac8ea13199576d7f", "captured_on": "live 0.98 systemd daemon (sbfb-explorer seeded via keep_online)"}
+  },
+  "paliers": {
+    "flip_win_local": {
+      "verdict": "PASS",
+      "raw": {"status": "PASS", "stage": "converged", "node_id": "fe7a4898a1eff3a48685a59938a7d077623a031fe9e915030384e3b33b622e47", "archive_hash": "d9660a95c2c15b881ff43bf54fd43effaf25064241c7d79363ecb4be34c79e6c", "sha256": "a8a57f51c1942db8e0c6421fedd6d18f2dacf873e02ef573ac8ea13199576d7f", "baseline_sha256": "a8a57f51c1942db8e0c6421fedd6d18f2dacf873e02ef573ac8ea13199576d7f", "delay_s": 0, "diagnosis": "browse reachable in 0s + index.html byte-identical to pre-flip baseline"},
+      "first_boot": "13:52Z — iroh_docs 'redb 2.x tuple format detected, running migration' -> docs.redb.backup-redb-v2-tuples sibling created; 0 error/panic beyond one expected WARN (IPv6 sendmsg NetworkUnreachable towards the still-0.98 VPS = the intra-window partition, logged per §15.5 non-menaces); note: the 1.0.1 singleton guard correctly REFUSED to start while the 0.98 capture daemon was still up (stop subcommand is a Sprint-7 stub — kill by PID is the operator path)"
+    },
+    "flip_mac_cross_dev_mac": {
+      "verdict": "PASS",
+      "raw": {"status": "PASS", "stage": "converged", "node_id": "6944503a3c50f34b73c2a24e8bd26dbff0db1f2ccd73cc055646392dadbba341", "archive_hash": "d9660a95c2c15b881ff43bf54fd43effaf25064241c7d79363ecb4be34c79e6c", "sha256": "a8a57f51c1942db8e0c6421fedd6d18f2dacf873e02ef573ac8ea13199576d7f", "baseline_sha256": "a8a57f51c1942db8e0c6421fedd6d18f2dacf873e02ef573ac8ea13199576d7f", "delay_s": 0, "diagnosis": "browse reachable in 0s + index.html byte-identical to pre-flip baseline"},
+      "first_boot": "13:53Z — same migration lines, backup sibling created, 0 error/panic; migration_004_populate_by_key_index executed",
+      "criterion_note": "this is the 2nd-node CROSS check (runbook 10d): the Mac (fail-closed identity) converges on the PC's app over the migrated pair — the Mac browse was EMPTY pre-flip, so the reachable entry + byte-identical blob prove docs/gossip/blob fetch across the two 1.0.1 nodes (Mac subscribes to the PC curator fe7a4898..., persisted subscriptions.json, hot-join at boot)"
+    },
+    "flip_vps_local_failclosed": {
+      "verdict": "PASS",
+      "raw": {"status": "PASS", "stage": "converged", "node_id": "e77fd22535b32537a0478824d05c82d42a43076c9fe1b736744e7318ed5ca335", "archive_hash": "d9660a95c2c15b881ff43bf54fd43effaf25064241c7d79363ecb4be34c79e6c", "sha256": "a8a57f51c1942db8e0c6421fedd6d18f2dacf873e02ef573ac8ea13199576d7f", "baseline_sha256": "a8a57f51c1942db8e0c6421fedd6d18f2dacf873e02ef573ac8ea13199576d7f", "delay_s": 0, "diagnosis": "browse reachable in 0s + index.html byte-identical to pre-flip baseline"},
+      "first_boot": "13:54Z — tar taken daemon-STOPPED in-window + restorability verified BEFORE install; migration ran, backup sibling created, systemctl NRestarts=0 (no crash-loop), 0 error/panic in journal; REQUIRE_NODE_ID=1 fail-closed held (THREAT_MODEL §15.5 row 3 mandate)"
+    },
+    "flip_cross_postvps_dev": {
+      "verdict": "PASS",
+      "raw": {"status": "PASS", "stage": "converged", "node_id": "fe7a4898a1eff3a48685a59938a7d077623a031fe9e915030384e3b33b622e47", "archive_hash": "d9660a95c2c15b881ff43bf54fd43effaf25064241c7d79363ecb4be34c79e6c", "sha256": "a8a57f51c1942db8e0c6421fedd6d18f2dacf873e02ef573ac8ea13199576d7f", "baseline_sha256": "a8a57f51c1942db8e0c6421fedd6d18f2dacf873e02ef573ac8ea13199576d7f", "delay_s": 0, "diagnosis": "browse reachable in 0s + index.html byte-identical to pre-flip baseline"}
+    },
+    "flip_cross_postvps_mac": {
+      "verdict": "PASS",
+      "raw": {"status": "PASS", "stage": "converged", "node_id": "6944503a3c50f34b73c2a24e8bd26dbff0db1f2ccd73cc055646392dadbba341", "archive_hash": "d9660a95c2c15b881ff43bf54fd43effaf25064241c7d79363ecb4be34c79e6c", "sha256": "a8a57f51c1942db8e0c6421fedd6d18f2dacf873e02ef573ac8ea13199576d7f", "baseline_sha256": "a8a57f51c1942db8e0c6421fedd6d18f2dacf873e02ef573ac8ea13199576d7f", "delay_s": 0, "diagnosis": "browse reachable in 0s + index.html byte-identical to pre-flip baseline"}
+    },
+    "post_flip_directory_convergence_vps_side": {
+      "verdict": "PASS",
+      "observed": "VPS /api/daemon/nodes post-flip = the PC's node directory ingested fresh on the 1.0 stack (node fe7a4898..., revision 58, app_count 4, full catalog); VPS browse went from 4 entries ALL unreachable pre-flip (publisher down) to 9 entries ALL reachable post-flip (dual-source direct+nodedirectory, plus a 5th project discovered via direct announce); VPS journal shows gossip neighbor-up with BOTH the PC (fe7a4898) and the Mac (6944503a) after its own flip"
+    }
+  },
+  "residuals_observed": {
+    "partition_intra_window": "CONFIRMED empirically as §15.5 row 1 predicted (upstream iroh property, logged here as required by §15.5 non-menaces): while the PC was 1.0.1 and the VPS still 0.98, the PC logged sendmsg NetworkUnreachable towards the VPS and cross-gossip was absent; full convergence returned only once all 3 nodes were 1.0.1",
+    "vps_directory_not_reseen_on_pc": "KNOWN pre-existing residual, NOT a flip regression (pre/post parity held): the VPS announces its own producer directory with catalog=0 (seeder != author, S75 acceptance constat 'l'annuaire d'un seeder n'annonce pas ce qu'il seede' — open PO design question) and the one-shot boot announce (revision=7 then revision=8 on the remedy restart) fires ~1s after boot, BEFORE any gossip neighbor is up (the S75 RE-DRIVE-ON-INGEST dead window, carry OVERDUE 3/3 already routed to the S81 audit gate escalation). Both documented remedies were applied (PC daemon re-boot per review-H D5-2, then VPS restart with peers already up): PC /api/daemon/nodes stayed empty. The data-carrying direction (PC directory -> subscribers) is fully converged (rev 58 ingested by the VPS); only the empty seeder-directory announce is affected",
+    "build_not_byte_reproducible": "the SLSA in-toto attestation rebuild in the same sbfb-ci container at the same commit produced sha256 4228d406... while the deployed binary is f382a75c... — byte-reproducibility is NOT achieved (pre-existing REPRODUCIBLE_BUILDS.md aspiration, not a flip gate); the attestation documents the build chain, the deployed sha256 was recorded at build time and verified after scp",
+    "local_worker_stores_still_redb2": "the co-located worker stores (shell-daemon/local-worker/data/docs.redb) were not opened during the flip and remain redb 2.x; they will auto-migrate on first on-demand worker spawn under 1.0.1 (same iroh-docs migration path, covered by the daemon-store proof)"
+  },
+  "post_flip_hygiene": "docs.redb.backup-redb-v2-tuples DELETED on all 3 nodes after healthy convergence (STORE_MIGRATION_OPS rule 4: re-arms normal self-heal, purges the old NamespaceSecret); 0 orphan docs.db.migrate* temp files; freeze lifted at window close",
+  "gate_c8_note": "flip executed 2026-07-10 — 67 days ahead of the 15/09 C8 calendar gate; plan B self-hosted (Topology B, LIVE since a085853) stays deployed on the anchor as provisioned fallback, unused by this flip (fleet still on presets N0 pre-EOL; Topology A-vs-B re-decision remains open for 25/08 as PO-scheduled)"
+}
