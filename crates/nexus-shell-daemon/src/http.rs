@@ -193,6 +193,12 @@ pub struct DaemonHttpState {
     /// recemment)". Ephemeral by design (a freshness count has no value outside
     /// its TTL window).
     pub seed_registry: Arc<crate::seed_registry::SeedRegistry>,
+    /// Sprint 81 Phase I: in-memory registry of mounted shard sessions
+    /// (the live store the S77 Phase J `live_shard_session` stub was the
+    /// seam for). Inserts are gated on the `DOMAIN_SHARD_PLAN_V1`
+    /// signature + `is_member` checks BEFORE insert; the projections stay
+    /// privacy-whitelisted (SI-3/SI-4).
+    pub shard_sessions: Arc<crate::shard_session::ShardSessionRegistry>,
 }
 
 impl DaemonHttpState {
@@ -307,6 +313,27 @@ pub fn build_router(
         // NEVER the group's member identities. Same loopback bearer+Host+Origin
         // tier as its siblings (authed_routes).
         .route("/api/daemon/shard-session/{session_id}", get(shard_session))
+        // Sprint 81 Phase I: the in-vivo shard-session orchestrator surface
+        // (the ex-S78 session driver). Operator-facing loopback tool routes:
+        // mint the signed private group, mount a session (placement +
+        // manifest + readiness barrier + gated registry insert), drive a
+        // generation, poll its measured result, and cut the tail shard
+        // (explicit counted churn). The live b3_shard harness (Phase J)
+        // consumes generate/result/drop-shard verbatim.
+        .route("/api/daemon/shard-session/group", post(shard_session_group))
+        .route("/api/daemon/shard-session/mount", post(shard_session_mount))
+        .route(
+            "/api/daemon/shard-session/{session_id}/generate",
+            post(shard_session_generate),
+        )
+        .route(
+            "/api/daemon/shard-session/{session_id}/result",
+            get(shard_session_result),
+        )
+        .route(
+            "/api/daemon/shard-session/{session_id}/drop-shard",
+            post(shard_session_drop_shard),
+        )
         .route("/api/daemon/publish", post(publish_project))
         .route("/api/daemon/publish-blob", post(publish_blob))
         .route("/api/daemon/directory/publish", post(publish_directory))
@@ -2108,44 +2135,34 @@ async fn list_nodes(State(state): State<Arc<DaemonHttpState>>) -> impl IntoRespo
 // the other shard wire schemas — the daemon depends on core, so a core schema
 // cannot reference a daemon-private type. The projection + route below consume
 // the re-exported types unchanged; the privacy whitelist (THREAT_MODEL §16
-// SI-3/SI-4) is the type shape itself — only `session_id` + `member_count` are
-// exposed, never a `worker_pubkey`/`initiator`.
-use nexus_core_rs::{ShardSessionStatusResponse, ShardSessionView};
-
-/// Read-only, privacy-whitelisted projection of a shard session manifest.
-///
-/// Exposes ONLY the aggregate `member_count`, never any `worker_pubkey` /
-/// `initiator` (the private-group composition, SI-3/SI-4).
-fn project_shard_session(manifest: &nexus_core_rs::ShardedSessionManifest) -> ShardSessionView {
-    ShardSessionView {
-        session_id: manifest.session_id.clone(),
-        member_count: manifest.plan.assignments.len(),
-    }
-}
-
-/// Stub lookup for a live shard session by id.
-///
-/// The `sbfb/shard/1` protocol primitive exists and the front contract is
-/// pinned against an EMPTY store (Sprint 77 Phase J), but there is no
-/// live HTTP-readable shard-session store yet, so this always misses and
-/// returns `None`. It is the explicit seam where such a store would plug
-/// in (a tracked carry-over, not yet built). Any future ingest MUST gate
-/// on a `DOMAIN_SHARD_PLAN_V1` signature + `is_member` check BEFORE insert
-/// (preflight S3), so the route can never serve an unauthenticated manifest.
-fn live_shard_session(_session_id: &str) -> Option<nexus_core_rs::ShardedSessionManifest> {
-    None
-}
+// SI-3/SI-4) is the type shape itself — only aggregate fields are exposed,
+// never a `worker_pubkey`/`initiator`.
+// Sprint 81 Phase I: the S77 `live_shard_session` STUB is gone — the lookup
+// now reads the in-memory `ShardSessionRegistry` populated by the mount
+// orchestrator (`crate::shard_session`), whose insert is gated on the
+// `DOMAIN_SHARD_PLAN_V1` signature + `is_member` checks the stub mandated.
+use nexus_core_rs::{
+    ShardSessionResultResponse, ShardSessionResultView, ShardSessionStatusResponse,
+    ShardSessionView,
+};
 
 /// Pure projection for `GET /api/daemon/shard-session/{id}` — pinned by a unit
-/// test without a network boot. With no live store every id misses and the
-/// deterministic empty envelope `{found:false, session:null}` is returned
-/// (200, not 404 — `seed_count` precedent: a read-only route answers 200
-/// with honest defaults so the parse succeeds).
-fn shard_session_response(session_id: &str) -> ShardSessionStatusResponse {
-    match live_shard_session(session_id) {
-        Some(manifest) => ShardSessionStatusResponse {
+/// test without a network boot. A miss returns the deterministic empty
+/// envelope `{found:false, session:null}` (200, not 404 — `seed_count`
+/// precedent: a read-only route answers 200 with honest defaults so the
+/// parse succeeds).
+fn shard_session_response(
+    registry: &crate::shard_session::ShardSessionRegistry,
+    session_id: &str,
+) -> ShardSessionStatusResponse {
+    match registry.status_data(session_id) {
+        Some(data) => ShardSessionStatusResponse {
             found: true,
-            session: Some(project_shard_session(&manifest)),
+            session: Some(ShardSessionView {
+                session_id: data.session_id,
+                member_count: data.member_count,
+                rtt_frontier_ms: data.rtt_frontier_ms,
+            }),
         },
         None => ShardSessionStatusResponse {
             found: false,
@@ -2154,19 +2171,279 @@ fn shard_session_response(session_id: &str) -> ShardSessionStatusResponse {
     }
 }
 
-/// `GET /api/daemon/shard-session/{id}` — Sprint 77 Phase J — read-only status
-/// of a private compute-group shard session.
+/// `GET /api/daemon/shard-session/{id}` — read-only status of a private
+/// compute-group shard session (Sprint 77 Phase J route, Sprint 81 Phase I
+/// live registry).
 ///
-/// Control-plane only: an AGGREGATE status (member count), NEVER the group's
-/// member identities (SI-3/SI-4). The richer status (pipeline status, attained
-/// verification level) would be added with a live data plane (a tracked S78
-/// carry). Loopback-authenticated (lives in `authed_routes`). There is no live
-/// session registry yet, so the route deterministically returns
-/// `{found:false, session:null}` for every id; the front renders the "no active
-/// session" empty state from that.
-async fn shard_session(Path(session_id): Path<String>) -> impl IntoResponse {
+/// Control-plane only: an AGGREGATE status (member count + frontier RTT),
+/// NEVER the group's member identities (SI-3/SI-4). Loopback-authenticated
+/// (lives in `authed_routes`).
+async fn shard_session(
+    State(state): State<Arc<DaemonHttpState>>,
+    Path(session_id): Path<String>,
+) -> impl IntoResponse {
     debug!("GET /api/daemon/shard-session");
-    (StatusCode::OK, Json(shard_session_response(&session_id))).into_response()
+    (
+        StatusCode::OK,
+        Json(shard_session_response(&state.shard_sessions, &session_id)),
+    )
+        .into_response()
+}
+
+/// Body of `POST /api/daemon/shard-session/group`.
+#[derive(Debug, serde::Deserialize)]
+struct ShardGroupMintRequest {
+    /// Stable group handle.
+    group_id: String,
+    /// Worker Ed25519 pubkeys, lowercase hex (the head is added
+    /// automatically — it is the dialer the workers must admit).
+    members: Vec<String>,
+    /// Monotonic group revision (defaults to 1 for a fresh group).
+    #[serde(default)]
+    revision: Option<u64>,
+}
+
+/// `POST /api/daemon/shard-session/group` — Sprint 81 Phase I — mint the
+/// signed private compute group for a session (operator flow step 1).
+///
+/// The daemon signs with its long-lived keypair; the returned
+/// `ComputeGroupEntry` JSON is shared VERBATIM with every
+/// `shard-session serve` worker so admission and the mount gate check the
+/// same signed bytes. Duress-gated: a decoy boot never signs under the
+/// fake keypair (mirror of `publish_project` / `seed_request_peer`).
+async fn shard_session_group(
+    State(state): State<Arc<DaemonHttpState>>,
+    Json(req): Json<ShardGroupMintRequest>,
+) -> Response {
+    debug!(group = %req.group_id, "POST /api/daemon/shard-session/group");
+    if crate::noop_identity::gossip_publish_in_duress(state.identity_mode)
+        == crate::noop_identity::PublishOutcome::Noop
+    {
+        return (StatusCode::OK, Json(serde_json::json!({ "minted": false }))).into_response();
+    }
+    let mut members = Vec::with_capacity(req.members.len());
+    for m in &req.members {
+        match crate::shard_session::parse_pubkey_hex(m) {
+            Ok(pk) => members.push(pk),
+            Err(e) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({ "error": format!("member '{m}': {e}") })),
+                )
+                    .into_response();
+            }
+        }
+    }
+    match crate::shard_session::mint_compute_group(
+        &state.pow_keypair,
+        &req.group_id,
+        req.revision.unwrap_or(1),
+        &members,
+    ) {
+        Ok(entry) => (
+            StatusCode::OK,
+            Json(serde_json::json!({ "minted": true, "group": entry })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": e })),
+        )
+            .into_response(),
+    }
+}
+
+/// `POST /api/daemon/shard-session/mount` — Sprint 81 Phase I — mount a
+/// shard session: Parallax placement → initiator-signed manifest →
+/// readiness barrier (transport-level ACK per shard, NO dispatch frame
+/// before every shard answered) → gated registry insert.
+///
+/// A readiness failure returns 409 with the `BLOCK`-style diagnostic and
+/// inserts NOTHING. Duress-gated BEFORE signing the manifest.
+async fn shard_session_mount(
+    State(state): State<Arc<DaemonHttpState>>,
+    Json(req): Json<crate::shard_session::MountSessionRequest>,
+) -> Response {
+    debug!(session = %req.session_id, "POST /api/daemon/shard-session/mount");
+    if crate::noop_identity::gossip_publish_in_duress(state.identity_mode)
+        == crate::noop_identity::PublishOutcome::Noop
+    {
+        return (
+            StatusCode::OK,
+            Json(serde_json::json!({ "mounted": false })),
+        )
+            .into_response();
+    }
+    match crate::shard_session::mount_session(
+        state.node.endpoint(),
+        state.node.memory_lookup(),
+        &state.pow_keypair,
+        &state.shard_sessions,
+        req,
+    )
+    .await
+    {
+        Ok(report) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "mounted": true,
+                "session_id": report.session_id,
+                "member_count": report.member_count,
+                "rtt_frontier_ms": report.rtt_frontier_ms,
+            })),
+        )
+            .into_response(),
+        Err(diagnostic) => (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({ "mounted": false, "error": diagnostic })),
+        )
+            .into_response(),
+    }
+}
+
+/// Body of `POST /api/daemon/shard-session/{id}/generate`. The harness
+/// also sends `session_id` in the body; the PATH is authoritative and a
+/// disagreeing body id is rejected (never silently drive another session).
+#[derive(Debug, serde::Deserialize)]
+struct ShardGenerateRequest {
+    #[serde(default)]
+    session_id: Option<String>,
+    prompt: String,
+}
+
+/// `POST /api/daemon/shard-session/{id}/generate` — Sprint 81 Phase I —
+/// drive one generation through the mounted pipeline (HUB walk with the
+/// SI-9 per-hop deadline + fallback re-route). Async: returns 202
+/// immediately and the drive updates the registry; the harness polls
+/// `GET .../result` (its existing contract). Duress-gated BEFORE the
+/// drive signs its RunProof.
+async fn shard_session_generate(
+    State(state): State<Arc<DaemonHttpState>>,
+    Path(session_id): Path<String>,
+    Json(req): Json<ShardGenerateRequest>,
+) -> Response {
+    debug!(session = %session_id, "POST /api/daemon/shard-session/generate");
+    if crate::noop_identity::gossip_publish_in_duress(state.identity_mode)
+        == crate::noop_identity::PublishOutcome::Noop
+    {
+        return (
+            StatusCode::OK,
+            Json(serde_json::json!({ "accepted": false })),
+        )
+            .into_response();
+    }
+    if let Some(body_id) = &req.session_id
+        && body_id != &session_id
+    {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": "body session_id disagrees with the path session id"
+            })),
+        )
+            .into_response();
+    }
+    if state.shard_sessions.status_data(&session_id).is_none() {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "accepted": false, "error": "session not mounted" })),
+        )
+            .into_response();
+    }
+    let node = Arc::clone(&state.node);
+    let keypair = Arc::clone(&state.pow_keypair);
+    let registry = Arc::clone(&state.shard_sessions);
+    let prompt = req.prompt;
+    tokio::spawn(async move {
+        // Failure is recorded in the registry (`failure` diagnostic) and
+        // surfaced by the result route — never a silent drop.
+        let _ = crate::shard_session::generate_session(
+            node.endpoint(),
+            node.memory_lookup(),
+            &keypair,
+            &registry,
+            &session_id,
+            &prompt,
+        )
+        .await;
+    });
+    (
+        StatusCode::ACCEPTED,
+        Json(serde_json::json!({ "accepted": true })),
+    )
+        .into_response()
+}
+
+/// Pure projection for `GET /api/daemon/shard-session/{id}/result` —
+/// pinned by a unit test without a network boot. Measurement fields stay
+/// `null` until a drive completes (the harness polls on `result_text`);
+/// `failure` carries the clean diagnostic of a failed drive.
+fn shard_session_result_response(
+    registry: &crate::shard_session::ShardSessionRegistry,
+    session_id: &str,
+) -> ShardSessionResultResponse {
+    match registry.result_data(session_id) {
+        Some(data) => ShardSessionResultResponse {
+            found: true,
+            result: Some(ShardSessionResultView {
+                session_id: data.session_id,
+                result_text: data.result_text,
+                ttft_s: data.ttft_s,
+                toks_per_s: data.toks_per_s,
+                run_proof: data.run_proof,
+                rtt_frontier_ms: data.rtt_frontier_ms,
+                worker_drop_count: data.worker_drop_count,
+                failure: data.failure,
+            }),
+        },
+        None => ShardSessionResultResponse {
+            found: false,
+            result: None,
+        },
+    }
+}
+
+/// `GET /api/daemon/shard-session/{id}/result` — Sprint 81 Phase I — the
+/// measured outcome of the last driven generation (the poll target of the
+/// b3_shard live harness). Same privacy whitelist as the status route.
+async fn shard_session_result(
+    State(state): State<Arc<DaemonHttpState>>,
+    Path(session_id): Path<String>,
+) -> impl IntoResponse {
+    debug!(session = %session_id, "GET /api/daemon/shard-session/result");
+    (
+        StatusCode::OK,
+        Json(shard_session_result_response(
+            &state.shard_sessions,
+            &session_id,
+        )),
+    )
+        .into_response()
+}
+
+/// `POST /api/daemon/shard-session/{id}/drop-shard` — Sprint 81 Phase I —
+/// explicit operator churn cut (the b3_shard churn probe): counts the
+/// drop, and closes the tail shard's connection when one is still held
+/// (pre-drive). Post-drive the teardown already closed every connection,
+/// so only the counter moves — the next drive re-dials regardless. A
+/// mid-drive drop is handled by the SI-9 fallback path instead.
+async fn shard_session_drop_shard(
+    State(state): State<Arc<DaemonHttpState>>,
+    Path(session_id): Path<String>,
+) -> impl IntoResponse {
+    debug!(session = %session_id, "POST /api/daemon/shard-session/drop-shard");
+    match state.shard_sessions.drop_tail_shard(&session_id) {
+        Some(dropped) => (
+            StatusCode::OK,
+            Json(serde_json::json!({ "found": true, "dropped": dropped })),
+        )
+            .into_response(),
+        None => (
+            StatusCode::OK,
+            Json(serde_json::json!({ "found": false, "dropped": false })),
+        )
+            .into_response(),
+    }
 }
 
 /// `POST /api/daemon/seed` — Sprint 74 Phase E — VOLUNTARY community seed.
@@ -4462,6 +4739,7 @@ mod tests {
                 nexus_shell_daemon_core::preview::DEFAULT_TTL,
             ),
             seed_registry: Arc::new(crate::seed_registry::SeedRegistry::new()),
+            shard_sessions: Arc::new(crate::shard_session::ShardSessionRegistry::default()),
         })
     }
 
@@ -5232,7 +5510,11 @@ mod tests {
         // SUCCESSFUL parse (seed_count precedent), not a transport error. The
         // `session` key is ALWAYS serialized (null), so an additive field stays
         // possible and the "no active session" empty state is unambiguous.
-        let json = serde_json::to_value(shard_session_response("any-session-id")).unwrap();
+        // Sprint 81 Phase I: the lookup now reads the live registry — an
+        // EMPTY registry preserves the pinned S77 contract verbatim.
+        let registry = crate::shard_session::ShardSessionRegistry::default();
+        let json =
+            serde_json::to_value(shard_session_response(&registry, "any-session-id")).unwrap();
         let obj = json.as_object().unwrap();
         assert_eq!(obj["found"], false);
         // The `session` key must be PHYSICALLY PRESENT (serialized as null on a
@@ -5244,18 +5526,36 @@ mod tests {
         );
         assert!(obj["session"].is_null(), "session is null on a miss");
         assert_eq!(obj.len(), 2, "envelope = exactly {{found, session}}");
+
+        // Same discipline for the Phase I result route: an unmounted id is
+        // a successful empty parse, never a transport error.
+        let json = serde_json::to_value(shard_session_result_response(&registry, "any-session-id"))
+            .unwrap();
+        let obj = json.as_object().unwrap();
+        assert_eq!(obj["found"], false);
+        assert!(obj.contains_key("result"), "result key always serialized");
+        assert!(obj["result"].is_null(), "result is null on a miss");
+        assert_eq!(obj.len(), 2, "envelope = exactly {{found, result}}");
     }
 
     #[test]
     fn shard_session_projection_hides_member_identities() {
         // The projection is the PRIVACY seam (THREAT_MODEL §16 SI-3/SI-4): it
         // exposes an AGGREGATE `member_count` but NEVER a worker_pubkey /
-        // initiator (the private group's composition). Two distinct workers must
-        // collapse to `member_count: 2` with ZERO identity bytes in the
-        // serialized view. The view is exactly the two whitelisted fields.
-        let initiator = [0x11u8; 32];
-        let worker_a = [0xAAu8; 32];
-        let worker_b = [0xBBu8; 32];
+        // initiator (the private group's composition). Sprint 81 Phase I: the
+        // projection now reads a MOUNTED session from the live registry
+        // (inserted through the signature + membership gate), and the view
+        // gains the aggregate `rtt_frontier_ms` — still zero identity bytes.
+        let head = nexus_core_rs::crypto::KeyPair::generate();
+        let worker_a = nexus_core_rs::crypto::KeyPair::generate();
+        let worker_b = nexus_core_rs::crypto::KeyPair::generate();
+        let group = crate::shard_session::mint_compute_group(
+            &head,
+            "group-abc",
+            1,
+            &[worker_a.public_bytes(), worker_b.public_bytes()],
+        )
+        .expect("group mints");
         let mk = |pk: [u8; 32], start: u32, end: u32| nexus_core_rs::ShardAssignment {
             worker_pubkey: pk,
             layer_start: start,
@@ -5266,9 +5566,12 @@ mod tests {
             fallback_node: None,
             launch_profile_hash: [0x33u8; 32],
         };
-        let plan = nexus_core_rs::ShardPlan::new(vec![mk(worker_a, 0, 16), mk(worker_b, 16, 32)]);
+        let plan = nexus_core_rs::ShardPlan::new(vec![
+            mk(worker_a.public_bytes(), 0, 16),
+            mk(worker_b.public_bytes(), 16, 32),
+        ]);
         let manifest = nexus_core_rs::ShardedSessionManifest::new(
-            initiator,
+            head.public_bytes(),
             "session-xyz",
             "group-abc",
             1,
@@ -5277,37 +5580,74 @@ mod tests {
             [0x55u8; 32],
             [0x66u8; 32],
         );
+        let entry = nexus_core_rs::ShardedSessionManifestEntry::sign(manifest, &head)
+            .expect("manifest signs");
+        let mut addrs = std::collections::BTreeMap::new();
+        for kp in [&worker_a, &worker_b] {
+            let id = iroh::EndpointId::from_bytes(&kp.public_bytes()).expect("valid key");
+            addrs.insert(kp.public_bytes(), iroh::EndpointAddr::new(id));
+        }
+        let registry = crate::shard_session::ShardSessionRegistry::default();
+        registry
+            .insert_gated(crate::shard_session::ShardSessionRecord {
+                entry,
+                group,
+                addrs,
+                conns: std::collections::BTreeMap::new(),
+                status: crate::shard_session::ShardSessionStatus::Ready,
+                outcome: None,
+                rtt_frontier_ms: Some(42),
+                worker_drop_count: 0,
+                failure: None,
+                hop_deadline: std::time::Duration::from_secs(10),
+                readiness_deadline: std::time::Duration::from_secs(10),
+            })
+            .expect("gated insert");
 
-        let view = project_shard_session(&manifest);
+        let json = serde_json::to_value(shard_session_response(&registry, "session-xyz")).unwrap();
+        assert_eq!(json["found"], true, "a mounted session is live");
+        let view = json["session"].as_object().expect("view present");
+        assert_eq!(view["session_id"], "session-xyz");
         assert_eq!(
-            view.member_count, 2,
+            view["member_count"], 2,
             "two workers collapse to an aggregate count"
         );
-
-        let json = serde_json::to_value(&view).unwrap();
-        assert_eq!(json["session_id"], "session-xyz");
-        assert_eq!(json["member_count"], 2);
+        assert_eq!(view["rtt_frontier_ms"], 42);
         // The whitelist seam: NO member identity ever appears in the projection.
-        let serialized = serde_json::to_string(&view).unwrap();
+        let serialized = json.to_string();
         assert!(
-            !serialized.contains(&hex::encode(worker_a)),
+            !serialized.contains(&hex::encode(worker_a.public_bytes())),
             "worker_a pubkey must not leak"
         );
         assert!(
-            !serialized.contains(&hex::encode(worker_b)),
+            !serialized.contains(&hex::encode(worker_b.public_bytes())),
             "worker_b pubkey must not leak"
         );
         assert!(
-            !serialized.contains(&hex::encode(initiator)),
+            !serialized.contains(&hex::encode(head.public_bytes())),
             "initiator pubkey must not leak"
         );
         assert!(!serialized.contains("worker_pubkey"));
         assert!(!serialized.contains("initiator"));
         assert_eq!(
-            json.as_object().unwrap().len(),
-            2,
-            "view = exactly {{session_id, member_count}} — runtime status/level are additive fields"
+            view.len(),
+            3,
+            "view = exactly {{session_id, member_count, rtt_frontier_ms}}"
         );
+
+        // The result projection of a mounted-but-undriven session: found,
+        // every measurement null, drop count 0, same identity whitelist.
+        let json =
+            serde_json::to_value(shard_session_result_response(&registry, "session-xyz")).unwrap();
+        assert_eq!(json["found"], true);
+        let result = json["result"].as_object().expect("result view present");
+        assert!(result["result_text"].is_null(), "no drive yet");
+        assert!(result["run_proof"].is_null(), "no proof yet");
+        assert_eq!(result["worker_drop_count"], 0);
+        assert!(result["failure"].is_null());
+        let serialized = json.to_string();
+        assert!(!serialized.contains(&hex::encode(worker_a.public_bytes())));
+        assert!(!serialized.contains(&hex::encode(head.public_bytes())));
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -6190,6 +6530,99 @@ mod tests {
         assert_eq!(
             json["requested"], false,
             "duress must short-circuit before signing"
+        );
+    }
+
+    #[tokio::test]
+    async fn shard_session_routes_noop_in_duress() {
+        // Sprint 81 Phase I: never sign a compute group, a session
+        // manifest, or a RunProof under the fake keypair — group, mount
+        // and generate short-circuit to a plausible benign reply BEFORE
+        // any signing or dialing (mirror of seed_request_peer_noop_in_duress).
+        let state = mk_state_with_mode(nexus_core_rs::IdentityMode::Duress).await;
+
+        // group → {minted:false}, no signature minted.
+        let resp = build_test_router(Arc::clone(&state))
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/daemon/shard-session/group")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::json!({"group_id": "g", "members": []}).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let json: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 1024).await.unwrap()).unwrap();
+        assert_eq!(json["minted"], false, "duress must not mint a group");
+
+        // mount → {mounted:false}, before placement / manifest signing /
+        // any readiness dial. The body must be a VALID MountSessionRequest
+        // (the Json extractor runs before the handler), so mint a real
+        // signed group with a throwaway keypair.
+        let head = nexus_core_rs::crypto::KeyPair::generate();
+        let worker = nexus_core_rs::crypto::KeyPair::generate();
+        let group = crate::shard_session::mint_compute_group(
+            &head,
+            "duress-group",
+            1,
+            &[worker.public_bytes()],
+        )
+        .expect("group mints");
+        let worker_id = iroh::EndpointId::from_bytes(&worker.public_bytes()).expect("valid key");
+        let body = serde_json::json!({
+            "session_id": "duress-session",
+            "group": group,
+            "workers": [{
+                "addr": iroh::EndpointAddr::new(worker_id),
+                "vram_free_bytes": 1000,
+            }],
+            "model": { "total_layers": 8, "quantized_vram_bytes": 1500 },
+        });
+        let resp = build_test_router(Arc::clone(&state))
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/daemon/shard-session/mount")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let json: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 1024).await.unwrap()).unwrap();
+        assert_eq!(json["mounted"], false, "duress must not mount a session");
+        assert!(
+            state.shard_sessions.status_data("duress-session").is_none(),
+            "duress must not populate the registry"
+        );
+
+        // generate → {accepted:false}, before any RunProof signing.
+        let resp = build_test_router(Arc::clone(&state))
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/daemon/shard-session/duress-session/generate")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::json!({"prompt": "p"}).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let json: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 1024).await.unwrap()).unwrap();
+        assert_eq!(
+            json["accepted"], false,
+            "duress must not drive a generation"
         );
     }
 
@@ -7309,6 +7742,7 @@ mod tests {
                 nexus_shell_daemon_core::preview::DEFAULT_TTL,
             ),
             seed_registry: Arc::new(crate::seed_registry::SeedRegistry::new()),
+            shard_sessions: Arc::new(crate::shard_session::ShardSessionRegistry::default()),
         });
         let app = build_test_router(state);
         let resp = app

@@ -1015,6 +1015,27 @@ describe("getShardSession", () => {
   });
 
   it("parses a found session with its aggregate member_count", async () => {
+    // S81 Phase I producer shape: `rtt_frontier_ms` is always serialized
+    // (the readiness-barrier measurement).
+    mockFetchOk({
+      found: true,
+      session: {
+        session_id: "session-xyz",
+        member_count: 4,
+        rtt_frontier_ms: 42,
+      },
+    });
+    const result = await getShardSession(BASE, "session-xyz");
+    expect(result.kind).toBe("data");
+    if (result.kind !== "data") throw new Error("unreachable");
+    expect(result.body.session?.member_count).toBe(4);
+    expect(result.body.session?.session_id).toBe("session-xyz");
+    expect(result.body.session?.rtt_frontier_ms).toBe(42);
+  });
+
+  it("tolerates an OLDER daemon that predates rtt_frontier_ms", async () => {
+    // Shell/daemon version skew: a pre-S81 daemon omits the field entirely.
+    // The consumer schema degrades to `undefined` — never a parse error.
     mockFetchOk({
       found: true,
       session: { session_id: "session-xyz", member_count: 4 },
@@ -1022,8 +1043,7 @@ describe("getShardSession", () => {
     const result = await getShardSession(BASE, "session-xyz");
     expect(result.kind).toBe("data");
     if (result.kind !== "data") throw new Error("unreachable");
-    expect(result.body.session?.member_count).toBe(4);
-    expect(result.body.session?.session_id).toBe("session-xyz");
+    expect(result.body.session?.rtt_frontier_ms).toBeUndefined();
   });
 
   it("rejects an unknown key on the ENVELOPE (strict)", async () => {

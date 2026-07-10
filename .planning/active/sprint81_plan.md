@@ -378,6 +378,14 @@
 
 - **But** : jouer b3_shard LIVE (RTX 5080 dev Win + Mac M2) via l'orchestrateur (I) sur la
   stack migrée finale (après H) ; solder le carry P1 sharding S77.
+- **Amendement Phase I (préflight PLAN-ADAPT, livrable 7)** : l'orchestrateur livré en I est
+  un **HUB piloté dialer** (topologie STAR figée S77 : chaque frontière fait ~2 traversées
+  WAN tête↔shard). Le verdict Phase J se juge contre une **baseline HUB**, JAMAIS contre
+  l'enveloppe Petals direct-s2s du §6 (sinon faux-BLOCK garanti). Sémantique churn tranchée
+  en I : resume-from-cache (`ActivationReplayCache`) quand un `fallback_node` existe, coupe
+  explicite comptée (`worker_drop_count`) sinon. Le RunProof exposé par `/result` est celui
+  du DRIVER (tête) ; les RunProofs par-worker distants exigent un canal de retour
+  control-plane (feed raw-op / docs, jamais un ALPN neuf) — à câbler en J si le T2 l'exige.
 - **Jobs/surfaces** : acceptance live + artefact T2 axe shard. Harness `b3_shard`/scripts live
   (memory `live_acceptance_setup`).
 - **Livrables** : run b3_shard cross-machine documenté ; verdict JSON au vocabulaire fermé

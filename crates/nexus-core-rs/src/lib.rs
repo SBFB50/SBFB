@@ -180,10 +180,12 @@ pub use relay_pow_policy::{
     relay_pow_policy_file_path,
 };
 pub use schemas::{
-    ShardSessionStatusResponse, ShardSessionView, TASK_RESPONSE_DOMAIN_TAG, TASK_RESPONSE_VERSION,
-    TaskResponse, ToolCall, compute_group_schema, run_metrics_schema, run_proof_schema,
-    shard_assignment_schema, shard_plan_schema, shard_session_status_response_schema,
-    shard_session_view_schema, sharded_session_manifest_schema, task_response_schema,
+    ShardSessionResultResponse, ShardSessionResultView, ShardSessionStatusResponse,
+    ShardSessionView, TASK_RESPONSE_DOMAIN_TAG, TASK_RESPONSE_VERSION, TaskResponse, ToolCall,
+    compute_group_schema, run_metrics_schema, run_proof_schema, shard_assignment_schema,
+    shard_plan_schema, shard_session_result_response_schema, shard_session_result_view_schema,
+    shard_session_status_response_schema, shard_session_view_schema,
+    sharded_session_manifest_schema, task_response_schema,
 };
 pub use seed::{
     SEED_FORMAT_VERSION, SEED_NONCE_LEN, SEED_TS_WINDOW_SECS, SeedDecision, SeedRequest,

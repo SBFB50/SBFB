@@ -301,10 +301,10 @@ LAST_RESPONSE="$SESS"
 FOUND="$(printf '%s' "$SESS" | sed -n 's/.*"found"[[:space:]]*:[[:space:]]*\(true\|false\).*/\1/p')"
 if [ "$FOUND" != "true" ]; then
   rig_absent "shard session '$SHARD_SESSION_ID' is not live: GET /api/daemon/shard-session/{id} \
-returned found=$FOUND. Today this is always false — live_shard_session is a Phase J STUB and \
-no production orchestrator populates the session store. Live cross-machine sharded generation \
-is an S78 carry (the data-plane + placement + verification primitives are delivered and tested \
-hermetically; only the session driver remains). Response: ${SESS:-<none>}"
+returned found=$FOUND. Since S81 Phase I the daemon reads a live session registry populated by \
+the operator orchestrator — mount the session first (nexus-shell-daemon shard-session group + \
+serve on each worker + mount, see the shard-session subcommand help), then re-run this gate. \
+Response: ${SESS:-<none>}"
 fi
 LAST_RESPONSE=""
 log "session-mount OK — shard session '$SHARD_SESSION_ID' is live"

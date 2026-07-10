@@ -15,6 +15,12 @@
           "minimum": 0,
           "type": "integer"
         },
+        "rtt_frontier_ms": {
+          "description": "Worst frontier RTT measured at the session's readiness barrier,\nmilliseconds (`null` until sampled). Sprint 81 Phase I: the live\nregistry populates it; the b3_shard network gate reads it. An\naggregate transport measurement — still no identity leaves the\nwhitelist. Additive on the inner view (the front Zod envelope is\n`.strict()`, the view is not), 0-bump.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
         "session_id": {
           "description": "The session id (only present when a session is actually found).",
           "type": "string"
@@ -22,7 +28,8 @@
       },
       "required": [
         "session_id",
-        "member_count"
+        "member_count",
+        "rtt_frontier_ms"
       ],
       "type": "object"
     }

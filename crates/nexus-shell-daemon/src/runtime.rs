@@ -991,6 +991,10 @@ impl DaemonRuntime {
                 nexus_shell_daemon_core::preview::DEFAULT_TTL,
             ),
             seed_registry: Arc::clone(&seed_registry),
+            // Sprint 81 Phase I: live shard-session registry (the store the
+            // S77 stub was the seam for). Starts empty; the operator mount
+            // route populates it behind the signature + membership gate.
+            shard_sessions: Arc::new(crate::shard_session::ShardSessionRegistry::default()),
         });
         // Sprint 16 Phase A (D1): load the loopback bearer token.
         // The launcher generates it at first boot; if we are being

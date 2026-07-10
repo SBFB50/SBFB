@@ -151,6 +151,105 @@ pub enum Command {
     /// without re-cloning the repo.
     #[command(subcommand)]
     Canary(CanaryCommand),
+
+    /// Operate an in-vivo shard session (Sprint 81 Phase I, ex-S78).
+    ///
+    /// The operator tool around the shard-session orchestrator:
+    /// `serve` runs a transport-only `sbfb/shard/1` worker on THIS
+    /// machine; `group`/`mount`/`status`/`generate`/`result`/
+    /// `drop-shard` talk to the LOCAL running daemon over its
+    /// hardened loopback API (running.json discovery + /auth/token
+    /// bootstrap — no manual port/token plumbing).
+    #[command(subcommand)]
+    ShardSession(ShardSessionCommand),
+}
+
+/// Subcommands for `nexus-shell-daemon shard-session ...`.
+///
+/// Two-machine operator flow (the Phase J live benchmark rig):
+/// 1. worker machine: `shard-session identity` → copy the pubkey hex;
+/// 2. head machine:   `shard-session group --member <hex> --out group.json`;
+/// 3. worker machine: `shard-session serve --group group.json` → copy the
+///    printed endpoint address JSON;
+/// 4. head machine:   `shard-session mount <config.json>` (workers = the
+///    printed addresses), then `generate` / `result` / `drop-shard` — or
+///    hand over to `scripts/acceptance/b3_shard_pipeline.sh`, which polls
+///    the same routes.
+#[derive(Debug, Subcommand)]
+pub enum ShardSessionCommand {
+    /// Print this machine's persistent shard-serve identity (pubkey hex),
+    /// minting the key file on first use. Run BEFORE `group` on the head
+    /// so the group can admit this worker.
+    Identity {
+        /// Key file override (default: `<shell-daemon-root>/shard-serve.key`).
+        #[arg(long, value_name = "PATH")]
+        key: Option<std::path::PathBuf>,
+    },
+
+    /// Serve `sbfb/shard/1` on this machine with the given signed group
+    /// as the admission allowlist. Transport-only (echo forwarder): the
+    /// real layer-block backend stays the worker's feature-gated build.
+    /// Prints the endpoint address JSON the head's mount config needs,
+    /// then blocks until ctrl+c.
+    Serve {
+        /// Path to the signed `ComputeGroupEntry` JSON (from `group --out`).
+        #[arg(long, value_name = "PATH")]
+        group: std::path::PathBuf,
+        /// Key file override (default: `<shell-daemon-root>/shard-serve.key`).
+        #[arg(long, value_name = "PATH")]
+        key: Option<std::path::PathBuf>,
+    },
+
+    /// Mint the signed private compute group via the local daemon (the
+    /// daemon's keypair signs; the head is added as a member
+    /// automatically — it is the dialer the workers admit).
+    Group {
+        /// Stable group handle.
+        #[arg(long, value_name = "ID")]
+        group_id: String,
+        /// Worker pubkey hex (repeatable), from `identity` on each worker.
+        #[arg(long = "member", value_name = "PUBKEY_HEX")]
+        members: Vec<String>,
+        /// Write the signed group JSON here (also printed to stdout).
+        #[arg(long, value_name = "PATH")]
+        out: Option<std::path::PathBuf>,
+    },
+
+    /// Mount a session from a JSON config file (a `MountSessionRequest`:
+    /// session_id + group + workers[addr,vram] + model) via the local
+    /// daemon: placement → signed manifest → readiness barrier → live.
+    Mount {
+        /// Path to the mount config JSON.
+        #[arg(value_name = "CONFIG_JSON")]
+        config: std::path::PathBuf,
+    },
+
+    /// Read a session's live aggregate status.
+    Status {
+        /// The session id.
+        session_id: String,
+    },
+
+    /// Drive one generation through the mounted pipeline.
+    Generate {
+        /// The session id.
+        session_id: String,
+        /// The prompt to drive.
+        #[arg(long)]
+        prompt: String,
+    },
+
+    /// Poll the measured result of the last driven generation.
+    Result {
+        /// The session id.
+        session_id: String,
+    },
+
+    /// Explicitly cut the tail shard (churn probe, counted drop).
+    DropShard {
+        /// The session id.
+        session_id: String,
+    },
 }
 
 /// Subcommands for `nexus-shell-daemon canary ...`.

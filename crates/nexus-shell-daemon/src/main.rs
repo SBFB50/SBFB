@@ -53,6 +53,7 @@ mod result_sync;
 mod runtime;
 mod seed_protocol;
 mod seed_registry;
+mod shard_session;
 mod shell_api;
 mod storage_api;
 mod tasks_api;
@@ -67,7 +68,7 @@ use nexus_shell_daemon_core::config::{ShellDaemonConfig, ShellDaemonPaths};
 
 use cli::{
     CanaryCommand, CapabilityCommand, Cli, Command, ConfigCommand, FrostCommand, InviteCommand,
-    QuarantineCommand,
+    QuarantineCommand, ShardSessionCommand,
 };
 use runtime::{DaemonRuntime, DaemonStartOptions};
 
@@ -111,6 +112,257 @@ async fn main() -> Result<()> {
         Command::Capability(cmd) => handle_capability(&paths, cmd).await,
         Command::Config(cmd) => handle_config(&paths, cmd).await,
         Command::Canary(cmd) => handle_canary(cmd).await,
+        Command::ShardSession(cmd) => handle_shard_session(&paths, cmd).await,
+    }
+}
+
+// =====================================================================
+// Sprint 81 Phase I — shard-session operator tool
+// =====================================================================
+
+/// Persistent identity for the `shard-session serve` worker on THIS
+/// machine (distinct from the daemon's `node_key`: the serve worker is
+/// its own admitted member, so a machine can serve shards while its
+/// daemon heads a different session). Same 32-raw-bytes format as
+/// `load_or_generate_node_key`.
+fn load_or_generate_serve_key(path: &std::path::Path) -> Result<[u8; 32]> {
+    use nexus_core_rs::crypto::KeyPair;
+    if path.exists() {
+        let data = std::fs::read(path)
+            .with_context(|| format!("failed to read shard-serve key from {}", path.display()))?;
+        if data.len() == 32 {
+            let mut out = [0u8; 32];
+            out.copy_from_slice(&data);
+            return Ok(out);
+        }
+        anyhow::bail!(
+            "shard-serve key at {} has {} bytes (expected 32) — refusing to overwrite; \
+             delete it to mint a fresh identity",
+            path.display(),
+            data.len()
+        );
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+    let secret = KeyPair::generate().secret_bytes();
+    std::fs::write(path, secret)
+        .with_context(|| format!("failed to write shard-serve key to {}", path.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).with_context(
+            || {
+                format!(
+                    "failed to set shard-serve key permissions on {}",
+                    path.display()
+                )
+            },
+        )?;
+    }
+    Ok(secret)
+}
+
+/// Discover the live local daemon (running.json) and bootstrap its
+/// loopback bearer via the public `/auth/token` route — the same
+/// host+origin-gated bootstrap the React shell uses, so the operator
+/// never hand-plumbs a port or token.
+async fn daemon_client(paths: &ShellDaemonPaths) -> Result<(reqwest::Client, String, String)> {
+    use nexus_shell_daemon_core::registry::StaleOutcome;
+    let state = match nexus_shell_daemon_core::registry::check_stale_or_bail(&paths.running_json) {
+        StaleOutcome::Live { state, .. } => state,
+        StaleOutcome::NoFile => anyhow::bail!(
+            "no running daemon found ({} is absent) — `nexus-shell-daemon start` first",
+            paths.running_json.display()
+        ),
+        StaleOutcome::Stale { pid, .. } => anyhow::bail!(
+            "running.json points at dead pid {pid} — the daemon is not running; \
+             `nexus-shell-daemon start` first"
+        ),
+        StaleOutcome::Corrupt { reason } => {
+            anyhow::bail!("running.json is unreadable ({reason}) — restart the daemon")
+        }
+    };
+    let base = format!("http://{}:{}", state.api_host, state.api_port);
+    let client = reqwest::Client::new();
+    let token: serde_json::Value = client
+        .get(format!("{base}/auth/token"))
+        .send()
+        .await
+        .with_context(|| format!("daemon unreachable at {base}"))?
+        .error_for_status()
+        .context("token bootstrap refused")?
+        .json()
+        .await
+        .context("token bootstrap returned non-JSON")?;
+    let token = token["token"]
+        .as_str()
+        .context("token bootstrap response carries no token")?
+        .to_string();
+    Ok((client, base, token))
+}
+
+/// POST/GET a shard-session route on the live daemon and pretty-print the
+/// JSON reply. Exits non-zero on a non-2xx status so scripts can gate.
+async fn shard_api_call(
+    paths: &ShellDaemonPaths,
+    method: reqwest::Method,
+    route: &str,
+    body: Option<serde_json::Value>,
+) -> Result<serde_json::Value> {
+    let (client, base, token) = daemon_client(paths).await?;
+    let mut req = client
+        .request(method, format!("{base}{route}"))
+        .header("x-sbfb-token", token);
+    if let Some(body) = body {
+        req = req.json(&body);
+    }
+    let resp = req.send().await.context("daemon request failed")?;
+    let status = resp.status();
+    let json: serde_json::Value = resp.json().await.context("daemon reply is not JSON")?;
+    println!("{}", serde_json::to_string_pretty(&json)?);
+    if !status.is_success() {
+        anyhow::bail!("daemon answered {status}");
+    }
+    Ok(json)
+}
+
+async fn handle_shard_session(paths: &ShellDaemonPaths, cmd: ShardSessionCommand) -> Result<()> {
+    use nexus_core_rs::crypto::KeyPair;
+    let default_key = paths.root.join("shard-serve.key");
+    match cmd {
+        ShardSessionCommand::Identity { key } => {
+            let key_path = key.unwrap_or(default_key);
+            let secret = load_or_generate_serve_key(&key_path)?;
+            let kp = KeyPair::from_secret_bytes(&secret);
+            println!("shard-serve identity (pubkey hex):");
+            println!("{}", hex::encode(kp.public_bytes()));
+            println!("key file: {}", key_path.display());
+            Ok(())
+        }
+        ShardSessionCommand::Serve { group, key } => {
+            use nexus_core_rs::node::{NodeConfig, create_node_with_protocols};
+            use nexus_core_rs::{DiscoveryClient, EchoForwarder, SHARD_ALPN};
+            let key_path = key.unwrap_or(default_key);
+            let secret = load_or_generate_serve_key(&key_path)?;
+            let kp = KeyPair::from_secret_bytes(&secret);
+            let raw = std::fs::read_to_string(&group)
+                .with_context(|| format!("failed to read group file {}", group.display()))?;
+            let entry: nexus_core_rs::ComputeGroupEntry = serde_json::from_str(&raw)
+                .context("group file is not a signed ComputeGroupEntry JSON")?;
+            entry
+                .verify_signature()
+                .map_err(|e| anyhow::anyhow!("group signature rejected: {e}"))?;
+            if !entry.is_member(&kp.public_bytes()) {
+                anyhow::bail!(
+                    "this machine's serve identity {} is NOT a member of group '{}' — \
+                     re-mint the group with `shard-session group --member <this pubkey>`",
+                    hex::encode(kp.public_bytes()),
+                    entry.group.group_id
+                );
+            }
+            let factory =
+                nexus_core_rs::shard_protocol_factory(entry, std::sync::Arc::new(EchoForwarder))
+                    .map_err(|e| anyhow::anyhow!("shard protocol wiring failed: {e}"))?;
+            let node = create_node_with_protocols(
+                NodeConfig::default().with_secret_key(secret),
+                vec![(SHARD_ALPN.to_vec(), factory)],
+            )
+            .await
+            .map_err(|e| anyhow::anyhow!("failed to boot the shard-serve node: {e}"))?;
+            let addr = DiscoveryClient::new(node.endpoint())
+                .my_endpoint_addr()
+                .await
+                .map_err(|e| anyhow::anyhow!("no dialable address yet: {e}"))?;
+            println!("serving sbfb/shard/1 (transport-only echo forwarder)");
+            println!("identity: {}", hex::encode(kp.public_bytes()));
+            println!("paste this address into the mount config `workers[].addr`:");
+            println!("{}", serde_json::to_string(&addr)?);
+            println!("ctrl+c to stop");
+            tokio::signal::ctrl_c().await.context("ctrl+c handler")?;
+            node.shutdown()
+                .await
+                .map_err(|e| anyhow::anyhow!("shard-serve node shutdown failed: {e}"))?;
+            Ok(())
+        }
+        ShardSessionCommand::Group {
+            group_id,
+            members,
+            out,
+        } => {
+            let json = shard_api_call(
+                paths,
+                reqwest::Method::POST,
+                "/api/daemon/shard-session/group",
+                Some(serde_json::json!({ "group_id": group_id, "members": members })),
+            )
+            .await?;
+            if let Some(out) = out {
+                let group = &json["group"];
+                if group.is_null() {
+                    anyhow::bail!("daemon minted no group (duress boot?) — nothing written");
+                }
+                std::fs::write(&out, serde_json::to_string_pretty(group)?)
+                    .with_context(|| format!("failed to write {}", out.display()))?;
+                println!("signed group written to {}", out.display());
+            }
+            Ok(())
+        }
+        ShardSessionCommand::Mount { config } => {
+            let raw = std::fs::read_to_string(&config)
+                .with_context(|| format!("failed to read mount config {}", config.display()))?;
+            let body: serde_json::Value =
+                serde_json::from_str(&raw).context("mount config is not valid JSON")?;
+            shard_api_call(
+                paths,
+                reqwest::Method::POST,
+                "/api/daemon/shard-session/mount",
+                Some(body),
+            )
+            .await?;
+            Ok(())
+        }
+        ShardSessionCommand::Status { session_id } => {
+            shard_api_call(
+                paths,
+                reqwest::Method::GET,
+                &format!("/api/daemon/shard-session/{session_id}"),
+                None,
+            )
+            .await?;
+            Ok(())
+        }
+        ShardSessionCommand::Generate { session_id, prompt } => {
+            shard_api_call(
+                paths,
+                reqwest::Method::POST,
+                &format!("/api/daemon/shard-session/{session_id}/generate"),
+                Some(serde_json::json!({ "session_id": session_id, "prompt": prompt })),
+            )
+            .await?;
+            Ok(())
+        }
+        ShardSessionCommand::Result { session_id } => {
+            shard_api_call(
+                paths,
+                reqwest::Method::GET,
+                &format!("/api/daemon/shard-session/{session_id}/result"),
+                None,
+            )
+            .await?;
+            Ok(())
+        }
+        ShardSessionCommand::DropShard { session_id } => {
+            shard_api_call(
+                paths,
+                reqwest::Method::POST,
+                &format!("/api/daemon/shard-session/{session_id}/drop-shard"),
+                None,
+            )
+            .await?;
+            Ok(())
+        }
     }
 }
 

@@ -76,6 +76,14 @@ pub struct ShardSessionView {
     /// Number of workers in the pipeline = `plan.assignments.len()`. An
     /// aggregate count, never the member identities.
     pub member_count: usize,
+    /// Worst frontier RTT measured at the session's readiness barrier,
+    /// milliseconds (`null` until sampled). Sprint 81 Phase I: the live
+    /// registry populates it; the b3_shard network gate reads it. An
+    /// aggregate transport measurement — still no identity leaves the
+    /// whitelist. Additive on the inner view (the front Zod envelope is
+    /// `.strict()`, the view is not), 0-bump.
+    #[schemars(required)]
+    pub rtt_frontier_ms: Option<u64>,
 }
 
 /// Envelope for `GET /api/daemon/shard-session/{id}`.
@@ -95,6 +103,69 @@ pub struct ShardSessionStatusResponse {
     /// would be looser than the wire (Codex Phase L PARTIAL).
     #[schemars(required)]
     pub session: Option<ShardSessionView>,
+}
+
+/// Read-only result of one driven shard-session generation, as returned by
+/// `GET /api/daemon/shard-session/{id}/result` (Sprint 81 Phase I — the
+/// route the `b3_shard_pipeline.sh` live harness polls).
+///
+/// Same privacy whitelist as [`ShardSessionView`]: measurements and the
+/// driver's signed proof, NEVER a `worker_pubkey` / `initiator` identity.
+/// `run_proof` is the lowercase hex of the driver's [`crate::shard_plan::
+/// RunProofEntry`] Ed25519 signature (the full signed entry stays in the
+/// node-local registry); every measurement field is `null` until a drive
+/// completes, and `failure` carries the clean `BLOCK{diagnosis}`-style
+/// diagnostic of a failed drive (anti-false-green: the harness never
+/// PASSes on an empty proof).
+// Loopback-API frontier (Sprint 81 Phase I, doctrine §7): consumed by a
+// distinct runtime (`scripts/acceptance/b3_shard_pipeline.sh`). Not a signed
+// wire type, so it carries no `// FRONTIER:` domain/version tag (that opt-in
+// registry is for `DOMAIN_*_V1` families); its machine contract is the
+// generated schema snapshot below (`shard_session_result_response.schema.json`,
+// drift-gated) + the S81 docs-contract closure index.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct ShardSessionResultView {
+    /// The session id.
+    pub session_id: String,
+    /// Final generated text (`null` until a drive completes).
+    #[schemars(required)]
+    pub result_text: Option<String>,
+    /// Time to first output frame from the last stage, whole seconds.
+    #[schemars(required)]
+    pub ttft_s: Option<u64>,
+    /// Measured decode rate, integer tokens per second (floor 1 for a
+    /// completed drive — the harness' anti-false-green gate).
+    #[schemars(required)]
+    pub toks_per_s: Option<u64>,
+    /// Lowercase hex of the driver's signed RunProof Ed25519 signature.
+    #[schemars(required)]
+    pub run_proof: Option<String>,
+    /// Worst frontier RTT measured at the readiness barrier, milliseconds.
+    #[schemars(required)]
+    pub rtt_frontier_ms: Option<u64>,
+    /// Churn drops observed (SI-9 deadline re-routes + explicit
+    /// `drop-shard` cuts).
+    pub worker_drop_count: u32,
+    /// Diagnostic of a failed drive (`null` while healthy) — the readable
+    /// cause the harness surfaces instead of a silent hang. The text may
+    /// carry 8-byte TRUNCATED worker-key prefixes (the repo's log
+    /// convention, non-invertible to the 256-bit key); the property
+    /// whitelist above is about full identities, which never appear.
+    #[schemars(required)]
+    pub failure: Option<String>,
+}
+
+/// Envelope for `GET /api/daemon/shard-session/{id}/result` — same
+/// `{found, result}` shape as [`ShardSessionStatusResponse`] (the
+/// S73-E / S75-D envelope lesson: a miss is a successful parse, never a
+/// 404 transport error).
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct ShardSessionResultResponse {
+    /// Whether a mounted session matched the requested id.
+    pub found: bool,
+    /// The result view when `found`, else `null` (key always present).
+    #[schemars(required)]
+    pub result: Option<ShardSessionResultView>,
 }
 
 /// JSON Schema (draft 2020-12) of the signed [`ComputeGroup`] allowlist
@@ -142,6 +213,17 @@ pub fn shard_session_status_response_schema() -> serde_json::Value {
     to_value(schema_for!(ShardSessionStatusResponse))
 }
 
+/// JSON Schema of the privacy-whitelisted [`ShardSessionResultView`].
+pub fn shard_session_result_view_schema() -> serde_json::Value {
+    to_value(schema_for!(ShardSessionResultView))
+}
+
+/// JSON Schema of the `GET /api/daemon/shard-session/{id}/result` envelope
+/// [`ShardSessionResultResponse`].
+pub fn shard_session_result_response_schema() -> serde_json::Value {
+    to_value(schema_for!(ShardSessionResultResponse))
+}
+
 /// `schema_for!` returns a `schemars::Schema`; serialize it to a
 /// `serde_json::Value` (mirrors [`super::task_response::task_response_schema`]).
 fn to_value(schema: schemars::Schema) -> serde_json::Value {
@@ -169,6 +251,14 @@ fn schema_snapshots() -> Vec<(&'static str, serde_json::Value)> {
         (
             "shard_session_status_response.schema.json",
             shard_session_status_response_schema(),
+        ),
+        (
+            "shard_session_result_view.schema.json",
+            shard_session_result_view_schema(),
+        ),
+        (
+            "shard_session_result_response.schema.json",
+            shard_session_result_response_schema(),
         ),
     ]
 }
@@ -272,6 +362,68 @@ mod tests {
                 "status envelope must require `{key}`"
             );
         }
+
+        // Same envelope + always-serialized contract for the S81 Phase I
+        // result route: every measurement key is present (null until a
+        // drive completes), so the harness' flat scrape never mistakes an
+        // omitted key for an unmeasured value.
+        let result_envelope = required(&shard_session_result_response_schema());
+        for key in ["found", "result"] {
+            assert!(
+                result_envelope.contains(&key.to_string()),
+                "result envelope must require `{key}`"
+            );
+        }
+        let result_view = required(&shard_session_result_view_schema());
+        for key in [
+            "session_id",
+            "result_text",
+            "ttft_s",
+            "toks_per_s",
+            "run_proof",
+            "rtt_frontier_ms",
+            "worker_drop_count",
+            "failure",
+        ] {
+            assert!(
+                result_view.contains(&key.to_string()),
+                "result view must require `{key}` (always serialized, null until measured)"
+            );
+        }
+    }
+
+    /// SECURITY (SI-3/SI-4): the result view publishes measurements + the
+    /// driver's proof hex ONLY — never an identity field (same whitelist
+    /// proof as the status view: the property set is the contract).
+    #[test]
+    fn shard_session_result_view_schema_is_whitelisted() {
+        let schema = shard_session_result_view_schema();
+        let props = schema
+            .pointer("/properties")
+            .and_then(|v| v.as_object())
+            .expect("ShardSessionResultView schema must publish `properties`");
+        let mut keys: Vec<&str> = props.keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        assert_eq!(
+            keys,
+            vec![
+                "failure",
+                "result_text",
+                "rtt_frontier_ms",
+                "run_proof",
+                "session_id",
+                "toks_per_s",
+                "ttft_s",
+                "worker_drop_count",
+            ],
+            "the result view must expose only measurements + proof hex"
+        );
+        for forbidden in ["worker_pubkey", "initiator", "members", "participants"] {
+            assert!(
+                !keys.contains(&forbidden),
+                "the result view must never publish a `{forbidden}` property (SI-3/SI-4)"
+            );
+        }
     }
 
     /// SECURITY (SI-3/SI-4): the observed-session schema publishes EXACTLY
@@ -289,8 +441,9 @@ mod tests {
         keys.sort_unstable();
         assert_eq!(
             keys,
-            vec!["member_count", "session_id"],
-            "the observed view must expose only the aggregate whitelist"
+            vec!["member_count", "rtt_frontier_ms", "session_id"],
+            "the observed view must expose only the aggregate whitelist \
+             (rtt_frontier_ms added S81 Phase I: a transport measurement, not an identity)"
         );
         // The exact-keys assertion above IS the whitelist proof: an identity
         // field could only leak as a published property. We do NOT scan the

@@ -540,11 +540,20 @@ export function listNodes(
  * Row tolerant (NOT `.strict()`, S73/S75 rule): the parser stays tolerant if a
  * later producer adds runtime fields (e.g. `pipeline_status`,
  * `verification_level`) to the session row — an unknown/extra field must not
- * brick this panel. No live data-plane store populates such fields today.
+ * brick this panel.
+ *
+ * Sprint 81 Phase I: the live session registry landed daemon-side —
+ * `rtt_frontier_ms` is the worst frontier RTT measured at the session's
+ * readiness barrier (an aggregate transport measurement, still no identity).
+ * The CURRENT producer always serializes it (`null` until sampled) →
+ * `.nullable()`; `.optional()` on top keeps this consumer tolerant of an
+ * OLDER daemon that predates the field (shell/daemon version skew must
+ * degrade to "no RTT shown", never brick the panel).
  */
 export const ShardSessionViewSchema = z.object({
   session_id: z.string(),
   member_count: z.number().int().nonnegative(),
+  rtt_frontier_ms: z.number().int().nonnegative().nullable().optional(),
 });
 
 export type ShardSessionView = z.infer<typeof ShardSessionViewSchema>;
@@ -554,8 +563,10 @@ export type ShardSessionView = z.infer<typeof ShardSessionViewSchema>;
  * ENVELOPE is `.strict()` (pinned by the Rust test
  * `shard_session_response_pins_empty_envelope`); `session` is `.nullable()`
  * (NOT `.optional()`) because the producer ALWAYS serializes the key — `null`
- * on a miss. Phase J has no live session store, so the daemon returns
- * `{found:false, session:null}` for every id (the panel's empty state).
+ * on a miss. Since S81 Phase I the daemon reads a LIVE session registry
+ * (populated by the operator mount tool): an unmounted id still answers
+ * `{found:false, session:null}` (the panel's empty state), a mounted one
+ * answers `found:true` with the aggregate view.
  */
 export const ShardSessionStatusResponseSchema = z
   .object({

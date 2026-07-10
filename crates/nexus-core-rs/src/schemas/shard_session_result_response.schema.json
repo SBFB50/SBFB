@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Envelope for `GET /api/daemon/shard-session/{id}/result` — same\n`{found, result}` shape as [`ShardSessionStatusResponse`] (the\nS73-E / S75-D envelope lesson: a miss is a successful parse, never a\n404 transport error).",
+  "properties": {
+    "found": {
+      "description": "Whether a mounted session matched the requested id.",
+      "type": "boolean"
+    },
+    "result": {
+      "description": "The result view when `found`, else `null` (key always present).",
+      "properties": {
+        "failure": {
+          "description": "Diagnostic of a failed drive (`null` while healthy) — the readable\ncause the harness surfaces instead of a silent hang. The text may\ncarry 8-byte TRUNCATED worker-key prefixes (the repo's log\nconvention, non-invertible to the 256-bit key); the property\nwhitelist above is about full identities, which never appear.",
+          "type": "string"
+        },
+        "result_text": {
+          "description": "Final generated text (`null` until a drive completes).",
+          "type": "string"
+        },
+        "rtt_frontier_ms": {
+          "description": "Worst frontier RTT measured at the readiness barrier, milliseconds.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "run_proof": {
+          "description": "Lowercase hex of the driver's signed RunProof Ed25519 signature.",
+          "type": "string"
+        },
+        "session_id": {
+          "description": "The session id.",
+          "type": "string"
+        },
+        "toks_per_s": {
+          "description": "Measured decode rate, integer tokens per second (floor 1 for a\ncompleted drive — the harness' anti-false-green gate).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "ttft_s": {
+          "description": "Time to first output frame from the last stage, whole seconds.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "worker_drop_count": {
+          "description": "Churn drops observed (SI-9 deadline re-routes + explicit\n`drop-shard` cuts).",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "session_id",
+        "result_text",
+        "ttft_s",
+        "toks_per_s",
+        "run_proof",
+        "rtt_frontier_ms",
+        "worker_drop_count",
+        "failure"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "found",
+    "result"
+  ],
+  "title": "ShardSessionResultResponse",
+  "type": "object"
+}
