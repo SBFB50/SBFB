@@ -152,6 +152,7 @@ scripts/acceptance/rig.local.env
 scripts/acceptance/.b3_last_result.json
 scripts/acceptance/.b3_shard_last_result.json
 scripts/acceptance/.flip_last_result.json
+scripts/acceptance/.s75_replay_dev_during_vps_death.json
 scripts/acceptance/.b3_worker.log
 scripts/acceptance/.app_authoring_last_result.json
 scripts/acceptance/.app_authoring_pw.json

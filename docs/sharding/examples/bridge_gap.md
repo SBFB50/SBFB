@@ -2,7 +2,8 @@
 
 Status: **GAP-not-shipped.** Any shard method on the postMessage bridge is
 **PROPOSED** only — no name or shape is decided; the decision is deferred to
-Sprint **S78**. Do not pre-wire one.
+a FUTURE sprint (S81 shipped the in-vivo orchestrator WITHOUT adding any
+bridge method — entry stays node-privileged). Do not pre-wire one.
 
 ## What exists today
 
@@ -44,10 +45,11 @@ An illustrative placeholder method — call it `shard_observe` — would be
 // and this shape are invented for this example; nothing is decided or frozen.
 // DO NOT implement against it. The bridge whitelist is the closed enum in
 // protocol.ts — none of its methods is a shard method; adding one is an
-// explicit S78 design decision.
+// explicit future design decision (still unshipped as of S81).
 { "method": "shard_observe", "payload": { "session_id": "…" } }
 ```
 
-Treat the bridge as **shard-free** until S78 ships an explicit decision. See
+Treat the bridge as **shard-free** until a sprint ships an explicit decision
+(S81 did not). See
 [`../HOW_TO_WIRE.md`](../HOW_TO_WIRE.md) (roles START / JOIN / OBSERVE) for the
 node-side surfaces that *do* exist.

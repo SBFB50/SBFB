@@ -1,0 +1,1 @@
+{"status": "BLOCK", "stage": "result-replication", "delay_s": 63, "claim_s": null, "task_id": "000000006a52798f-fcfb44db3916b0ba", "diagnosis": "result not visible at the VPS within 60s; no worker log captured (manual worker) \u2014 inspect the worker replica for task:000000006a52798f-fcfb44db3916b0ba. Last VPS response: <none>", "last_response": ""}

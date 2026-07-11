@@ -425,14 +425,33 @@ mod tests {
         let payload = b"curator-list-content-v1".to_vec();
         let hash_bytes = blobs_a.add_bytes(&payload).await.unwrap();
 
-        // Mint a BlobTicket that embeds node A's current
-        // EndpointAddr (relay + direct addrs) so node B can dial
-        // A without pkarr/DNS discovery. Wait until node A has at
-        // least one address registered before minting.
-        let my_addr = crate::discovery::DiscoveryClient::new(node_a.endpoint())
-            .my_endpoint_addr()
-            .await
-            .expect("node A should publish its address");
+        // Mint a BlobTicket that embeds node A's DIRECT socket addrs
+        // ONLY (S81 Phase K): stripping the relay URL pins the transfer
+        // to the loopback path, so this test is hermetic — it neither
+        // races through nor depends on the public n0 relay (EOL
+        // 2026-09-30). Poll until a direct addr exists (the local
+        // socket binds well before any relay handshake).
+        let my_addr = {
+            let disco = crate::discovery::DiscoveryClient::new(node_a.endpoint());
+            let mut direct_only = None;
+            for _ in 0..100 {
+                let full = disco
+                    .my_endpoint_addr()
+                    .await
+                    .expect("node A should publish its address");
+                let directs: Vec<std::net::SocketAddr> = full.ip_addrs().copied().collect();
+                if !directs.is_empty() {
+                    let mut addr = iroh::EndpointAddr::new(full.id);
+                    for d in directs {
+                        addr = addr.with_ip_addr(d);
+                    }
+                    direct_only = Some(addr);
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+            direct_only.expect("node A must expose a direct socket addr")
+        };
 
         let ticket = BlobTicket::new(my_addr, Hash::from_bytes(hash_bytes), BlobFormat::Raw);
         let ticket_str = ticket.to_string();

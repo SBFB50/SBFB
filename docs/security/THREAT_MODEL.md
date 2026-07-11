@@ -142,8 +142,11 @@ long-lived (activations fp32 en clair, SI-1) apres admission `is_member`. Le
 verdict d'integrite est porte HORS-bande par les `RunProof` signes (N0-N3), pas
 par le transport lui-meme.
 L'orchestrateur de session qui pilote une generation token-par-token cross-shard,
-mesure TTFT/tok-s et emet un `RunProof` in-vivo n'est PAS encore cable (carry S78) ;
-le data-plane livre sert le bi-stream, forwardant chaque frame avec admission. Cf. §16.
+mesure TTFT/tok-s et emet un `RunProof` in-vivo est CABLE depuis S81 Phases I/J
+(`shard_session.rs` : mount barrier + drive HUB + decode loop + premiere emission
+production du `RunProof` signe, benchmark live 5080+M2 PASS) ; depuis S81 Phase K
+chaque etablissement de stage-link exige en plus l'ATTESTATION du stage charge
+(binding loaded-stage <-> manifeste signe, fail-closed — cf. §16). Cf. §16.
 
 ---
 
@@ -256,8 +259,8 @@ vit en §16 (SI-1..SI-11 + N0-N3 + incentive) ; resume STRIDE par composant :
 | Menace | Exemple | Severite brute | Mitigation | res |
 |---|---|:---:|---|:---:|
 | **S**poofing | Un worker non-membre revendique un shard | H | admission `is_member` Ed25519 sur `ComputeGroup` signe (`shard.rs::accept`) ; claim crypto-avant-IO (`shard_claim.rs`) | **L** |
-| **T**ampering | Un worker execute un GGUF/quant different ou ment sur son forward | H | primitives N0 TOPLOC + N1 VRF + N2 quorum tolerant + N3 commit-reveal CABLEES+testees hermetiquement (G/H/I) ; **emission signee in-vivo du `RunProof` = carry S78** | **M** |
-| **R**epudiation | Un worker nie son etat-frontiere | M | `RunProof` signe par shard (slot `activation_fingerprint`), verdict hors-bande (quand emis in-vivo, S78) | **M** |
+| **T**ampering | Un worker execute un GGUF/quant different ou ment sur son forward | H | primitives N0 TOPLOC + N1 VRF + N2 quorum tolerant + N3 commit-reveal CABLEES+testees hermetiquement (S77 G/H/I) ; emission signee in-vivo du `RunProof` DRIVER **LIVREE S81 I/J** (fingerprint N0 bind au dernier step) ; **attestation loaded-stage fail-closed S81 K** (ferme la MISCONFIGURATION : mauvais GGUF/fenetre/role rejetes avant tout frame — un worker qui MENT dans son self-claim reste le residuel SI-4) ; RunProofs PER-WORKER distants = re-route **S82** | **M** |
+| **R**epudiation | Un worker nie son etat-frontiere | M | `RunProof` signe DRIVER emis in-vivo depuis S81 I/J (slot `activation_fingerprint` bind au commitment N0 du dernier step) ; RunProofs per-worker via canal control-plane = re-route **S82** | **M** |
 | **I**nfo disclosure | Les activations transitent en clair vers les workers-shard | H | **SI-1 residuel ASSUME** : pas de TEE GPU consumer 2026 ; groupe prive explicite + caveat « aucun secret app dans les prompts » | **H** |
 | **D**oS | Frame surdimensionnee / epuisement VRAM | M | cap-frame 256 MiB + cap-VRAM fail-closed (`assess_capacity`, geometrie degeneree rejetee) | **L** |
 | **E**levation | Un worker-shard depasse son bloc de couches | M | forward de frames sur le bi-stream, aucune autorite sur l'orchestration ; admission-gated, pas d'orchestrateur expose au worker | **L** |
@@ -1028,7 +1031,7 @@ sans deplacer cette frontiere.
 | T/D | **Sybil multi-keypair** (N identites forgees votent la meme reponse pour forcer un faux consensus) | H | inchange par le fix (le fix forwarde une voix par pubkey distincte, il n'en cree aucune) ; gonfler le quorum exige N keypairs reels = surface Sybil pre-existante (PoW / AgeWitness + pilote ferme) ; le quorum n'est PAS une frontiere anti-Sybil par lui-meme | **M** |
 | T | **Worker menteur** (un GGUF/poids different ou un mensonge sur la cohorte) | M | rejet outlier exact-match (`validator.rs:290-336`) : un `result_text` divergent ne forme jamais la majorite — la cohorte advisory ne sert qu'au routage, pas a la confiance ; tests `quorum_redundancy_diverging_outputs_rejected` (bridge) + `quorum_rejects_nondeterministic_divergence` (in-DB) | **L** |
 | Faux-vert | **Divergence cross-GPU lue comme un bug** | M | anti faux-vert (T1) : exact-match garanti HOMOGENE seulement (meme model/quant/runtime) ; divergence cross-GPU heterogene = ATTENDUE (float reordering, Thinking Machines/Ingonyama) et rejetee comme outlier, ECRITE comme resultat attendu dans l'acceptance LIVE (PATTERNS §P60.2) | **M** |
-| I | **Verification cross-hardware semantique manquante** (l'exact-match ne couvre pas les GPU heterogenes) | L | **etage 2 primitive CABLEE (S77 Phase G)** : primitive N0 TOPLOC (`toploc.rs`, commitment BLAKE3 du sketch entier top-k du dernier hidden state) + helper worker qui le calcule + Layer-3 `verification.rs` consommant le commitment dans `logprobs_hash` par egalite (detection ~100% du swap modele/precision par INEGALITE). L'**ecriture/emission signee** du commitment dans `RunProof.activation_fingerprint` / `ResultPayload.logprobs_hash` ride le data-plane (carry S78). La comparaison TOLERANTE cross-GPU (`ToplocFingerprint::compare`) est recomputee independamment par N1 (Phase H) / N2 (Phase I) — voir §16 « N0 TOPLOC fingerprint ». **Phase H** cable la PRIMITIVE N1 (tirage verifiable Ed25519 `verifiable_draw.rs` + recompute tolerant `ToplocFingerprint::compare` + Token-DiFR + incentive reputationnel `spotcheck_creditable`/`kudos_ledger::credit` + mapping criticite→niveau `criticality_maps_to_verification_level`) ; le re-exec prefill REEL sur GPU + le transport du sketch complet hors du slot 32B restent gates (S78), comme G a livre la primitive N0 sans cablage in-vivo. **Phase I** cable les PRIMITIVES N2 (quorum tolerant M-of-N `redundancy.rs::tolerant_quorum_accepts` + chemin ADDITIF `validator.rs::validate_tolerant_quorum_shard`, verdict sur `RunProof` SIGNES, quorum exact `validate_quorum_pre_guardrail` INCHANGE) + N3 (commit-reveal `activation_commit.rs` `DOMAIN_ACTIVATION_COMMIT_V1` + localisateur EMA forward-only `sentinel.rs`) — voir §16 « N2 » / « N3 » ; le re-exec REEL cross-GPU in-vivo + le transport du sketch sur le data-plane + la bissection-sur-litige restent gates (S78) | **M (primitives N0/N1/N2/N3 CABLEES Phase G/H/I ; re-exec in-vivo + transport sketch + arbitrage litige = S78 → L une fois in-vivo)** |
+| I | **Verification cross-hardware semantique manquante** (l'exact-match ne couvre pas les GPU heterogenes) | L | **etage 2 primitive CABLEE (S77 Phase G)** : primitive N0 TOPLOC (`toploc.rs`, commitment BLAKE3 du sketch entier top-k du dernier hidden state) + helper worker qui le calcule + Layer-3 `verification.rs` consommant le commitment dans `logprobs_hash` par egalite (detection ~100% du swap modele/precision par INEGALITE). L'**ecriture/emission signee** du commitment dans `RunProof.activation_fingerprint` est **LIVREE S81 Phase J** (le decode loop bind le commitment N0 du DERNIER step au `RunProof` driver signe, premiere emission production) ; le miroir `ResultPayload.logprobs_hash` sur le chemin task classique reste porte par le worker (S76). La comparaison TOLERANTE cross-GPU (`ToplocFingerprint::compare`) est recomputee independamment par N1 (Phase H) / N2 (Phase I) — voir §16 « N0 TOPLOC fingerprint ». **Phase H** cable la PRIMITIVE N1 (tirage verifiable Ed25519 `verifiable_draw.rs` + recompute tolerant `ToplocFingerprint::compare` + Token-DiFR + incentive reputationnel `spotcheck_creditable`/`kudos_ledger::credit` + mapping criticite→niveau `criticality_maps_to_verification_level`) ; le re-exec prefill REEL sur GPU + le transport du sketch complet hors du slot 32B restent gates (**re-routes S82**, ex-S78 — l'orchestrateur in-vivo etant livre S81 I/J, seul le canal de retour control-plane manque), comme G a livre la primitive N0 sans cablage in-vivo. **Phase I** cable les PRIMITIVES N2 (quorum tolerant M-of-N `redundancy.rs::tolerant_quorum_accepts` + chemin ADDITIF `validator.rs::validate_tolerant_quorum_shard`, verdict sur `RunProof` SIGNES, quorum exact `validate_quorum_pre_guardrail` INCHANGE) + N3 (commit-reveal `activation_commit.rs` `DOMAIN_ACTIVATION_COMMIT_V1` + localisateur EMA forward-only `sentinel.rs`) — voir §16 « N2 » / « N3 » ; le re-exec REEL cross-GPU in-vivo + le transport du sketch sur le data-plane + la bissection-sur-litige restent gates (**re-routes S82**, ex-S78) | **M (primitives N0/N1/N2/N3 CABLEES S77 G/H/I ; orchestrateur + RunProof driver in-vivo LIVRES S81 I/J ; re-exec in-vivo + transport sketch + arbitrage litige = S82 → L une fois in-vivo)** |
 
 **Residual S76-D** : le Sybil multi-keypair (T/D, **M**) reste le cout
 assume du quorum par accord de sortie — le quorum prouve la reproductibilite
@@ -1218,7 +1221,7 @@ couches qu'il execute. Source du catalogue : `SPLIT_INFERENCE_DESIGN.md §3.1`.
 | **SI-2 Layer gradient leakage** | leak via backward pass (fine-tuning distribue) | N/A | **non applicable** — SBFB est inference-only, aucun gradient transmis |
 | **SI-3 Activation fingerprinting** | les patterns statistiques des activations identifient le TYPE de prompt (langue/domaine), pas l'input exact | Medium | residuel assume ; corrélation bornee par le groupe prive (pas d'observateur tiers) |
 | **SI-4 Collusion inter-workers** | la collusion de TOUS les workers du pipeline reconstruit le calcul complet ; la confidentialite ne tient que si >=1 worker est honnete (modele honest-but-curious) | **High** | **residuel ASSUME** — l'allowlist borne QUI participe, pas l'honnetete ; mitige par le pilote ferme (D5) |
-| **SI-5 Latence side-channel** | le temps de compute d'un layer revele la complexite du prompt (longueur, heads actifs) | Low | residuel ; padding constant-rate = raffinement post-benchmark (carry S78) |
+| **SI-5 Latence side-channel** | le temps de compute d'un layer revele la complexite du prompt (longueur, heads actifs) | Low | residuel ; padding constant-rate = raffinement post-benchmark (re-route **S82**, ex-S78 — le benchmark live S81 J existe desormais comme baseline) |
 
 ### Caveat d'usage cardinal
 
@@ -1260,11 +1263,13 @@ canonique tout-entier du top-k (`TOPLOC_TOP_K=128`) du dernier hidden state, et 
 worker dispose du helper (`toploc_commitment`) qui le produit apres son bloc de
 couches. Les slots porteurs `[u8;32]` existent deja
 (`RunProof.activation_fingerprint` chemin shard, `ResultPayload.logprobs_hash`
-chemin modele entier) ; leur **ecriture dans un proof signe et leur emission
-on-wire in-vivo restent un carry S78** (le data-plane sert le bi-stream depuis
-F2, forwardant chaque frame ; l'orchestrateur qui pilote la generation et signe le `RunProof`
-reste a livrer) — G livre la primitive + le calcul cote worker, pas encore
-l'emission signee. Cote
+chemin modele entier) ; l'**ecriture dans un proof signe est LIVREE S81 Phase J**
+pour le chemin shard : le decode loop (`drive_decode_loop`) bind le commitment N0
+du DERNIER step (`toploc_hex` du `ShardStepReply` de la queue) dans le `RunProof`
+DRIVER signe — le dernier step decide toujours, zeros = « not provided », jamais
+un commitment perime. Les commitments PER-WORKER signes par chaque shard distant
+exigent un canal de retour control-plane (feed raw-op / iroh-docs, jamais un ALPN
+neuf) — re-routes **S82** (ex-S78). Cote
 consommateur, la Layer-3 de `verification.rs` traite deja `logprobs_hash` comme un
 commitment TOPLOC (egalite), remplacant le Layer-3 logprob inerte. 0 bump wire
 (slots deja v1), 0 nouveau `DOMAIN_*`.
@@ -1289,8 +1294,8 @@ independant ne le **recompute** pas. La comparaison TOLERANTE (exposant/mantisse
 BLAKE3 detruit la localite (1 bit → avalanche) donc le commitment seul binde mais
 ne tolere rien. Les PRIMITIVES de recompute cross-worker sont N1 spot-check
 (Phase H) + N2 redondance tolerante (Phase I) ; le transport du sketch complet
-hors du slot 32B que ce recompute in-vivo exige reste un carry S78. Le live
-result path reste le quorum exact-match
+hors du slot 32B que ce recompute in-vivo exige est re-route **S82** (ex-S78).
+Le live result path reste le quorum exact-match
 `result_text` (`validate_quorum_pre_guardrail`), INCHANGE.
 
 **Backend** : N0 exige les hidden states → le mode sharding impose
@@ -1330,7 +1335,8 @@ sur une 2e courbe ; un ECVRF formel et la garantie N4 zkML restent hors-scope S7
 (tirage, recompute tolerant, Token-DiFR, gate d'incentive, mapping criticite) +
 leurs tests hermetiques. Le **re-exec prefill REEL sur GPU** et le **transport du
 sketch complet** (hors du slot commitment 32B, qui reste binding-only) sont gates
-(S78) — exactement le pattern Phase G (primitive sans cablage in-vivo).
+(re-routes **S82**, ex-S78) — exactement le pattern Phase G (primitive sans
+cablage in-vivo ; l'orchestrateur in-vivo, lui, est livre depuis S81 I/J).
 
 **Nouvelles surfaces N1** (toutes Sev **M**) :
 - **Predictibilite / grinding du tirage** : qui detient la cle peut faire varier
@@ -1414,7 +1420,8 @@ gros ensemble deux-a-deux tolerant.
   faux-reject cross-GPU si trop etroit Sev **L**) : le seuil est un **parametre de
   securite**. **Mitigation** : N2 REUTILISE les seuils calibres `TOPLOC_THRESH_*`
   (toploc.rs, arXiv:2501.16007 bf16) plutot que d'en inventer ; re-calibration sur
-  le rig reel = S78.
+  le rig reel = **S82** (ex-S78 ; le run live S81 J fournit desormais la baseline
+  5080-CUDA + M2-Metal).
 
 **Confidentialite INCHANGEE** : SI-1/SI-4 High identiques — N2 recompute/compare,
 ne chiffre rien.
@@ -1447,9 +1454,11 @@ la criticite) en **deux primitives orthogonales** :
   `frontier_index` + `worker_pubkey` sont dans la pre-image SIGNEE (anti-replay
   cross-frontiere/cross-session), meme discipline que le seed N1 non-choisi.
 - **SI-9 refus de reveal / withholding** (Sev **M**) : un worker conteste mais ne
-  revele pas. **Mitigation** (concue, cablage timeout/fallback = S78)
-  : un withholding est un **defaut-coupable** → re-route shard (`fallback_node`,
-  churn Phase E). Carry honnete.
+  revele pas — et, plus large, un worker admis qui RETIENT sa reponse data-plane.
+  **Mitigation CABLEE S81 Phases I/J, certifiee K** (cf. §16 « Certification
+  SI-9 ») : deadline par-hop couvrant open+write+read, fallback resume-from-cache,
+  coupe comptee. Le volet N3-reveal (withholding d'un REVEAL de litige in-vivo)
+  reste re-route **S82** (ex-S78) — l'arbitrage de litige in-vivo n'est pas cable.
 - **SI-10 replay cross-session du commit** : neutralise par `session_id` dans la
   signature (cf. SI-8).
 - **SI-11 evasion lente / empoisonnement de baseline EMA** (Sev **M**) : un stage
@@ -1457,8 +1466,8 @@ la criticite) en **deux primitives orthogonales** :
   baseline. **Mitigation partielle** : un outlier flagge ne met PAS a jour l'EMA
   (rejet d'outlier, anti-spike) ; mais le seuil est **statique** (pas la fence IQR
   adaptative du papier) et un drift lent sous-seuil reste possible. Carry honnete
-  (re-calibration + signal de magnitude absolue = S78). Garantie crypto = N4
-  zkML, hors-scope.
+  (re-calibration + signal de magnitude absolue = **S82**, ex-S78). Garantie
+  crypto = N4 zkML, hors-scope.
 
 **Gouvernance « qui arbitre »** : l'arbitre du reveal est un verifieur N1-style
 (coordinateur ou pair tire), **PAS de smart-contract** (design fige). La sanction
@@ -1471,17 +1480,69 @@ ne chiffre rien (le nonce du commit cache le fingerprint avant reveal, il ne
 chiffre pas les activations en transit, qui circulent en clair dans le groupe
 prive — SI-1).
 
-> **Completion Phase K (wrap-up, livre)** : STRIDE formel §5.9 + ligne LINDDUN §6
-> (flux shard frontier) + asset §2 A8 + note §4 DFD (flux `sbfb/shard/1`) AJOUTES.
-> Surface read-only `GET /api/daemon/shard-session/{id}` = stub Phase J
-> (`live_shard_session` -> `None`, projection whitelist `ShardSessionView` :
-> `member_count` agrege, jamais `worker_pubkey`/`initiator`). La mitigation SI-5
-> (padding constant-rate) derive du benchmark cross-machine REEL ; ce benchmark
-> est RIG-ABSENT (pas d'orchestrateur de session in-vivo + rig 2-machines absent),
-> donc SI-5 padding reste un **carry S78**. Le §16 fige le catalogue de surface ;
-> l'emission signee in-vivo des `RunProof` + le transport du sketch + l'arbitrage
-> de litige + le cablage SI-9 timeout/fallback sont des carries S78 (Phase K ne
-> livre aucun code fonctionnel net).
+> **Completion Phase K S77 (wrap-up, livre — REQUALIFIE S81 Phase K)** : STRIDE
+> formel §5.9 + ligne LINDDUN §6 (flux shard frontier) + asset §2 A8 + note §4
+> DFD (flux `sbfb/shard/1`) AJOUTES a S77. Ce que S77-K laissait en carry a
+> depuis bouge : le stub `live_shard_session -> None` est SUPPRIME (S81 Phase I
+> livre l'orchestrateur reel + les 5 routes `/api/daemon/shard-session/*`,
+> projection whitelist inchangee : `member_count` agrege, jamais
+> `worker_pubkey`/`initiator`) ; le benchmark cross-machine n'est PLUS
+> RIG-ABSENT (S81 Phase J : CodeLlama-34B eclate 5080-CUDA + M2-Metal, PASS,
+> `sprint81_t2_j_shard_inference.json`) ; l'emission signee in-vivo du
+> `RunProof` DRIVER est LIVREE (S81 I/J) ; le cablage SI-9 timeout/fallback
+> data-plane est LIVRE (S81 I/J, certifie ci-dessous). Restent re-routes
+> **S82** : SI-5 padding (le benchmark J en est la baseline), RunProofs
+> per-worker + transport du sketch, arbitrage de litige in-vivo (N3-reveal).
+
+### Attestation loaded-stage <-> manifeste signe + certification SI-9 (Sprint 81 I/J/K)
+
+**Le trou ferme (S81 Phase K, carry P1 de Phase J)** : jusqu'a J inclus, le
+chemin `shard-session serve` choisissait fenetre et role par flags CLI et ne
+voyait JAMAIS le manifeste signe (`authorize_claim` ne vit que sur le chemin
+claim-engine, mort sur serve) ; la readiness etait transport-only (handshake +
+RTT, 0 frame). Un stage mal configure — mauvais GGUF, mauvaise fenetre, echo
+transport-only laisse en service — produisait un resultat plausible-faux que le
+driver SIGNAIT dans son RunProof.
+
+**Enforcement** : a l'etablissement de CHAQUE stage-link d'une session REELLE
+(`model_digest != 0` — premier drive, re-dial, ET re-route fallback), le driver
+exige une **attestation applicative** (`ShardStageAttestationRequest`/
+`ShardStageAttestation`, message JSON dans les frames opaques `sbfb/shard/1`,
+pattern `SHARD_STEP_PAYLOAD_V`, 0 bump wire) : le stage declare
+`{model_digest (blake3 STREAMING du FICHIER au chemin GGUF, cf. caveat TOCTOU
+SI-12 ci-dessous), layer_start, layer_end,
+is_first, is_last}` ; le driver compare au `ShardedSessionManifest` signe +
+`ShardAssignment` du stage et **fail-close** tout mismatch AVANT le moindre
+frame de donnees (`attest_stage_link`, meme budget deadline SI-9 que tout hop).
+`ShardProtocol::accept` repond a la requete AVANT le forwarder — un backend
+reel ne voit jamais la sonde comme des activations (concern R-I-1 preserve) ;
+le chemin echo (digest zeros) est exempte byte-identique.
+
+**Honnetete cardinale** : l'attestation est un **self-claim d'un membre admis**
+(famille N0). Elle ferme la classe **MISCONFIGURATION** ; un stage qui MENT
+deliberement sur son digest reste le residuel SI-4/N0 (detection par
+inegalite de commitment TOPLOC + quorum tolerant N2, inchanges).
+**Caveat TOCTOU (SI-12, Sev L, hote-local, re-route S82)** : le digest attest
+est le blake3 STREAMING du FICHIER au chemin GGUF au moment du hash, calcule
+APRES le load (le backend llama.cpp mmap le fichier par defaut). Un remplacement
+atomique du fichier entre le load et le hash permettrait a un operateur local
+de servir l'inode mmape ancien tout en attestant le digest du nouveau chemin.
+C'est une surface **hote-local/trusted** (l'operateur controle deja sa machine),
+donc L ; le binding n'est PAS atomique load<->hash. Durcissement (hash de la
+region mmapee, ou hash-avant-load + re-verification) = re-route S82.
+
+**Certification SI-9 data-plane (S81 I/J, perimetre honnete)** :
+- deadline PAR-HOP couvrant open_bi + write + read (`drive_hop`, `step_hop` —
+  le write path backpressure sur le flow-control QUIC, donc borner la lecture
+  seule laisserait un byzantin bloquer un write large indefiniment) ;
+- fallback plan-time re-probe + attestation + **resume-from-cache**
+  (`ActivationReplayCache`, replay stateless du step input — correct par
+  construction, aucun etat perdu), coupe explicite comptee
+  (`worker_drop_count`) sans fallback ;
+- prouve HERMETIQUEMENT (deadline write-path ferme, re-route mid-decode
+  rejoue) + LIVE post-drive (coupe comptee) ; le drop mid-decode LIVE
+  (arracher une machine pendant le decode) exigerait une 3e machine rig
+  (R-J-5, `sprint81_t2_j_shard_inference.json`) — compte, pas simule.
 
 ---
 
@@ -1661,3 +1722,29 @@ Historique versions :
   `STORE_MIGRATION_OPS.md` (rollback 2 gestes, portee snapshot DEUX roots
   + checklist survivants, TAR-pas-rename sur VPS Linux). 0 bump wire,
   0 dep, 0 code runtime (phase operationnelle, delta tests 0).
+- **v17 (Sprint 81 Phase K, 2026-07-11)** : wrap-up bi-axe. **Sweep GLOBAL
+  des refs « S78 »** (15 sites) : le S78 differe est ABSORBE par S81 —
+  chaque ref vivante est requalifiee « LIVRE S81 I/J/K » (orchestrateur de
+  session in-vivo, emission production du `RunProof` driver + binding
+  fingerprint N0 dernier-step, benchmark live 5080+M2 PASS, SI-9
+  data-plane) ou « re-route S82 » (RunProofs per-worker + transport sketch
+  via canal control-plane, arbitrage litige N3-reveal in-vivo, SI-5
+  padding, SI-7/SI-11 re-calibration) ; les mentions S78 des entrees
+  HISTORIQUES v12-v14 restent verbatim (archives datees). Ajout §16
+  **« Attestation loaded-stage <-> manifeste signe + certification
+  SI-9 »** : le carry P1 de Phase J est FERME — attestation applicative
+  fail-closed a l'etablissement de chaque stage-link (message 0-bump dans
+  les frames opaques, self-claim N0, ferme la MISCONFIGURATION, SI-4
+  byzantin residuel inchange) + certification SI-9 au perimetre honnete
+  (hermetique + live post-drive ; drop mid-decode live = 3e machine rig,
+  R-J-5). **Note N/A trigger GUARDRAILS** : `sanitize_diagnostic`
+  (shard_session.rs, S81 Phase I disposition Codex) est un scrubber
+  d'hygiene de diagnostics transport (anti log-injection + redaction
+  identites) — ce n'est PAS un checker de task-output et il ne rejoint
+  pas la GuardrailChain (`GUARDRAILS_ARCHITECTURE.md` intouche, motif :
+  surface = erreurs QUIC attacker-influenced, jamais du contenu LLM).
+  Carry v17 : l'assertion machine `conn_type == direct` au
+  readiness-barrier (J-D5-1) reste portee par le label honnete de
+  l'agregat T2 (`sprint81_t2_acceptance.json`) → route S82. 0 bump wire,
+  0 dep ; +1 surface applicative DANS l'ALPN existant (attestation),
+  documentee ci-dessus.

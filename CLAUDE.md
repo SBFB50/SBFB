@@ -165,16 +165,36 @@ Runtime isolation roadmap dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
 ## Etat actuel
-- **Sprints 0-77 CLOSED + S79-S80 DONE** (S78 différé, Factory-first) (Arc 3.5 Factory
-  Complete Vision **6/6 COMPLET** ; S77 = **sharding pipeline** LIVRE —
-  coeur teste hermetiquement [primitives wire C, placement Parallax D,
-  routing+churn E, fork llama.cpp F1/F2, data-plane `sbfb/shard/1`,
-  N0-N3 G/H/I, front `/compute` J] ; **feature shard PROVISIONAL** : le
-  benchmark live cross-machine T2 = **RIG-ABSENT** (aucun orchestrateur
-  de session in-vivo + rig 2-machines RTX 5080/Mac M2 absents) → carry
-  P1 S78, cf. `sprint78_audit_plan.md` §7/§10. **S78** = orchestrateur de
-  session in-vivo + benchmark live, plus 4 carries 3/3 a escalader ;
-  S78 Phase 0 = audit gate S77, cf. `sprint78_audit_plan.md`).
+- **Sprints 0-77 CLOSED + S79-S81 DONE** (S78 différé Factory-first puis
+  **ABSORBÉ par S81 Phases I/J**) (Arc 3.5 Factory Complete Vision
+  **6/6 COMPLET** ; S77 = **sharding pipeline** LIVRE — coeur teste
+  hermetiquement [primitives wire C, placement Parallax D, routing+churn E,
+  fork llama.cpp F1/F2, data-plane `sbfb/shard/1`, N0-N3 G/H/I, front
+  `/compute` J] ; **feature shard SORTIE de PROVISIONAL en S81** : carry P1
+  RIG-ABSENT CLOSED par l'orchestrateur in-vivo (S81 I, `shard_session.rs`)
+  + benchmark live CodeLlama-34B éclaté 5080-CUDA+M2-Metal PASS (S81 J)).
+  **S81 DONE — upgrade iroh 0.98 → =1.0.1 BI-AXE** (maintenance
+  forcing-function, relais n0 EOL 2026-09-30) : 15 phases 0/A..A4/B..K.
+  Axe TRANSPORT : fix materializer wf4 (A) + self-heal ×2 fail-fast (A2) +
+  baseline live 0.98 committée (A3, 1er run réel SBFB_INTEGRATION de
+  l'histoire) + fix boot sync-set (A4) + bump point unique (B) + sync-set
+  storage/feed duress-gated (C) + re-cert blobs/transport (D/E) + PLAN B
+  zéro-n0 C8 Topologie B déployée live (E2) + hot-join gossip (E3) +
+  migration redb 2→4 prouvée sur COPIE (F) + supply-chain gate
+  P2-AUDIT-2-RESIDUEL (G) + **FLIP LIVE same-day 3 nœuds 6 paliers PASS
+  identités conservées** (H). Axe SHARDING : orchestrateur session in-vivo
+  ex-S78 + 5 routes loopback + SI-9 deadlines (I) + **inférence réelle
+  in-frame ShardStepRequest/Reply + benchmark live PASS** (J) + **binding
+  loaded-stage↔manifeste signé fail-closed** + T1 6 sous-tests BLOQUANT +
+  job integration-nightly + T2 agrégat bi-axe PASS top-level (**b3_p2_quorum
+  PASS 2026-07-11 = 1er quorum de l'histoire projet, C10 : redundancy=2
+  déterministe 6s end-to-end PC+Mac, consent All(4) opt-in S76** ; détails
+  per-worker operator-corroborated, contrat de provenance dans l'agrégat) + THREAT
+  v17 + clôture docs-contrat + §P73 (K). 0 bump wire SBFB (byte-identique aux 2 bornes),
+  0 dep runtime, iroh STRICTEMENT SEUL, migration one-way (rollback = DEUX
+  gestes), upgrade ≠ Gate 1 (R-iroh-audit P0 INCHANGÉ). Prochain : audit
+  gate S81 = Phase 0 de S82 (`sprint82_audit_plan.md` — escalade BLOQUANTE
+  boot-SEED OVERDUE 3/3) ; slot S82 = workflow-engine (arbitrage PO C9).
   **S79 DONE — capacité Factory « app-authoring »** (anime.js 4.5.0 + daisyUI
   5.5.23 maîtrisés dans le process Factory) : 8 phases feature A-H + Phase I
   docs-contract closure. Knowledge packs versionnés blake3 + prompt-kind
@@ -216,11 +236,10 @@ Runtime isolation roadmap dans
   (87 fichiers) reste parqué sur `wip/factory-front-arc-post-s82`.
   Invariants tenus : MUR jamais bouton, 0 verdict calculé UI, diff = vérité
   Rust, Factory hors daemon (0 route daemon), 0 bump wire, 0 dep runtime
-  ajoutée hors Lingui-OVERRIDE. Carries P1 standing : sharding S77 RIG-ABSENT
-  + app-authoring in-vivo `Not evidenced` ; fondation Viewer S81. Séquencement
-  PO acté : **S81 = upgrade iroh 0.98→1.0** (relais N0 EOL 2026-09-30,
-  kickoff DRAFT en staging `.planning/research/sprint81_iroh_upgrade/`) →
-  S82 workflow-engine → reprise arc front.
+  ajoutée hors Lingui-OVERRIDE. Carries P1 standing : app-authoring in-vivo
+  `Not evidenced` (le carry sharding S77 est CLOSED par S81 I/J) ; fondation
+  Viewer → S82. Séquencement PO acté : S81 iroh DONE → **S82
+  workflow-engine** (re-confirmation C9 au wrap-up S81) → reprise arc front.
   Projet Rust+Frontend pur depuis S50-S51.
   S70 DONE : 7 phases A-G (A AGENT_SYSTEM.md canon portable + B
   dette pair P2-I-3 3/3 + P2 audit absorbes + C prompt portability
@@ -373,18 +392,23 @@ Runtime isolation roadmap dans
   S69 audit PASS (0 P0, 0 P1, 3 P2, 2 P3) — `c6c135f`.
   P2P valide cross-machine : LAN Win↔Mac, WAN dev↔VPS Helsinki.
   CI operationnel : Woodpecker ci.sbfb.world + GHA.
-- **~2650 tests total** (2014 Rust nextest Windows natif 0-skip /
-  2018 canonique Docker Linux [+4 `#[cfg(unix)]`] / 411 Vitest `web/` /
+- **~2730 tests total** (2095 Rust nextest Windows natif 0-skip /
+  2099 canonique Docker Linux [+4 `#[cfg(unix)]`] / 412 Vitest `web/` /
   41+1skip E2E web `compute-shard` / **201 Vitest factory-operator
   (35 fichiers) + 10 E2E Playwright operator hermétiques** / size-limit
   web 6/6 + operator budgets verts) — Win + Docker fmt/clippy/doctest
-  verts ; les tests iroh-networked `multi_daemon` sont env-bloques en
-  Docker-on-Windows (reseau hote degrade `create_node`, verts sur Win
-  natif + le CI Linux Woodpecker/GHA) ; **classe env voisine S80** : les
-  tests HTTP loopback `operator_server` depassent 30s sous
-  Docker-on-Windows (verts <1s natif) → toujours passer
+  verts ; les tests iroh-networked `multi_daemon`+`cross_daemon_blob`+
+  `blob_serve_coep` (6) sont env-INSTABLES en Docker-on-Windows (reseau
+  hote parfois degrade : verts au run J 10/07, rouges au run K 11/07 ;
+  toujours verts sur Win natif + le CI Linux Woodpecker/GHA) ; **classe
+  env voisine S80** : les tests HTTP loopback `operator_server` depassent
+  30s sous Docker-on-Windows (verts <1s natif) → toujours passer
   `SBFB_TEST_HTTP_TIMEOUT_SECS=120` au run `sbfb-ci` local (echappatoire
   documentee `crates/sbfb-factory/tests/operator_server.rs`).
+  S81 delta : +81 Rust Win (2014→2095 : A..J +70, K +11 [K-1/K-2 +9 +
+  2 fixes review/Codex : validation digest anti-panic + collision echo]) /
+  +81 Docker (2018→2099) / Vitest web 411→412 / operator 201 + E2E 10
+  inchangés.
   S80 delta : +20 Rust Win (1994→2014, fin S79 = 1994 ; 1949 = fin S77) /
   +20 Docker (1998→2018) /
   Vitest operator 7→201 suite REBÂTIE de 0 (greenfield ; C 52 → D 77 →
@@ -441,7 +465,8 @@ Runtime isolation roadmap dans
   en a livre le coeur (keep_online M18 + seed cross-noeud + pull).
   LT-6 iroh neighborhood enrichment — **RESOLVED S32 Phase A**.
   LT-7 self-hosted build — Tier 1+2 DONE (S55). Tier 3 P2P infra
-  validee (S60). Worker quorum E2E carry post-tag. Diversite
+  validee (S60). Worker quorum E2E — **CLOSED S81 K** (1er
+  `b3_p2_quorum` PASS de l'histoire, C10). Diversite
   publique post-launch.
 - **Roadmap v1.0 livree** :
   S59 = launcher readiness + verified deploy E2E + LT-1 Kudos-v2

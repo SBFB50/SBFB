@@ -1,0 +1,89 @@
+{
+  "suite": "sprint81-t2-bi-axis",
+  "kind": "aggregate",
+  "date": "2026-07-11",
+  "iroh_lock": "iroh =1.0.1 / iroh-docs =0.101.0 / iroh-gossip =0.101.0 / iroh-blobs =0.103.0",
+  "contract": "single bi-axis aggregate (S80 precedent), closed vocabulary PASS / BLOCK{diagnosis} / RIG-ABSENT / NOT-RUN / ACTED{evidence} / MIXED; every palier below either references its committed raw artefact verbatim or embeds the raw harness JSON of a Phase-K run. ACTED is a Phase-K preflight-sanctioned status: the palier's proof obligation is discharged by named committed evidence rather than a re-run. MIXED is a REFERENCE palier (e.g. baseline_098) whose sub-paliers carry divergent statuses — it is a differential anchor, not a gate to pass, and its `note` enumerates the sub-statuses honestly.",
+  "status": "PASS",
+  "diagnosis": "bi-axis PASS — transport: 9 paliers PASS/ACTED + baseline_098 MIXED (differential reference, not a gate) + b3_p2_quorum PASS (FIRST in project history, C10); sharding: PASS (J live + K binding hermetic). Aggregate finalized 2026-07-11 BEFORE the Phase K commit.",
+  "axes": {
+    "transport": {
+      "status": "PASS",
+      "paliers": {
+        "baseline_098": {
+          "status": "MIXED",
+          "artefact": ".planning/active/sprint81_t2_baseline_098.json",
+          "note": "pre-bump LIVE baseline (A3) — NOT a uniform PASS (Codex K roll-up honesty): b3_p1_fresh_enroll PASS + b3_p1_coordinator_restart_no_remint PASS; integration_relay_gated BLOCK (first real run ever, 5 test-rot + 1 product signal, repair routed sprint82_audit_plan); b3_p2_quorum NOT-RUN (had never PASSed in project history at the 0.98 baseline; the FIRST PASS is post-bump, Phase K — see the b3_p2_quorum palier, C10). This palier is the pre-bump REFERENCE for the differential, not a gate to pass — its value is that the SAME paliers re-run post-bump match verdict-by-verdict."
+        },
+        "a4_boot_window_differential": {
+          "status": "PASS",
+          "artefact": ".planning/active/sprint81_t2_a4_differential_098.json"
+        },
+        "e_discovery_survival": {
+          "status": "PASS",
+          "artefact": ".planning/active/sprint81_t2_e_discovery_survival.json"
+        },
+        "e2_zero_n0": {
+          "status": "PASS",
+          "artefact": ".planning/active/sprint81_t2_e2_zero_n0.json",
+          "note": "Topology B deployed live on the anchor (a085853)"
+        },
+        "e3_hot_subscribe": {
+          "status": "PASS",
+          "artefact": ".planning/active/sprint81_t2_e3_hot_subscribe.json"
+        },
+        "f_store_migration_on_copy": {
+          "status": "PASS",
+          "artefact": ".planning/active/sprint81_t2_f_store_migration.json"
+        },
+        "h_live_flip": {
+          "status": "PASS",
+          "artefact": ".planning/active/sprint81_t2_h_live_flip.json",
+          "note": "3 real nodes flipped same-day, 6/6 paliers PASS, node identities preserved, rollback never triggered"
+        },
+        "s75_survives_vps_death_replay": {
+          "status": "PASS",
+          "run": "Phase K 2026-07-11, harness flip_convergence_check.sh on the dev node while the VPS daemon was systemctl-stopped",
+          "raw_during_vps_death": {"status": "PASS", "stage": "converged", "node_id": "fe7a4898a1eff3a48685a59938a7d077623a031fe9e915030384e3b33b622e47", "archive_hash": "d9660a95c2c15b881ff43bf54fd43effaf25064241c7d79363ecb4be34c79e6c", "sha256": "a8a57f51c1942db8e0c6421fedd6d18f2dacf873e02ef573ac8ea13199576d7f", "baseline_sha256": "a8a57f51c1942db8e0c6421fedd6d18f2dacf873e02ef573ac8ea13199576d7f", "delay_s": 0, "diagnosis": "browse reachable in 0s + index.html byte-identical to pre-flip baseline"},
+          "post_restart": "VPS systemctl start -> active, /health ok, browse 4/4 reachable, 0 crash-loop (second 1.0.1 boot over the migrated store)",
+          "browse_integrity": "dev browse 5 entries before stop == 5 entries during VPS death (0 lost)"
+        },
+        "b3_fetch_blob_cross_machine": {
+          "status": "ACTED",
+          "evidence": "flip H paliers flip_cross_postvps_dev + flip_cross_postvps_mac (sprint81_t2_h_live_flip.json): blob-serve index.html sha256 byte-identical cross-machine on the migrated stack — the same proof obligation (cross-machine blob fetch + byte integrity post-upgrade) discharged by 2 committed PASS paliers; re-running the b3 lineage variant would add no information (preflight K amendement 2)"
+        },
+        "public_registry_view_convergence": {
+          "status": "ACTED",
+          "evidence": "composed coverage (preflight K amendement 3, live view-diff inexecutable as written): (1) hermetic T1(2) fold determinism on every CI push (test_out_of_order_ingest_converges_full/_incremental — identical PublicRegistryView regardless of ingest order); (2) live post_flip_directory_convergence_vps_side PASS (flip H); (3) Phase-K probe 2026-07-11: GET /api/daemon/feed/entries serves the node's OWN chain on both nodes post-migration (dev 33 entries seq 1..33, vps 10 entries seq 1..10, chains healthy; disjoint authors dev/vps = expected per-node-feed semantics, verified not a loss). The materializer has 0 runtime consumers (scope cut A 1e7188f) so no route exposes the folded view to diff live."
+        },
+        "b3_p2_quorum": {
+          "status": "PASS",
+          "raw": {"status": "PASS", "stage": "result-replication", "delay_s": 6, "claim_s": null, "task_id": "000000006a528124-7bee40be9a7885fa", "diagnosis": "task_id=000000006a528124-7bee40be9a7885fa result_text=Paris. submit->visible=6s (budget 30s)", "last_response": "{\"task_id\":\"000000006a528124-7bee40be9a7885fa\",\"status\":\"completed\",\"result_text\":\"Paris.\",\"result_hash\":\"Paris.\"}"},
+          "raw_artefact": "scripts/acceptance/.b3_quorum_k.json",
+          "raw_run1_block_artefact": ".planning/active/sprint81_t2_quorum_k_block.json",
+          "note": "FIRST quorum PASS in project history (C10 target). 2026-07-11, three runs, honest sequence. PROVENANCE CONTRACT for this note: the committed raws are run 1 (raw_run1_block_artefact) and run 3 (raw + raw_artefact); the run 2 raw was OVERWRITTEN by run 3 (same harness artefact path) and every per-worker attribution below (which worker executed what, when) comes from OPERATOR-INSPECTED rig logs that are NOT committed (.gitignore'd worker logs) — plausible-and-corroborated at acceptance time, not machine-re-verifiable post-commit. (run 1, harness raw = BLOCK stage=result-replication 'no worker log captured', task:000000006a52798f) operator re-diagnosis from the uncommitted Mac worker log: the deterministic verifiable redundancy=2 task REACHED the Mac worker replica cross-machine over WAN — positively VALIDATES the S81 A3/A4 boot-sync-set fix (the old S77 WAN blocker is GONE) — then the worker refused at the consent filter (RejectReason::NotOwnProject, default ConsentLevel::OwnProjects(1)); operator step applied: ConsentLevel::All(4) written to consent.json on BOTH hosts (the S76 'offer my power' opt-in). (run 2, harness raw = BLOCK stage=claim, task:000000006a528023-1e269ecc69f051a7, raw overwritten) harness-spawned PC worker booted 3s before submit did not receive the incremental task: entry within the 30s budget (cold-boot gossip-neighborhood dead window — product signal routed sprint82_audit_plan, consistent with the S75 re-drive-on-ingest carry); operator-inspected logs: the STABLE Mac worker executed in 16s, and that same task later CONVERGED once the PC worker was stable (+2m08s: PC executed, quorum formed, result_text 'Paris.' visible at the VPS via GET /api/v1/tasks/.../result) — proof of convergence, out of budget. (run 3, PASS, this raw — the only machine claim it carries is delay_s=6) both workers in steady state (the same pre-warmed regime the palier-2 contract already requires for the 2nd worker): submit -> 2 byte-identical results -> validator quorum -> result_text visible at the VPS in 6s end-to-end (budget 30s); operator-corroborated attribution: PC node a424d8e748 completed at +1s, Mac node 81cfeab05c at +4s, DISTINCT identities. Honesty detail: rig.local.env's WORKER_BIN export overrides an empty env (harness spawned a surplus PC process sharing the same worker.key identity); it executed nothing (0 log hits) and is inert for the quorum by the (worker_pubkey, task_id) dedup — the quorum is 2 distinct identities."
+        }
+      }
+    },
+    "sharding": {
+      "status": "PASS",
+      "paliers": {
+        "j_real_inference_live": {
+          "status": "PASS",
+          "artefact": ".planning/active/sprint81_t2_j_shard_inference.json",
+          "note": "CodeLlama-34B split 5080-CUDA[0,37) + M2-Metal[37,48), 16 greedy tokens, deterministic, harness PASS — S77 RIG-ABSENT carry CLOSED"
+        },
+        "k_stage_attestation_binding": {
+          "status": "ACTED",
+          "evidence": "hermetic proof (Phase K), no live run: decode_loop_fails_closed_on_unattested_echo_stage + _on_window_mismatch + _on_model_digest_mismatch (shard_session.rs) + shard_attestation_answered_before_the_forwarder + verify_stage_attestation_fail_closes_on_every_mismatch + attestation_digest_is_strictly_validated_and_never_panics (shard.rs) — no step frame reaches an unattested executor on any real-session path. ACTED (not PASS): a binding this is a code invariant discharged by hermetic tests, not a live acceptance palier."
+        }
+      },
+      "honest_labels": {
+        "conn_type_direct_at_readiness": "NOT machine-asserted at the readiness barrier (carry J-D5-1 -> S82); the J live run recorded the path type observationally only",
+        "mid_decode_live_drop": "counted, not simulated live (needs a 3rd rig machine, R-J-5); hermetic reroute test covers the logic",
+        "per_worker_runproofs": "driver-signed RunProof only; per-worker proofs need a control-plane return channel (S82)"
+      }
+    }
+  },
+  "vocabulary_note": "RIG-ABSENT is legitimate ONLY for genuinely broken hardware (kickoff D4); an operator-off machine is a wait, never a RIG-ABSENT"
+}

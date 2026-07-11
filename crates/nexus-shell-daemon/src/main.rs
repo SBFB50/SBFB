@@ -324,32 +324,40 @@ async fn handle_shard_session(paths: &ShellDaemonPaths, cmd: ShardSessionCommand
                         n_ctx.min(nexus_core_rs::MAX_SHARD_N_CTX),
                     )
                     .map_err(|e| anyhow::anyhow!("shard backend load failed: {e}"))?;
+                    // Stage attestation digest (Sprint 81 Phase K, closes
+                    // the Phase J carry `THREAT_MODEL §16`): STREAMING
+                    // blake3 of the loaded GGUF — never `std::fs::read`,
+                    // which would OOM an 8 GB tail machine on a ~16 GB
+                    // file (Codex GPT-5.6 Sol P1). The driver compares
+                    // this self-declared digest + the loaded window/roles
+                    // against the SIGNED manifest at every stage-link
+                    // establishment and fail-closes on mismatch.
+                    println!("hashing GGUF (streaming blake3) for the stage attestation…");
+                    let model_digest = nexus_core_rs::crypto::blake3_hash_file(gguf)
+                        .map_err(|e| anyhow::anyhow!("model digest failed: {e}"))?;
                     let w = backend.window();
-                    // Banner prints the loaded window + role so the operator can
-                    // cross-check {window, role} against `shard-session plan`
-                    // and the mount BEFORE trusting the driver's RunProof
-                    // (Codex GPT-5.6 Sol P1, operator-verifiability half). The
-                    // model DIGEST is verified out-of-band with `b3sum <gguf>`
-                    // against the mount's `model_digest` — we deliberately do
-                    // NOT re-read the whole GGUF here (a `std::fs::read` of a
-                    // ~16 GB file would OOM an 8 GB tail machine, Codex P1). The
-                    // full readiness attestation binding loaded-stage ↔ signed
-                    // manifest is a Phase K carry (THREAT_MODEL §16).
+                    // Banner prints the loaded window + role + digest so the
+                    // operator can cross-check against `shard-session plan`
+                    // and the mount (Codex GPT-5.6 Sol P1,
+                    // operator-verifiability half); the drive now enforces
+                    // the same binding in-band via the attestation.
                     let banner = format!(
                         "REAL layer-block stage [{},{}) of {} (is_first={}, is_last={}, \
-                         n_embd={}) — verify the model digest with `b3sum` against the \
-                         mount's model_digest",
+                         n_embd={}, model_digest={}) — attested to the driver at every \
+                         stage-link establishment",
                         w.start(),
                         w.end(),
                         gguf.display(),
                         w.is_first(),
                         w.is_last(),
                         backend.n_embd(),
+                        hex::encode(model_digest),
                     );
                     (
                         std::sync::Arc::new(
                             nexus_worker_core::llm::shard::ShardStageForwarder::new(
                                 std::sync::Arc::new(backend),
+                                model_digest,
                             ),
                         ),
                         banner,

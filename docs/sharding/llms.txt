@@ -5,9 +5,12 @@
 > custom ALPN `sbfb/shard/1`. This index points an agent at the rank-1 sources
 > it must read to wire or review sharding **without hallucinating**.
 >
-> **Status: PROVISIONAL.** The signed primitives, data plane, and read-only
-> control plane are live; the in-vivo session orchestrator (pilots generation,
-> emits signed proofs, populates a live session store) is a carry **S78**.
+> **Status: LIVE-PROVEN (S81 I/J).** The signed primitives, the data plane,
+> the in-vivo session orchestrator (mount/drive/result, driver-signed
+> `RunProof`, `crates/nexus-shell-daemon/src/shard_session.rs`), the stage
+> attestation (S81 K, loaded-stage <-> signed manifest) and the live
+> 2-machine benchmark are delivered; per-worker proof emission + dispute
+> arbitration remain routed **S82**.
 >
 > **Truth Stack** (trust the higher rank on conflict):
 > `repo files > .planning/active/ > commits > prompts > chat`. A fact absent from
@@ -30,14 +33,15 @@
 
 ## Control plane + front
 
-- [http.rs](../../crates/nexus-shell-daemon/src/http.rs): read-only route, body built by `crates/nexus-shell-daemon/src/http.rs:shard_session_response`, privacy projection `crates/nexus-shell-daemon/src/http.rs:project_shard_session`.
+- [shard_session.rs](../../crates/nexus-shell-daemon/src/shard_session.rs): the in-vivo orchestrator (S81 I) — mount barrier, HUB drive, decode loop, gated `ShardSessionRegistry`, stage attestation (S81 K).
+- [http.rs](../../crates/nexus-shell-daemon/src/http.rs): the 6 `/api/daemon/shard-session/*` routes (status body + privacy projection `crates/nexus-shell-daemon/src/http.rs:shard_session_response` — aggregate `member_count` only, never a `worker_pubkey`/`initiator`); write/drive routes specified in `docs/protocol/SHARD_PROTOCOL_SPEC.md` §6.
 - [daemon.ts](../../web/src/api/daemon.ts): front wrapper `web/src/api/daemon.ts:getShardSession`.
 - [protocol.ts](../../web/src/bridge/protocol.ts): the bridge whitelist `web/src/bridge/protocol.ts:BridgeMethodSchema` — a closed enum of app-facing methods, none a shard method.
 
 ## Runnable examples (compiled / exact)
 
 - [sign_verify.rs](./examples/sign_verify.rs): sign + verify both envelopes; compiled+run by [shard_sign_verify.rs](../../crates/nexus-core-rs/tests/shard_sign_verify.rs).
-- [observe.curl.md](./examples/observe.curl.md): `GET /api/daemon/shard-session/{id}` + loopback headers + empty-store response.
+- [observe.curl.md](./examples/observe.curl.md): `GET /api/daemon/shard-session/{id}` + loopback headers + unknown-id vs mounted-session response (live registry, S81 I).
 - [bridge_gap.md](./examples/bridge_gap.md): why there is NO shard bridge method (PROPOSED / GAP-not-shipped).
 
 ## Human docs (Diátaxis, French)

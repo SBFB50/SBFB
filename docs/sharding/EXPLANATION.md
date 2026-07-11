@@ -4,7 +4,8 @@
 [`HOW_TO_WIRE.md`](./HOW_TO_WIRE.md) ; pour les types exacts, voir
 [`REFERENCE.md`](./REFERENCE.md).*
 
-> **Statut : PROVISIONAL** (carry orchestrateur live S78, cf.
+> **Statut : LIVE-PROVEN (S81 I/J)** — orchestrateur de session in-vivo +
+> benchmark live 2 machines livrés (cf.
 > [`README.md`](./README.md)). **Caveat cardinal : admission ≠ confidentialité**
 > — les activations circulent en clair dans le groupe privé ; ne jamais faire
 > transiter un secret par les prompts d'une session shardée.
@@ -26,8 +27,10 @@ frontière** au worker suivant. Le dernier worker émet la sortie.
 
 Ce choix est délibéré. Le tensor-parallel découpe chaque couche et exige un
 *all-reduce* à chaque étape : il est **bandwidth-bound** et s'effondre sur un
-lien WAN. Le pipeline-parallel n'échange que les activations de frontière entre
-voisins : il est **latency-bound** et **survit au WAN** (l'objectif réaliste est
+lien WAN. Le pipeline-parallel n'échange que les activations de frontière
+d'un stage au suivant — relayées par le driver (topologie HUB : les workers ne
+se parlent jamais entre eux, cf. [`REFERENCE.md`](./REFERENCE.md)) : il est
+**latency-bound** et **survit au WAN** (l'objectif réaliste est
 de l'ordre de 1–3 tokens/seconde sur un lien grand public, pas la vitesse d'un
 GPU local).
 
@@ -49,10 +52,13 @@ Deux signatures Ed25519, deux responsabilités distinctes :
 - **L'initiateur signe le plan.** Le `ShardedSessionManifest`
   (tag `nexus-shard-plan-v1`) dit *qui calcule quel bloc, sur quel modèle*. Sa
   signature prouve seulement que **l'initiateur a autorisé ce plan**.
-- **Le worker signe sa preuve d'exécution.** Le `RunProof`
-  (tag `nexus-run-proof-v1`) dit *ce qu'un worker a exécuté* (métriques, et le
-  cas échéant un fingerprint d'activation N0). Sa signature prouve seulement
-  **quel worker l'a produit** (non-répudiation).
+- **Le driver de session signe la preuve d'exécution.** Le `RunProof`
+  (tag `nexus-run-proof-v1`) dit *ce que le run a exécuté* (métriques,
+  `participants` = qui a réellement calculé, et le fingerprint d'activation N0
+  du dernier step). Depuis S81 I/J c'est le **driver** (la tête qui a piloté la
+  génération) qui le signe — un self-claim non-répudiable pour le driver, pas
+  une vérification indépendante. Les preuves signées **par worker** distant sont
+  re-routées **S82**.
 
 **La frontière est une auto-attestation.** Une signature valide ne prouve **pas**
 que le calcul est correct — seulement *qui* a parlé. Tant qu'un vérificateur
@@ -74,9 +80,9 @@ octets, des millisecondes.
 L'intégrité ne tient pas à la confiance dans les membres mais à une **échelle de
 vérification** *hors-bande* (jamais transportée sur le data-plane ; dérivée des
 `RunProof` signés après coup). Chaque étage est aujourd'hui une **primitive
-câblée et testée hermétiquement** ; leur **émission/enforcement in-vivo** (un
-orchestrateur qui exécute la génération réelle et signe les preuves) reste un
-**carry S78**.
+câblée et testée hermétiquement** ; l'orchestrateur qui exécute la génération
+réelle et signe le `RunProof` DRIVER est **livré (S81 I/J)** — les preuves
+signées PER-WORKER des shards distants restent re-routées **S82**.
 
 - **N0 — empreinte TOPLOC.** Un *commitment* BLAKE3 32 octets du top-k du dernier
   hidden state. Il **détecte un swap** de modèle ou de quantification (un worker
@@ -104,15 +110,17 @@ orchestrateur qui exécute la génération réelle et signe les preuves) reste u
   un litige, il ne prouve pas cryptographiquement la correction.
 
 **Ce que l'échelle ne fait pas (honnêteté).** Le réseau **ne « vérifie » pas
-chaque shard** aujourd'hui : les primitives sont câblées et testées, mais
-l'émission signée des `RunProof` in-vivo + le re-exec GPU réel + le transport du
-sketch complet hors du slot 32 octets sont des **carries S78**. Le chemin de
+chaque shard** aujourd'hui : les primitives sont câblées et testées, et
+l'émission signée du `RunProof` DRIVER est **livrée (S81 I/J)** — mais le
+re-exec GPU réel, le transport du sketch complet hors du slot 32 octets et les
+preuves per-worker sont re-routés **S82**. Le chemin de
 résultat *live* reste le **quorum exact-match sur `result_text`, INCHANGÉ**.
 L'incitation est du **kudos non-monétaire** (réputation) : il n'y a **aucune
 défense anti-vérificateur-paresseux** et **jamais** de slash/bond/burn (interdit
 par décision PO). La garantie cryptographique forte (N4 zkML) est **hors-scope
 S77**. La mitigation SI-5 (padding constant-rate contre le side-channel de
-latence) dérive du benchmark réel et reste un **carry S78**.
+latence) dérive du benchmark réel — la baseline existe depuis S81 J, le padding
+lui-même est re-routé **S82**.
 
 ## Posture de sécurité
 

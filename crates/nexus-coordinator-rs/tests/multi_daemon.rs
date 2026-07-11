@@ -1,10 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! Multi-daemon E2E integration tests (gated behind SBFB_INTEGRATION).
+//! Multi-daemon E2E integration tests (relay-gated class — self-skip at
+//! runtime unless `SBFB_INTEGRATION=1`; exercised for real by
+//! `.github/workflows/integration-nightly.yml` and the live T2 harness,
+//! never counted as coverage on a default CI run).
 
 use nexus_test_harness::DaemonCluster;
 
 fn integration_enabled() -> bool {
-    std::env::var("SBFB_INTEGRATION").is_ok()
+    // `== "1"`, mirror of the harness gate (S81 Phase K harmonisation):
+    // `.is_ok()` treated `SBFB_INTEGRATION=0` as ENABLED.
+    std::env::var("SBFB_INTEGRATION").unwrap_or_default() == "1"
 }
 
 #[tokio::test]

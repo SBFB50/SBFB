@@ -4477,6 +4477,120 @@ mod tests {
         node.shutdown().await.unwrap();
     }
 
+    /// Sprint 81 Phase K — hermetic close of the T1(3) "self-heal NOT
+    /// triggered" gap: until now only the env-gated real-store gate
+    /// (`store_migration.rs`, tarball absent in CI) proved that a boot
+    /// over a PRESENT namespace does not recreate it. This pins it in
+    /// CI: a second boot over the same store + M8 row must return the
+    /// SAME namespace id, row untouched. Composed with the hermetic
+    /// core proof that the redb 2→4 migration preserves `namespaces-2`
+    /// (`store_migration.rs::docs_store_with_legacy_tuple_tags_migrates_on_open`),
+    /// this covers "self-heal not triggered across the migration
+    /// window" without the gitignored tarball.
+    ///
+    /// Honesty note: the "second boot" here is a second CALL in the same
+    /// process over the SAME open node/store — it proves the reuse
+    /// branch, not a full daemon restart over a closed-and-reopened
+    /// store (that lives in the live flip runbook paliers).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn boot_storage_namespace_reuses_existing_namespace_without_self_heal() {
+        let node = nexus_core_rs::create_node().await.unwrap();
+        let docs_client = nexus_core_rs::docs::DocsClient::new(node.docs());
+        let author = docs_client.author_create().await.unwrap();
+        let db = std::sync::Arc::new(std::sync::Mutex::new(
+            nexus_coordinator_rs::db::CoordinatorDb::open_in_memory().unwrap(),
+        ));
+        let iroh_dir = tempfile::tempdir().unwrap();
+
+        let first = boot_storage_namespace(
+            &docs_client,
+            &db,
+            "sbfb-ideas",
+            author,
+            nexus_core_rs::IdentityMode::Normal,
+            Some(iroh_dir.path()),
+        )
+        .await
+        .expect("first boot creates the namespace");
+        let created_id = first.doc.id().as_bytes().to_vec();
+
+        let second = boot_storage_namespace(
+            &docs_client,
+            &db,
+            "sbfb-ideas",
+            author,
+            nexus_core_rs::IdentityMode::Normal,
+            Some(iroh_dir.path()),
+        )
+        .await
+        .expect("second boot reopens, never fails");
+        assert_eq!(
+            second.doc.id().as_bytes().to_vec(),
+            created_id,
+            "a present namespace must be REUSED — any new id here is a \
+             silently-triggered self-heal"
+        );
+        let row = db
+            .lock()
+            .unwrap()
+            .get_storage_namespace("sbfb-ideas")
+            .unwrap()
+            .expect("M8 row present");
+        assert_eq!(
+            row.namespace_id, created_id,
+            "the M8 row must be untouched by a reuse boot"
+        );
+        node.shutdown().await.unwrap();
+    }
+
+    /// Feed mirror of the reuse pin — the second A2 self-heal site.
+    /// Same honesty note as the storage twin above: second CALL
+    /// same-process over the same open store, not a real daemon restart.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn boot_feed_namespace_reuses_existing_namespace_without_self_heal() {
+        let node = nexus_core_rs::create_node().await.unwrap();
+        let docs_client = nexus_core_rs::docs::DocsClient::new(node.docs());
+        let author = docs_client.author_create().await.unwrap();
+        let db = std::sync::Arc::new(std::sync::Mutex::new(
+            nexus_coordinator_rs::db::CoordinatorDb::open_in_memory().unwrap(),
+        ));
+        let iroh_dir = tempfile::tempdir().unwrap();
+
+        let first = boot_feed_namespace(
+            &docs_client,
+            &db,
+            author,
+            nexus_core_rs::IdentityMode::Normal,
+            Some(iroh_dir.path()),
+        )
+        .await
+        .expect("first boot creates the feed namespace");
+        let created_id = first.doc.id().as_bytes().to_vec();
+
+        let second = boot_feed_namespace(
+            &docs_client,
+            &db,
+            author,
+            nexus_core_rs::IdentityMode::Normal,
+            Some(iroh_dir.path()),
+        )
+        .await
+        .expect("second boot reopens, never fails");
+        assert_eq!(
+            second.doc.id().as_bytes().to_vec(),
+            created_id,
+            "a present feed namespace must be REUSED, never self-healed anew"
+        );
+        let row = db
+            .lock()
+            .unwrap()
+            .get_storage_namespace(crate::feed_sync::FEED_NAMESPACE_KEY)
+            .unwrap()
+            .expect("feed M8 row present");
+        assert_eq!(row.namespace_id, created_id);
+        node.shutdown().await.unwrap();
+    }
+
     /// Sprint 81 Phase F: an absent replica while the redb migration
     /// backup sibling exists is an INTERRUPTED migration (crash between
     /// rename and persist -> fresh empty store), not a legitimate

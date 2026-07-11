@@ -68,6 +68,31 @@ in-vivo + benchmark live** (sort la feature de PROVISIONAL), plus 4 carries 3/3
 à escalader. Audit gate S77 = `sprint78_audit_plan.md`. **Arc 3.5 reste 6/6 ;
 S77 = feature phare distincte au-delà de l'arc, cœur livré.**
 
+**AMENDEMENT + LIVRAISON 2026-07-11 (S81 Phase K) — insertion S81-iroh
+bi-axe ; S78 différé ABSORBÉ ; Viewer → S82** : cette roadmap s'arrêtait à
+S77 ; S78 (orchestrateur in-vivo) a été DIFFÉRÉ par l'arbitrage PO
+Factory-first (S79 app-authoring, S80 front Operator greenfield —
+amendements hors-roadmap déjà actés dans leurs kickoffs). **S81 = upgrade
+iroh 0.98 → =1.0.1** (sprint de maintenance d'infrastructure
+forcing-function-driven, relais publics n0 EOL 2026-09-30, non-planifié ici)
+au **DONE BI-AXE** (décision PO C1 2026-07-02) : axe TRANSPORT-convergence
+(fix materializer wf4 + self-heal ×2 fail-fast + boot sync-set + bump
+=1.0.1 + migration redb 2→4 prouvée sur COPIE + zero-n0 plan B C8 déployé
+Topologie B + hot-join gossip + **flip LIVE same-day 3 nœuds** 6 paliers
+PASS identités conservées) ET axe SHARDING (**l'ex-S78 est ABSORBÉ par S81
+Phases I/J** : orchestrateur de session in-vivo `shard_session.rs` + routes
+`/api/daemon/shard-session/*` + **benchmark live CodeLlama-34B éclaté
+5080-CUDA + M2-Metal PASS** `sprint81_t2_j_shard_inference.json` → le carry
+P1 sharding S77 RIG-ABSENT est **CLOSED**, la feature sort de PROVISIONAL ;
+binding loaded-stage ↔ manifeste signé livré Phase K). **Viewer fondation +
+Aperçu scellé/Proof Card → S82** (sous réserve de l'arbitrage slot C9,
+BLOQUANT : slot S82 = workflow-engine vs Viewer vs dette docs-contract, à
+RE-CONFIRMER PO au wrap-up S81 — pas encore tranché). **Borne pre-launch TRACÉE** : la politique « wire modifiable
+librement avant v1.0 » ne couvre PAS le store on-disk iroh-docs/blobs déjà
+déployé (ancre VPS) — la migration redb 2→4 est one-way, rollback = restore
+tar + redeploy 0.98 (DEUX gestes, `docs/release/STORE_MIGRATION_OPS.md`).
+Détail : `sprint81_verification.md`.
+
 ---
 
 ## 0. Le pourquoi — Factory ferme la boucle SBFB

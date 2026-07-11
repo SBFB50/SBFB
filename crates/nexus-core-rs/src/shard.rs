@@ -225,6 +225,19 @@ pub trait ShardForwarder: Send + Sync + std::fmt::Debug {
     /// send downstream. An `Err` aborts THIS connection cleanly (the accept
     /// loop finishes the stream and closes); it must never panic.
     fn forward(&self, upstream_frame: &[u8]) -> Result<Vec<u8>>;
+
+    /// The stage this forwarder ACTUALLY loaded, self-declared for the
+    /// stage-attestation exchange (Sprint 81 Phase K — see
+    /// [`ShardStageAttestation`]). `None` (the default) means "no real
+    /// backend" — a transport-only node. [`ShardProtocol`] does NOT
+    /// intercept the attestation for such a node: it echoes every frame
+    /// through [`Self::forward`], so an echo left serving inside a REAL
+    /// session echoes the attestation request back and the driver
+    /// fail-closes (it cannot decode a valid reply). Only a forwarder
+    /// that returns `Some(..)` answers an attestation.
+    fn loaded_stage(&self) -> Option<LoadedStageDescriptor> {
+        None
+    }
 }
 
 /// A [`ShardForwarder`] that returns every frame unchanged.
@@ -307,12 +320,35 @@ impl ProtocolHandler for ShardProtocol {
             return Ok(());
         }
 
-        // Admitted: serve the long-lived bi-stream. Each inbound boundary
-        // frame runs through the injected forwarder (the layer block) and its
-        // output is sent downstream. A forwarder error aborts THIS connection
-        // cleanly — it is surfaced as an `AcceptError`, never a panic.
+        // Stage attestation (Sprint 81 Phase K): answered HERE, before the
+        // forwarder, so a real layer-block backend never sees the probe as
+        // activations (the R-I-1 concern that kept the readiness barrier
+        // 0-frame). TWO guards keep this from colliding with legitimate
+        // data (Codex GPT-5.6 Sol P1):
+        //  - a **transport-only** stage (`loaded_stage() == None`) NEVER
+        //    intercepts — it echoes EVERY frame byte-identical, so an echo
+        //    session whose prompt happens to be the attestation JSON is not
+        //    swallowed. An echo left serving inside a REAL session simply
+        //    echoes the request back; the driver then fails to decode it as
+        //    an attestation reply and fail-closes (binding preserved).
+        //  - only the **first** frame of a real stage is a candidate: the
+        //    driver always sends the attestation first on a fresh link, and
+        //    a data frame (fp32 tensor / `ShardStepRequest` — the latter
+        //    fails `deny_unknown_fields`) can never decode as a request
+        //    anyway, so this is belt-and-braces, not correctness-bearing.
+        let is_real_stage = self.forwarder.loaded_stage().is_some();
         let (mut send, mut recv) = conn.accept_bi().await?;
+        let mut first_frame = true;
         while let Some(frame) = read_frame(&mut recv).await.map_err(AcceptError::from_err)? {
+            let was_first = first_frame;
+            first_frame = false;
+            if is_real_stage && was_first && ShardStageAttestationRequest::decode(&frame).is_ok() {
+                let att = ShardStageAttestation::from_loaded_stage(self.forwarder.loaded_stage());
+                write_frame(&mut send, &att.encode())
+                    .await
+                    .map_err(AcceptError::from_err)?;
+                continue;
+            }
             let out = self
                 .forwarder
                 .forward(&frame)
@@ -471,6 +507,279 @@ impl ShardStepReply {
     }
 }
 
+// ---------------------------------------------------------------------
+// Stage attestation (Sprint 81 Phase K — binding loaded-stage ↔ signed
+// manifest, THREAT_MODEL §16)
+// ---------------------------------------------------------------------
+//
+// Through Sprint 81 Phase J the serve path chose its layer window and role
+// from CLI flags and never saw the signed manifest: a mis-windowed /
+// mis-modeled stage — or a transport-only echo left serving inside a REAL
+// session — produced a plausible-but-wrong result that the driver then
+// SIGNED into a RunProof. This exchange closes that MISCONFIGURATION
+// class: before any data frame flows on a stage link, the driver requests
+// the stage's self-declared [`LoadedStageDescriptor`] and fail-closes on
+// any mismatch with the signed `ShardedSessionManifest` +
+// [`crate::shard_plan::ShardAssignment`].
+//
+// Same wire posture as the step payloads above: JSON inside an opaque
+// `sbfb/shard/1` frame, no `*_FORMAT_VERSION` governance, never signed —
+// 0 wire bump. The attestation is a SELF-CLAIM by an admitted group
+// member (family N0): it closes operator misconfiguration, NOT a
+// deliberately byzantine stage (SI-4 residual). [`ShardProtocol`]
+// intercepts the request BEFORE the forwarder, so a real layer-block
+// backend is never fed the probe as activations.
+
+/// Application-level version guard for [`ShardStageAttestationRequest`] /
+/// [`ShardStageAttestation`] payloads. NOT a wire `*_FORMAT_VERSION` (the
+/// frame stays opaque); a decoder rejects a mismatch loud.
+pub const SHARD_ATTEST_PAYLOAD_V: u16 = 1;
+
+/// Required `kind` of a [`ShardStageAttestationRequest`] — the explicit
+/// discriminant that keeps this minimal payload from ever colliding with
+/// another JSON payload carried in the same opaque frames.
+pub const SHARD_ATTEST_REQUEST_KIND: &str = "attest-stage-request";
+
+/// Required `kind` of a [`ShardStageAttestation`] reply.
+pub const SHARD_ATTEST_REPLY_KIND: &str = "stage-attestation";
+
+/// What a serving stage ACTUALLY loaded, self-declared through
+/// [`ShardForwarder::loaded_stage`] for the attestation exchange. A
+/// transport-only node has no descriptor (`None`) — [`ShardProtocol`]
+/// then does NOT intercept the attestation at all (the request frame is
+/// echoed like any other and the driver fails closed on the undecodable
+/// reply); an all-zeros digest reply only exists for direct callers of
+/// [`ShardStageAttestation::from_loaded_stage`] with `None`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LoadedStageDescriptor {
+    /// BLAKE3 digest of the model file the backend loaded
+    /// (streaming-hashed — [`crate::crypto::blake3_hash_file`]).
+    pub model_digest: [u8; 32],
+    /// Inclusive start layer of the loaded window.
+    pub layer_start: u32,
+    /// Exclusive end layer of the loaded window (resolved, never a `0`
+    /// "to the end" sentinel).
+    pub layer_end: u32,
+    /// Whether the loaded window owns layer 0 (embeds input tokens).
+    pub is_first: bool,
+    /// Whether the loaded window owns the final layer (norm + lm_head).
+    pub is_last: bool,
+}
+
+/// Driver -> stage attestation request. Carries no data beyond its
+/// discriminant: the stage answers with what IT loaded, never with
+/// anything echoed from the request.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ShardStageAttestationRequest {
+    /// Must equal [`SHARD_ATTEST_PAYLOAD_V`].
+    pub v: u16,
+    /// Must equal [`SHARD_ATTEST_REQUEST_KIND`].
+    pub kind: String,
+}
+
+impl ShardStageAttestationRequest {
+    /// Build a request at the current payload version.
+    #[must_use]
+    pub fn new() -> Self {
+        ShardStageAttestationRequest {
+            v: SHARD_ATTEST_PAYLOAD_V,
+            kind: SHARD_ATTEST_REQUEST_KIND.to_string(),
+        }
+    }
+
+    /// Encode to the frame payload bytes (JSON).
+    #[must_use]
+    pub fn encode(&self) -> Vec<u8> {
+        serde_json::to_vec(self).expect("attestation request serialization is infallible")
+    }
+
+    /// Decode a frame payload, rejecting non-JSON bytes, a version
+    /// mismatch and a wrong `kind`.
+    pub fn decode(frame: &[u8]) -> Result<Self> {
+        let req: ShardStageAttestationRequest = serde_json::from_slice(frame)
+            .map_err(|e| NexusError::Other(format!("stage attestation request decode: {e}")))?;
+        if req.v != SHARD_ATTEST_PAYLOAD_V {
+            return Err(NexusError::Other(format!(
+                "stage attestation request payload v{} (expected v{SHARD_ATTEST_PAYLOAD_V})",
+                req.v
+            )));
+        }
+        if req.kind != SHARD_ATTEST_REQUEST_KIND {
+            return Err(NexusError::Other(format!(
+                "stage attestation request kind '{}' (expected '{SHARD_ATTEST_REQUEST_KIND}')",
+                req.kind
+            )));
+        }
+        Ok(req)
+    }
+}
+
+impl Default for ShardStageAttestationRequest {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Stage -> driver attestation reply: the self-declared loaded stage.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ShardStageAttestation {
+    /// Must equal [`SHARD_ATTEST_PAYLOAD_V`].
+    pub v: u16,
+    /// Must equal [`SHARD_ATTEST_REPLY_KIND`].
+    pub kind: String,
+    /// Lowercase blake3 hex (64 chars) of the loaded model file;
+    /// ALL-ZEROS = "no real backend loaded" (transport-only echo).
+    pub model_digest_hex: String,
+    /// Inclusive start layer of the loaded window (0 when unloaded).
+    pub layer_start: u32,
+    /// Exclusive end layer of the loaded window (0 when unloaded).
+    pub layer_end: u32,
+    /// Whether the loaded window embeds input tokens.
+    pub is_first: bool,
+    /// Whether the loaded window samples the output token.
+    pub is_last: bool,
+}
+
+impl ShardStageAttestation {
+    /// Build the reply for a forwarder's self-declared stage. `None`
+    /// (transport-only) builds an all-zeros reply — honest "nothing
+    /// loaded", which a driver fail-closes on. NOTE: since the Phase K
+    /// interception gate, [`ShardProtocol`] never reaches this `None` arm
+    /// in a session (a `None` forwarder is not intercepted — the request
+    /// is echoed instead); the arm stays for direct callers and tests.
+    #[must_use]
+    pub fn from_loaded_stage(desc: Option<LoadedStageDescriptor>) -> Self {
+        match desc {
+            Some(d) => ShardStageAttestation {
+                v: SHARD_ATTEST_PAYLOAD_V,
+                kind: SHARD_ATTEST_REPLY_KIND.to_string(),
+                model_digest_hex: hex::encode(d.model_digest),
+                layer_start: d.layer_start,
+                layer_end: d.layer_end,
+                is_first: d.is_first,
+                is_last: d.is_last,
+            },
+            None => ShardStageAttestation {
+                v: SHARD_ATTEST_PAYLOAD_V,
+                kind: SHARD_ATTEST_REPLY_KIND.to_string(),
+                model_digest_hex: hex::encode([0u8; 32]),
+                layer_start: 0,
+                layer_end: 0,
+                is_first: false,
+                is_last: false,
+            },
+        }
+    }
+
+    /// Encode to the frame payload bytes (JSON).
+    #[must_use]
+    pub fn encode(&self) -> Vec<u8> {
+        serde_json::to_vec(self).expect("stage attestation serialization is infallible")
+    }
+
+    /// Decode a frame payload, rejecting non-JSON bytes, a version
+    /// mismatch, a wrong `kind` and a malformed digest. The digest MUST
+    /// be exactly 64 lowercase ASCII hex chars — the peer controls this
+    /// string, so the strict charset check here is what lets every
+    /// downstream consumer (diagnostics included) slice it safely.
+    pub fn decode(frame: &[u8]) -> Result<Self> {
+        let att: ShardStageAttestation = serde_json::from_slice(frame)
+            .map_err(|e| NexusError::Other(format!("stage attestation decode: {e}")))?;
+        if att.v != SHARD_ATTEST_PAYLOAD_V {
+            return Err(NexusError::Other(format!(
+                "stage attestation payload v{} (expected v{SHARD_ATTEST_PAYLOAD_V})",
+                att.v
+            )));
+        }
+        if att.kind != SHARD_ATTEST_REPLY_KIND {
+            return Err(NexusError::Other(format!(
+                "stage attestation kind '{}' (expected '{SHARD_ATTEST_REPLY_KIND}')",
+                att.kind
+            )));
+        }
+        if att.model_digest_hex.len() != 64
+            || !att
+                .model_digest_hex
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        {
+            return Err(NexusError::Other(
+                "stage attestation model_digest_hex is not 64 lowercase hex chars".into(),
+            ));
+        }
+        Ok(att)
+    }
+}
+
+/// Driver-side attestation exchange on an OPEN stage bi-stream: write the
+/// request frame, read exactly one reply frame, decode it. No intrinsic
+/// timeout (mirror of [`write_frame`] / [`read_frame`]) — the caller owns
+/// the deadline, exactly like every other hop on the link.
+pub async fn request_stage_attestation(
+    send: &mut SendStream,
+    recv: &mut RecvStream,
+) -> Result<ShardStageAttestation> {
+    write_frame(send, &ShardStageAttestationRequest::new().encode()).await?;
+    let frame = read_frame(recv).await?.ok_or_else(|| {
+        NexusError::Other("stage finished the stream before answering the attestation".into())
+    })?;
+    ShardStageAttestation::decode(&frame)
+}
+
+/// Truncated (8-byte / 16-hex) digest prefix for diagnostics — long enough
+/// to disambiguate, short enough to survive the daemon's hex-run redaction
+/// (which scrubs full 32-byte identities). `get` (never a raw slice): the
+/// input can be peer-controlled, and a multi-byte char across the boundary
+/// must degrade to the full string, never panic (review S81-K-R-1 — under
+/// `panic = "abort"` a slice panic here would be a remote daemon kill).
+fn digest_prefix_hex(digest_hex: &str) -> &str {
+    digest_hex.get(..16).unwrap_or(digest_hex)
+}
+
+/// Fail-closed comparison of a stage's self-declared attestation against
+/// the SIGNED plan expectations: the manifest's `model_digest` and the
+/// stage's [`crate::shard_plan::ShardAssignment`] window, plus the
+/// pipeline-position roles (stage 0 embeds, the final stage samples).
+/// Pure (no I/O) so every mismatch branch is hermetically testable.
+pub fn verify_stage_attestation(
+    att: &ShardStageAttestation,
+    manifest_model_digest: &[u8; 32],
+    assignment: &crate::shard_plan::ShardAssignment,
+    stage_index: usize,
+    stage_count: usize,
+) -> Result<()> {
+    let expected_hex = hex::encode(manifest_model_digest);
+    if att.model_digest_hex != expected_hex {
+        return Err(NexusError::Other(format!(
+            "stage attests model digest {}... but the signed manifest pins {}... \
+             (an all-zeros attestation means no real backend is loaded)",
+            digest_prefix_hex(&att.model_digest_hex),
+            digest_prefix_hex(&expected_hex),
+        )));
+    }
+    if att.layer_start != assignment.layer_start || att.layer_end != assignment.layer_end {
+        return Err(NexusError::Other(format!(
+            "stage attests layer window [{},{}) but the signed plan assigns [{},{})",
+            att.layer_start, att.layer_end, assignment.layer_start, assignment.layer_end,
+        )));
+    }
+    let expect_first = stage_index == 0;
+    let expect_last = stage_index + 1 == stage_count;
+    if att.is_first != expect_first || att.is_last != expect_last {
+        return Err(NexusError::Other(format!(
+            "stage attests roles (is_first={}, is_last={}) but pipeline position {}/{} \
+             requires (is_first={expect_first}, is_last={expect_last})",
+            att.is_first,
+            att.is_last,
+            stage_index + 1,
+            stage_count,
+        )));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -597,6 +906,192 @@ mod tests {
         );
     }
 
+    // ---- Stage attestation codecs + verification (pure, Phase K) ----
+
+    fn attested_assignment(start: u32, end: u32) -> crate::shard_plan::ShardAssignment {
+        crate::shard_plan::ShardAssignment {
+            worker_pubkey: [1u8; 32],
+            layer_start: start,
+            layer_end: end,
+            role: crate::shard_plan::ShardRole::LayerWorker,
+            shard_hashes: vec![],
+            kv_cache_policy: crate::shard_plan::KvCachePolicy::LocalEphemeral,
+            fallback_node: None,
+            launch_profile_hash: [0u8; 32],
+        }
+    }
+
+    #[test]
+    fn attestation_codecs_roundtrip_and_reject_garbage() {
+        // Request roundtrip + loud rejects on version / kind / non-JSON.
+        let req = ShardStageAttestationRequest::new();
+        assert_eq!(
+            ShardStageAttestationRequest::decode(&req.encode()).expect("roundtrip"),
+            req
+        );
+        let fp32: Vec<u8> = 1.5_f32.to_le_bytes().to_vec();
+        assert!(
+            ShardStageAttestationRequest::decode(&fp32).is_err(),
+            "raw fp32 bytes must not decode as an attestation request"
+        );
+        assert!(
+            ShardStageAttestationRequest::decode(br#"{"v":9,"kind":"attest-stage-request"}"#)
+                .is_err(),
+            "payload version mismatch must be rejected"
+        );
+        assert!(
+            ShardStageAttestationRequest::decode(br#"{"v":1,"kind":"something-else"}"#).is_err(),
+            "a wrong kind must be rejected"
+        );
+        // Cross-collision guards: a step request never decodes as an
+        // attestation request (deny_unknown_fields) and vice versa
+        // (missing required fields) — the accept-loop interception can
+        // never swallow legitimate traffic.
+        let step = ShardStepRequest::new("prompt", vec![1]).encode();
+        assert!(
+            ShardStageAttestationRequest::decode(&step).is_err(),
+            "a step REQUEST must not decode as an attestation request"
+        );
+        assert!(
+            ShardStepRequest::decode(&req.encode()).is_err(),
+            "an attestation request must not decode as a step REQUEST"
+        );
+
+        // Reply roundtrip + rejects, from a real descriptor and from the
+        // transport-only None (all-zeros wire form).
+        let desc = LoadedStageDescriptor {
+            model_digest: [9u8; 32],
+            layer_start: 4,
+            layer_end: 8,
+            is_first: false,
+            is_last: true,
+        };
+        let att = ShardStageAttestation::from_loaded_stage(Some(desc));
+        assert_eq!(
+            ShardStageAttestation::decode(&att.encode()).expect("roundtrip"),
+            att
+        );
+        assert_eq!(att.model_digest_hex, "09".repeat(32));
+        let none = ShardStageAttestation::from_loaded_stage(None);
+        assert_eq!(
+            none.model_digest_hex,
+            "00".repeat(32),
+            "a transport-only stage attests all-zeros, never a fake digest"
+        );
+        assert!(
+            ShardStageAttestation::decode(&fp32).is_err(),
+            "raw fp32 bytes must not decode as an attestation"
+        );
+        let wrong_kind = br#"{"v":1,"kind":"nope","model_digest_hex":"00","layer_start":0,"layer_end":0,"is_first":false,"is_last":false}"#;
+        assert!(ShardStageAttestation::decode(wrong_kind).is_err());
+    }
+
+    #[test]
+    fn attestation_digest_is_strictly_validated_and_never_panics() {
+        // Review S81-K-R-1: `model_digest_hex` is PEER-CONTROLLED. The
+        // decoder must reject anything that is not 64 lowercase ASCII hex
+        // (length, case, charset), and the diagnostic path must never
+        // slice across a multi-byte char boundary (panic = remote daemon
+        // kill under `panic = "abort"`).
+        let mk = |digest: &str| {
+            format!(
+                r#"{{"v":1,"kind":"stage-attestation","model_digest_hex":"{digest}","layer_start":4,"layer_end":8,"is_first":false,"is_last":true}}"#
+            )
+        };
+        assert!(
+            ShardStageAttestation::decode(mk(&"ab".repeat(32)).as_bytes()).is_ok(),
+            "a well-formed 64-lowercase-hex digest must decode"
+        );
+        for (bad, why) in [
+            ("abcd".to_string(), "wrong length"),
+            ("AB".repeat(32), "uppercase rejected"),
+            ("zz".repeat(32), "non-hex rejected"),
+            // 16 x U+00E9 'é' (2 bytes each): 32 bytes, 16 chars — the
+            // exact shape that panicked a naive `[..16]` byte slice.
+            ("é".repeat(16), "multi-byte rejected"),
+        ] {
+            assert!(
+                ShardStageAttestation::decode(mk(&bad).as_bytes()).is_err(),
+                "malformed digest must be rejected loud: {why}"
+            );
+        }
+
+        // Defense in depth: even a HAND-BUILT attestation (pub fields,
+        // no decode) with a multi-byte digest must fail-close cleanly —
+        // never panic in the diagnostic formatting.
+        let forged = ShardStageAttestation {
+            v: SHARD_ATTEST_PAYLOAD_V,
+            kind: SHARD_ATTEST_REPLY_KIND.to_string(),
+            model_digest_hex: "é".repeat(40),
+            layer_start: 4,
+            layer_end: 8,
+            is_first: false,
+            is_last: true,
+        };
+        let err = verify_stage_attestation(&forged, &[9u8; 32], &attested_assignment(4, 8), 1, 2)
+            .expect_err("a forged digest must fail closed, not panic");
+        assert!(err.to_string().contains("model digest"));
+    }
+
+    #[test]
+    fn verify_stage_attestation_fail_closes_on_every_mismatch() {
+        let manifest_digest = [9u8; 32];
+        let tail = attested_assignment(4, 8);
+        let good = ShardStageAttestation::from_loaded_stage(Some(LoadedStageDescriptor {
+            model_digest: manifest_digest,
+            layer_start: 4,
+            layer_end: 8,
+            is_first: false,
+            is_last: true,
+        }));
+        verify_stage_attestation(&good, &manifest_digest, &tail, 1, 2)
+            .expect("a conforming tail attestation must pass");
+
+        // Digest mismatch — an all-zeros reply only arises from a direct
+        // `from_loaded_stage(None)` call (since the Phase K interception
+        // gate, an echo left serving in a REAL session echoes the request
+        // back instead — that path is covered by the fail-closed decode
+        // tests); the binding must still reject all-zeros vs a pinned
+        // manifest digest.
+        let echo = ShardStageAttestation::from_loaded_stage(None);
+        let err = verify_stage_attestation(&echo, &manifest_digest, &tail, 1, 2).unwrap_err();
+        assert!(
+            err.to_string().contains("model digest"),
+            "all-zeros vs pinned digest must fail closed, got: {err}"
+        );
+
+        // Window mismatch: loaded [0,4) but the plan assigns [4,8).
+        let wrong_window = ShardStageAttestation::from_loaded_stage(Some(LoadedStageDescriptor {
+            model_digest: manifest_digest,
+            layer_start: 0,
+            layer_end: 4,
+            is_first: true,
+            is_last: false,
+        }));
+        let err =
+            verify_stage_attestation(&wrong_window, &manifest_digest, &tail, 1, 2).unwrap_err();
+        assert!(
+            err.to_string().contains("layer window"),
+            "a mis-windowed stage must fail closed, got: {err}"
+        );
+
+        // Role mismatch: window matches the assignment but the loaded
+        // backend does not own the final layer (mis-sized model — the
+        // "plausible-but-wrong tail" the RunProof would otherwise sign).
+        let not_last = ShardStageAttestation::from_loaded_stage(Some(LoadedStageDescriptor {
+            model_digest: manifest_digest,
+            layer_start: 4,
+            layer_end: 8,
+            is_first: false,
+            is_last: false,
+        }));
+        let err = verify_stage_attestation(&not_last, &manifest_digest, &tail, 1, 2).unwrap_err();
+        assert!(
+            err.to_string().contains("is_last=true"),
+            "a tail that does not own the final layer must fail closed, got: {err}"
+        );
+    }
+
     // ---- Two-node data-plane tests (in-process, mirror seed fixture) ----
 
     /// A forwarder that doubles every frame (`f -> f ++ f`) — proves the
@@ -608,6 +1103,21 @@ mod tests {
             let mut out = upstream_frame.to_vec();
             out.extend_from_slice(upstream_frame);
             Ok(out)
+        }
+    }
+
+    /// A doubling forwarder that ALSO self-declares a loaded stage — the
+    /// serve shape of a real backend for the attestation tests.
+    #[derive(Debug)]
+    struct AttestedDoublingForwarder(LoadedStageDescriptor);
+    impl ShardForwarder for AttestedDoublingForwarder {
+        fn forward(&self, upstream_frame: &[u8]) -> Result<Vec<u8>> {
+            let mut out = upstream_frame.to_vec();
+            out.extend_from_slice(upstream_frame);
+            Ok(out)
+        }
+        fn loaded_stage(&self) -> Option<LoadedStageDescriptor> {
+            Some(self.0)
         }
     }
 
@@ -815,6 +1325,105 @@ mod tests {
         conn.close(0u32.into(), b"done");
         node_a.shutdown().await.ok();
         node_b.shutdown().await.ok();
+    }
+
+    #[tokio::test]
+    async fn shard_attestation_answered_before_the_forwarder() {
+        // The attestation request must be intercepted by the protocol —
+        // NEVER forwarded: a doubling forwarder would otherwise echo the
+        // request back doubled. Data frames on the SAME stream keep
+        // flowing through the forwarder after the exchange.
+        let desc = LoadedStageDescriptor {
+            model_digest: [9u8; 32],
+            layer_start: 4,
+            layer_end: 8,
+            is_first: false,
+            is_last: true,
+        };
+        let (node_a, node_b, b_addr) =
+            two_node_shard_fixture_with(true, std::sync::Arc::new(AttestedDoublingForwarder(desc)))
+                .await;
+        let conn = open_shard_connection(node_a.endpoint(), node_a.memory_lookup(), b_addr)
+            .await
+            .expect("dial");
+        let (mut send, mut recv) = conn.open_bi().await.expect("open_bi");
+        let att = request_stage_attestation(&mut send, &mut recv)
+            .await
+            .expect("the stage must answer its attestation");
+        assert_eq!(
+            att,
+            ShardStageAttestation::from_loaded_stage(Some(desc)),
+            "the attestation must carry the forwarder's self-declared stage"
+        );
+        // The stream is still a live data plane after the exchange.
+        write_frame(&mut send, b"ab").await.expect("write data");
+        let out = read_frame(&mut recv)
+            .await
+            .expect("read ok")
+            .expect("a forwarded frame");
+        assert_eq!(out, b"abab", "data frames still run through the forwarder");
+        send.finish().ok();
+        conn.close(0u32.into(), b"done");
+
+        // A transport-only stage (no loaded_stage impl) does NOT intercept
+        // the attestation — it ECHOES the request frame (Codex P1: a
+        // transport-only stage must never swallow a frame). A driver of a
+        // REAL session that dials such a stage therefore receives the
+        // request bytes back, fails to decode them as an attestation reply,
+        // and fail-closes — the binding is preserved WITHOUT the collision.
+        let (node_c, node_d, d_addr) =
+            two_node_shard_fixture_with(true, std::sync::Arc::new(DoublingForwarder)).await;
+        let conn2 = open_shard_connection(node_c.endpoint(), node_c.memory_lookup(), d_addr)
+            .await
+            .expect("dial");
+        let (mut send2, mut recv2) = conn2.open_bi().await.expect("open_bi");
+        assert!(
+            request_stage_attestation(&mut send2, &mut recv2)
+                .await
+                .is_err(),
+            "a transport-only stage must NOT answer an attestation — it echoes, \
+             so the driver fails to decode a reply and fail-closes"
+        );
+        send2.finish().ok();
+        conn2.close(0u32.into(), b"done");
+
+        node_a.shutdown().await.ok();
+        node_b.shutdown().await.ok();
+        node_c.shutdown().await.ok();
+        node_d.shutdown().await.ok();
+    }
+
+    #[tokio::test]
+    async fn shard_echo_never_swallows_an_attestation_shaped_prompt() {
+        // Codex GPT-5.6 Sol P1 — the collision regression: a transport-only
+        // echo session whose prompt IS the attestation-request JSON must be
+        // echoed BYTE-IDENTICAL, never intercepted (that would break the
+        // echo invariant + the "0-bump by construction" claim). Also test
+        // the 3-leading-spaces 40-byte variant Codex called out.
+        for prompt in [
+            br#"{"v":1,"kind":"attest-stage-request"}"#.to_vec(),
+            br#"   {"v":1,"kind":"attest-stage-request"}"#.to_vec(),
+        ] {
+            let (node_a, node_b, b_addr) =
+                two_node_shard_fixture_with(true, std::sync::Arc::new(EchoForwarder)).await;
+            let conn = open_shard_connection(node_a.endpoint(), node_a.memory_lookup(), b_addr)
+                .await
+                .expect("dial");
+            let (mut send, mut recv) = conn.open_bi().await.expect("open_bi");
+            write_frame(&mut send, &prompt).await.expect("write");
+            let echo = read_frame(&mut recv)
+                .await
+                .expect("read ok")
+                .expect("a frame, not EOF");
+            assert_eq!(
+                echo, prompt,
+                "an echo stage must return an attestation-shaped prompt UNCHANGED"
+            );
+            send.finish().ok();
+            conn.close(0u32.into(), b"done");
+            node_a.shutdown().await.ok();
+            node_b.shutdown().await.ok();
+        }
     }
 
     #[tokio::test]

@@ -4080,3 +4080,47 @@ Related latent gap (carried, not patched from the harness):
 `Sprint N-1 Phase` commit exists — INVALID on a young (<51 commits) repo,
 so phases silently lose their commit. The fixture anchors a
 `Sprint 0 Phase A` seed commit instead.
+
+## §P73 — Sprint 81: transport-upgrade sprint patterns (in-frame app payloads, hermetic two-node discipline, env→plan seams, one-shot boot sets)
+
+Four patterns the iroh 0.98→1.0.1 sprint proved; each is anchored to the
+phase that shipped it.
+
+1. **In-frame application payloads on an opaque ALPN (Phases J/K).** When a
+   custom ALPN deliberately carries OPAQUE frames (`sbfb/shard/1`), add
+   application semantics as *versioned JSON payloads inside the frames* —
+   `{v, ...}` guard consts (`SHARD_STEP_PAYLOAD_V`, `SHARD_ATTEST_PAYLOAD_V`),
+   `deny_unknown_fields`, explicit `kind` discriminants when the field sets
+   could collide, and cross-reject tests both ways. This is 0-bump by
+   construction (framing/admission byte-identical), needs no
+   `*_FORMAT_VERSION` governance, and keeps signed authority where it
+   belongs (manifest + RunProof). Protocol-level messages (the stage
+   attestation) are intercepted in `ProtocolHandler::accept` BEFORE the
+   compute forwarder so a real backend never ingests a control probe as
+   activations.
+
+2. **Two-node tests must not lean on external relays (Phases C/K).** The
+   in-process two-node tests that exchange tickets/addrs must strip the
+   exchanged `EndpointAddr` down to DIRECT socket addrs (poll until one
+   exists — the local socket binds long before any relay handshake).
+   Otherwise the dial can race through a PUBLIC relay: flaky under CI load
+   today, silently DEAD after the n0 EOL. Pair this with the
+   `two-node-convergence` nextest group (`.config/nextest.toml`,
+   `max-threads = 2` + widened terminate budget): QUIC handshakes starve
+   under full-workspace parallelism — cap the group instead of inflating
+   deadlines forever.
+
+3. **Env→plan decision seams stay pure (Phase E2).** An environment-gated
+   assembly mode (zero-n0 discovery override) splits into (a) a PURE
+   decision function `env -> DiscoveryPlan | Err` (fail-loud, exhaustively
+   unit-tested, `discovery_override.rs`) and (b) ONE builder chokepoint
+   that applies the plan (`node.rs`). Never scatter `std::env::var` reads
+   across the builder — the seam is what makes zero-n0 provable hermetic.
+
+4. **A set read ONCE at boot makes later mutations inert (Phase E3).** If a
+   subsystem snapshots its config set at boot (gossip bootstrap peers), a
+   runtime mutation of the underlying store is a silent no-op: the fix is a
+   runtime COMMAND into the live actor (`GossipCmd::JoinPeers`), never a
+   store write. Grep for "read once at startup" consumers before assuming a
+   DB update has any live effect; the hermetic test asserts the CHANNEL
+   boundary (command emitted), the live palier proves convergence.

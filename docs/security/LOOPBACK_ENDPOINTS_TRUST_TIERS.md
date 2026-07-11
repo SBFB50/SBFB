@@ -1,6 +1,6 @@
 ---
 written: 2026-04-20  # S22 hors-sprint post Phase B `e9530c2`
-last_validated: 2026-07-08  # S81 Phase G (LOT-LOOPBACK-DOC, audit S80 H-1/2/3) : §3.1 revalide — +2 routes lecture S80 (GET /api/git/diff, GET /api/gates), double transport bearer header + cookie sbfb_operator HttpOnly (bootstrap GET /?token, S80 A), description terminal/ws corrigee (PTY live interactif S80 D, plus « lecture cast »). Precedent 2026-06-03 S73 Phase A : §2.1 portee daemon+Operator + §3 GET /result reordonne + §8.1 couverture Operator (P2-TIER-MODEL, P2-RESULT-TEXT-GUARDRAIL-ORDER)
+last_validated: 2026-07-11  # S81 Phase K : trigger re-fired post-G par les 5 routes shard-session Phase I (`bb6c4f9` 2026-07-10 > solde G 2026-07-08) — §3 indexe les 6 lignes `/api/daemon/shard-session/*` (la GET S77 heritee + 5 neuves I ; group/mount = candidats T1, actions signantes). Precedent 2026-07-08 S81 Phase G (LOT-LOOPBACK-DOC, audit S80 H-1/2/3) : §3.1 revalide — +2 routes lecture S80 (GET /api/git/diff, GET /api/gates), double transport bearer header + cookie sbfb_operator HttpOnly (bootstrap GET /?token, S80 A), description terminal/ws corrigee (PTY live interactif S80 D, plus « lecture cast »). Precedent 2026-06-03 S73 Phase A : §2.1 portee daemon+Operator + §3 GET /result reordonne + §8.1 couverture Operator (P2-TIER-MODEL, P2-RESULT-TEXT-GUARDRAIL-ORDER)
 status: design-only T1/T2 (implementation S22 Phase F wrap-up + extension S25/S28/LT-4) ; §3.1 Operator = IMPLEMENTE+DURCI S71 C (`a0337c6`) ; Operator place dans le tier-model formel §2.1/§8.1 (S73 Phase A)
 triggers_revalidate:
   - "microsoft/sudo new elevation mode release"
@@ -86,6 +86,12 @@ confiance OS. Sa couverture threat model est tracée séparément en §8.1.
 | `POST /api/daemon/directory/publish` | S75 Phase B/C | T0 | **T1** | Signe + broadcast le `NodeDirectoryEntry` de CE nœud (Ed25519 + JCS). Action d'autorité d'éditeur ⇒ candidat T1 (CONFIRM_PROMPT). |
 | `POST /api/daemon/seed/request` | S74 Phase E | T0 | **T1** | Mint + signe un `SeedRequest` (ALPN `sbfb/seed/0`) lié à (project_id, archive_hash). Action signante déléguée ⇒ candidat T1. **Duress no-op** (short-circuit avant signature). |
 | `GET /api/daemon/search` | S73 Phase E | T0 | T0 | Lecture seule FTS5 du corpus local (enveloppe Zod `.strict()`). Pas de mutation. |
+| `GET /api/daemon/shard-session/{session_id}` | S77 Phase J (stub) → réel S81 Phase I | T0 | T0 | Lecture seule du statut d'une session shard montée. Projection whitelist `ShardSessionView` : `member_count` AGRÉGÉ, jamais `worker_pubkey`/`initiator` (SI-3/SI-4). Insert du registre gated signature `DOMAIN_SHARD_PLAN_V1` + `is_member` AVANT toute visibilité. |
+| `POST /api/daemon/shard-session/group` | S81 Phase I | T0 | **T1** | Mint + signe le `ComputeGroupEntry` privé (Ed25519 + JCS, allowlist d'admission `sbfb/shard/1`). Action signante d'autorité ⇒ candidat T1 (même famille que `directory/publish`). |
+| `POST /api/daemon/shard-session/mount` | S81 Phase I | T0 | **T1** | Placement + signature `ShardedSessionManifestEntry` (`DOMAIN_SHARD_PLAN_V1`) + readiness barrier + insert gated. Signe un manifeste d'autorisation de session ⇒ candidat T1. |
+| `POST /api/daemon/shard-session/{id}/generate` | S81 Phase I | T0 | T0 | Pilote une génération sur la session déjà montée/signée (aucune signature nouvelle d'autorité ; RunProof driver signé en sortie de drive). Deadline SI-9 par hop ; depuis S81 K, attestation loaded-stage fail-closed à chaque stage-link. |
+| `GET /api/daemon/shard-session/{id}/result` | S81 Phase I | T0 | T0 | Lecture seule du résultat mesuré (result_text borné `MAX_RESULT_TEXT_BYTES`, diagnostics passés par `sanitize_diagnostic` — anti log-injection + rédaction hex ≥32). Consommé verbatim par le harness b3_shard (T2 axe shard). |
+| `POST /api/daemon/shard-session/{id}/drop-shard` | S81 Phase I | T0 | T0 | Coupe EXPLICITE et comptée du tail shard (churn opérateur pour l'acceptance SI-9). Mutation locale du registre in-memory, pas de signature ni broadcast. |
 
 ## 3.1 Serveur Operator (sbfb-factory, port `:3001`) — surface write + spawn
 

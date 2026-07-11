@@ -638,6 +638,12 @@ mod backend {
         }
     }
 
+    // NOTE (Phase K stage-attestation): this forwarder deliberately keeps
+    // the default `loaded_stage() = None` — it predates the attestation
+    // and has NO production mount (the `--model` mount wires
+    // `ShardStageForwarder`, which attests). Mounted as-is in a REAL
+    // session it would fail closed at the first stage-link attestation;
+    // wire a real `LoadedStageDescriptor` before ever mounting it.
     impl nexus_core_rs::ShardForwarder for ShardBackendForwarder {
         fn forward(&self, upstream_frame: &[u8]) -> nexus_core_rs::Result<Vec<u8>> {
             let hidden = le_bytes_to_f32s(upstream_frame)?;
@@ -709,17 +715,39 @@ mod backend {
     #[derive(Debug)]
     pub struct ShardStageForwarder {
         backend: Arc<ShardBackend>,
+        /// Streaming BLAKE3 digest of the GGUF file the backend loaded,
+        /// self-declared through the Sprint 81 Phase K stage attestation
+        /// (`loaded_stage`). Computed by the caller with
+        /// `blake3_hash_file` — never by re-reading the file in memory.
+        model_digest: [u8; 32],
     }
 
     impl ShardStageForwarder {
-        /// Wrap a loaded backend as a role-aware data-plane stage.
+        /// Wrap a loaded backend as a role-aware data-plane stage. The
+        /// `model_digest` is the streaming BLAKE3 of the loaded GGUF: a
+        /// real stage ALWAYS attests what it loaded (the loaded-stage ↔
+        /// signed-manifest binding, THREAT_MODEL §16).
         #[must_use]
-        pub fn new(backend: Arc<ShardBackend>) -> Self {
-            Self { backend }
+        pub fn new(backend: Arc<ShardBackend>, model_digest: [u8; 32]) -> Self {
+            Self {
+                backend,
+                model_digest,
+            }
         }
     }
 
     impl nexus_core_rs::ShardForwarder for ShardStageForwarder {
+        fn loaded_stage(&self) -> Option<nexus_core_rs::LoadedStageDescriptor> {
+            let window = self.backend.window();
+            Some(nexus_core_rs::LoadedStageDescriptor {
+                model_digest: self.model_digest,
+                layer_start: window.start(),
+                layer_end: window.end(),
+                is_first: window.is_first(),
+                is_last: window.is_last(),
+            })
+        }
+
         fn forward(&self, upstream_frame: &[u8]) -> nexus_core_rs::Result<Vec<u8>> {
             let window = self.backend.window();
             if window.is_first() && window.is_last() {
@@ -1035,8 +1063,11 @@ mod gguf_tests {
         let tail = std::sync::Arc::new(
             ShardBackend::load(&path, k, n_layer, false, true, 0, 512).expect("tail shard"),
         );
-        let head_fwd = ShardStageForwarder::new(std::sync::Arc::clone(&head));
-        let tail_fwd = ShardStageForwarder::new(std::sync::Arc::clone(&tail));
+        // A test digest suffices here: the attestation binding is exercised
+        // hermetically by nexus-core-rs / shard_session tests; this GGUF
+        // test proves the COMPUTE path.
+        let head_fwd = ShardStageForwarder::new(std::sync::Arc::clone(&head), [7u8; 32]);
+        let tail_fwd = ShardStageForwarder::new(std::sync::Arc::clone(&tail), [7u8; 32]);
 
         // Step 0: driver-side request -> head -> fp32 boundary -> tail ->
         // greedy-sampled step reply.

@@ -573,5 +573,42 @@ mod tests {
             spec.contains("sbfb/shard/1"),
             "spec must cite the ALPN `sbfb/shard/1`"
         );
+
+        // S81 Phase K extension: the application-level payloads carried
+        // INSIDE the opaque frames (step payloads J, stage attestation K)
+        // must be cited by the spec, with their version guards and kind
+        // discriminants bound to the real consts — exactly the drift class
+        // that occurred when Phase J shipped the types while the doc layer
+        // stayed untouched. Presence-only assertions (never a spec parser).
+        for type_name in [
+            "ShardStepRequest",
+            "ShardStepReply",
+            "ShardStageAttestationRequest",
+            "ShardStageAttestation",
+        ] {
+            assert!(
+                spec.contains(type_name),
+                "spec must cite the in-frame payload type `{type_name}`"
+            );
+        }
+        for (guard_name, guard_value) in [
+            ("SHARD_STEP_PAYLOAD_V", crate::SHARD_STEP_PAYLOAD_V),
+            ("SHARD_ATTEST_PAYLOAD_V", crate::SHARD_ATTEST_PAYLOAD_V),
+        ] {
+            assert!(guard_value > 0, "guard {guard_name} must be non-zero");
+            assert!(
+                spec.contains(guard_name),
+                "spec must cite the payload version guard `{guard_name}`"
+            );
+        }
+        for kind in [
+            crate::SHARD_ATTEST_REQUEST_KIND,
+            crate::SHARD_ATTEST_REPLY_KIND,
+        ] {
+            assert!(
+                spec.contains(kind),
+                "spec must cite the attestation kind discriminant `{kind}`"
+            );
+        }
     }
 }

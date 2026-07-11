@@ -11,20 +11,26 @@ besoins distincts.
 
 ---
 
-## Statut : PROVISIONAL
+## Statut : LIVE-PROVEN (S81 I/J)
 
 Le **cœur du pipeline est livré et testé hermétiquement** (Sprint 77, phases
 A→K : primitives wire signées, placement, routage, churn, fork llama.cpp,
-data-plane `sbfb/shard/1`, vérification graduée N0→N3, panneau front). Mais la
-feature reste **PROVISIONAL** : le **benchmark live cross-machine** (T2) est
-`RIG-ABSENT` — il n'existe pas encore d'**orchestrateur de session in-vivo**
-qui pilote la génération et émet un `RunProof` signé, et le rig 2 machines
-(RTX 5080 + Mac M2) n'a pas été branché. L'orchestrateur de session + le
-benchmark live sont un **carry P1 vers Sprint 78**.
+data-plane `sbfb/shard/1`, vérification graduée N0→N3, panneau front). Le
+carry P1 qui gardait la feature PROVISIONAL est **fermé par Sprint 81** :
+l'**orchestrateur de session in-vivo** existe
+(`crates/nexus-shell-daemon/src/shard_session.rs`, Phase I — mount barrier,
+drive HUB, decode loop, `RunProof` driver signé en production) et le
+**benchmark live cross-machine** a tourné et **PASS** (Phase J :
+CodeLlama-34B éclaté RTX 5080-CUDA + Mac M2-Metal, 16 tokens greedy
+déterministes, `sprint81_t2_j_shard_inference.json`). Depuis S81 Phase K,
+chaque stage-link d'une session réelle exige l'**attestation du stage
+chargé** (binding loaded-stage ↔ manifeste signé, fail-closed). Restent
+re-routés S82 : preuves per-worker, arbitrage de litige in-vivo, tuning des
+seuils sur rig.
 
-Concrètement : tout ce qui est décrit ici concerne le **contrat wire** et les
-**primitives** réellement présentes dans le code. Aucune session shardée ne
-tourne en production aujourd'hui. Les preuves de vie hermétiques sont
+Concrètement : le **contrat wire** et les **primitives** décrits ici sont
+dans le code ET exercés par une session réelle sur le rig opérateur. Les
+preuves de vie sont
 [`scripts/acceptance/b3_shard_pipeline.sh`](../../scripts/acceptance/b3_shard_pipeline.sh)
 et [`web/e2e/compute-shard.spec.ts`](../../web/e2e/compute-shard.spec.ts).
 
@@ -55,12 +61,14 @@ l'incitation : voir le modèle de menace,
 | **Explication** | [`EXPLANATION.md`](./EXPLANATION.md) | comprendre *comment ça marche* (pipeline-parallel, signatures, vérification graduée) | humain |
 | **Guide pratique** | [`HOW_TO_WIRE.md`](./HOW_TO_WIRE.md) | *comment câbler un projet* du protocole (rôles START / JOIN / OBSERVE) | humain |
 | **Référence** | [`REFERENCE.md`](./REFERENCE.md) | les types wire, caps et seuils exacts (jumeau humain des schémas générés) | humain + agent |
-| **Tutoriel** | _(différé Sprint 78)_ | un walkthrough end-to-end runnable | — |
+| **Tutoriel** | _(différé — candidat S82+)_ | un walkthrough end-to-end runnable | — |
 
-> **Pourquoi pas de tutoriel ?** Un tutoriel promet un parcours qui *marche du
-> premier coup*. Tant que l'orchestrateur de session in-vivo est un carry S78
-> (statut PROVISIONAL ci-dessus), un walkthrough end-to-end sur-promettrait. À
-> la place, les deux harness ci-dessus sont la preuve-de-vie exécutable.
+> **Pourquoi pas encore de tutoriel ?** Un tutoriel promet un parcours qui
+> *marche du premier coup*. L'orchestrateur de session in-vivo est livré et
+> live-prouvé depuis S81 I/J (le prérequis historique est levé) ; le parcours
+> reste OPÉRATEUR (CLI serve + routes loopback + rig 2 machines), pas encore
+> un parcours produit banalisé — les harness ci-dessus et le runbook
+> `b3_shard_pipeline.sh` restent la preuve-de-vie exécutable en attendant.
 
 ---
 

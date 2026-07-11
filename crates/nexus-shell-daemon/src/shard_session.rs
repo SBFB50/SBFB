@@ -70,7 +70,12 @@
 //! - The manifest travels initiator→workers OUT OF BAND for the operator
 //!   flow (the worker's layer window is its launch configuration); the
 //!   signed manifest is the initiator's authorisation record and the
-//!   verification anchor.
+//!   verification anchor. Since Sprint 81 Phase K the driver ENFORCES
+//!   that anchor at every stage-link establishment: the stage attests the
+//!   `{model_digest, window, roles}` it actually loaded and any mismatch
+//!   with the signed plan fail-closes the drive BEFORE a step frame flows
+//!   ([`attest_stage_link`] — closes the misconfiguration class; a
+//!   deliberately lying stage stays the SI-4 residual).
 //! - The registry is **in-memory and node-local** (never wire, never
 //!   on-disk): a session status has no value beyond the process that
 //!   drives it. Session status therefore lives here, NOT as a field on
@@ -107,9 +112,13 @@ use nexus_coordinator_rs::routing::{
 };
 use nexus_core_rs::compute_group::{ComputeGroup, ComputeGroupEntry};
 use nexus_core_rs::crypto::KeyPair;
-use nexus_core_rs::shard::{conn_rtt, open_shard_connection, read_frame, write_frame};
+use nexus_core_rs::shard::{
+    conn_rtt, open_shard_connection, read_frame, request_stage_attestation,
+    verify_stage_attestation, write_frame,
+};
 use nexus_core_rs::shard_plan::{
-    RunMetrics, RunProof, RunProofEntry, ShardedSessionManifest, ShardedSessionManifestEntry,
+    RunMetrics, RunProof, RunProofEntry, ShardAssignment, ShardedSessionManifest,
+    ShardedSessionManifestEntry,
 };
 use serde::Deserialize;
 use tracing::{debug, info, warn};
@@ -1002,6 +1011,49 @@ async fn step_hop(
     })?
 }
 
+/// Sprint 81 Phase K — the loaded-stage ↔ signed-manifest binding
+/// (THREAT_MODEL §16), run at the establishment of EVERY stage link of a
+/// REAL session: the stage self-declares `{model_digest, layer window,
+/// roles}` of the backend it actually loaded
+/// ([`request_stage_attestation`]) and the driver fail-closes on any
+/// mismatch with the signed manifest + [`ShardAssignment`]
+/// ([`verify_stage_attestation`]). The stage link is the single chokepoint
+/// every data frame of a real session crosses (first drive, re-dials AND
+/// fallback re-routes), so no step frame ever reaches an unattested
+/// executor. Attestation is a SELF-CLAIM by an admitted member: it closes
+/// the MISCONFIGURATION class (echo left serving, wrong window, wrong
+/// model), not a deliberately byzantine stage (SI-4 residual). The whole
+/// exchange runs under the hop deadline (SI-9, same budget as any hop).
+async fn attest_stage_link(
+    link: &mut StageLink,
+    manifest_model_digest: &[u8; 32],
+    assignment: &ShardAssignment,
+    stage_index: usize,
+    stage_count: usize,
+    deadline: Duration,
+) -> Result<(), String> {
+    tokio::time::timeout(deadline, async {
+        let att = request_stage_attestation(&mut link.send, &mut link.recv)
+            .await
+            .map_err(|e| {
+                format!(
+                    "attestation exchange failed: {}",
+                    sanitize_diagnostic(&e.to_string())
+                )
+            })?;
+        verify_stage_attestation(
+            &att,
+            manifest_model_digest,
+            assignment,
+            stage_index,
+            stage_count,
+        )
+        .map_err(|e| sanitize_diagnostic(&e.to_string()))
+    })
+    .await
+    .map_err(|_| format!("attestation exceeded its {deadline:?} deadline (SI-9 guard)"))?
+}
+
 /// The measured pipeline walk. Split from [`generate_session`] so the
 /// teardown + status bookkeeping wrap it exactly once. Dispatches on the
 /// manifest's `model_digest`: 32 zeros = the S77/Phase-I transport-only
@@ -1326,11 +1378,22 @@ async fn drive_decode_loop(
                         })?
                     }
                 };
-                st.link = Some(
-                    open_stage_link(conn, hop_deadline)
-                        .await
-                        .map_err(|e| format!("stage {i} stream open failed: {e}"))?,
-                );
+                let mut link = open_stage_link(conn, hop_deadline)
+                    .await
+                    .map_err(|e| format!("stage {i} stream open failed: {e}"))?;
+                // Phase K binding: NO step frame flows to this executor
+                // until it attests the loaded stage the signed plan expects.
+                attest_stage_link(
+                    &mut link,
+                    &entry.manifest.model_digest,
+                    a,
+                    i,
+                    assignments.len(),
+                    hop_deadline,
+                )
+                .await
+                .map_err(|e| format!("stage {i} attestation rejected: {e} — failing closed"))?;
+                st.link = Some(link);
             }
 
             tx_bytes = tx_bytes.saturating_add(frame.len() as u64);
@@ -1373,9 +1436,29 @@ async fn drive_decode_loop(
                         probe_shard_readiness(endpoint, lookup, fb_addr, readiness_deadline)
                             .await
                             .map_err(|e| format!("stage {i} fallback {fb_hex} not ready: {e}"))?;
-                    st.link = Some(open_stage_link(fb_conn, hop_deadline).await.map_err(|e| {
-                        format!("stage {i} fallback {fb_hex} stream open failed: {e}")
-                    })?);
+                    let mut fb_link =
+                        open_stage_link(fb_conn, hop_deadline).await.map_err(|e| {
+                            format!("stage {i} fallback {fb_hex} stream open failed: {e}")
+                        })?;
+                    // Phase K binding, fallback edition: the re-routed
+                    // executor must attest the SAME stage window the plan
+                    // assigns before the cached input is replayed to it.
+                    attest_stage_link(
+                        &mut fb_link,
+                        &entry.manifest.model_digest,
+                        a,
+                        i,
+                        assignments.len(),
+                        hop_deadline,
+                    )
+                    .await
+                    .map_err(|e| {
+                        format!(
+                            "stage {i} fallback {fb_hex} attestation rejected: {e} — \
+                             failing closed"
+                        )
+                    })?;
+                    st.link = Some(fb_link);
                     let cached = replay
                         .get(a.layer_start)
                         .expect("stage input was inserted before dispatch")
@@ -2165,6 +2248,54 @@ mod tests {
 
     // ---- Phase J (Option B) — real decode loop, faked stages ----
 
+    /// Wrap any fake forwarder with a self-declared loaded-stage
+    /// descriptor — the serve shape of a real backend for the Phase K
+    /// attestation the decode drive requires at stage-link establishment.
+    #[derive(Debug)]
+    struct AttestedForwarder {
+        inner: Arc<dyn ShardForwarder>,
+        desc: nexus_core_rs::LoadedStageDescriptor,
+    }
+    impl ShardForwarder for AttestedForwarder {
+        fn forward(&self, frame: &[u8]) -> nexus_core_rs::Result<Vec<u8>> {
+            self.inner.forward(frame)
+        }
+        fn loaded_stage(&self) -> Option<nexus_core_rs::LoadedStageDescriptor> {
+            Some(self.desc)
+        }
+    }
+
+    /// The conforming attestations for the `decode_record` fixture: the
+    /// manifest pins digest `[9; 32]`, the head owns `[0,4)` and the tail
+    /// `[4,8)` (fallback tails attest the SAME window as the stage they
+    /// cover).
+    fn attested(
+        inner: Arc<dyn ShardForwarder>,
+        layer_start: u32,
+        layer_end: u32,
+        is_first: bool,
+        is_last: bool,
+    ) -> Arc<dyn ShardForwarder> {
+        Arc::new(AttestedForwarder {
+            inner,
+            desc: nexus_core_rs::LoadedStageDescriptor {
+                model_digest: [9u8; 32],
+                layer_start,
+                layer_end,
+                is_first,
+                is_last,
+            },
+        })
+    }
+
+    fn attested_head(inner: Arc<dyn ShardForwarder>) -> Arc<dyn ShardForwarder> {
+        attested(inner, 0, 4, true, false)
+    }
+
+    fn attested_tail(inner: Arc<dyn ShardForwarder>) -> Arc<dyn ShardForwarder> {
+        attested(inner, 4, 8, false, true)
+    }
+
     /// Fake FIRST-shard forwarder: decodes the step-request JSON and emits
     /// a deterministic `[1, 2]`-shaped fp32 boundary encoding (prompt
     /// length, generated count) — enough for a fake tail to "sample" from.
@@ -2332,10 +2463,12 @@ mod tests {
         // step requests to the head, fp32 through the pipe, step replies
         // from the tail, stop on EOS. The outcome must carry the REAL
         // token count, the concatenated pieces, an UNFLOORED rate, and the
-        // LAST step's TOPLOC commitment inside the signed RunProof.
+        // LAST step's TOPLOC commitment inside the signed RunProof. Both
+        // stages attest their loaded window (Phase K binding) — the happy
+        // path is byte-identical through a conforming attestation.
         let rig = shard_rig(vec![
-            Arc::new(FakeHeadForwarder),
-            Arc::new(FakeTailForwarder { eos_after: 3 }),
+            attested_head(Arc::new(FakeHeadForwarder)),
+            attested_tail(Arc::new(FakeTailForwarder { eos_after: 3 })),
         ])
         .await;
         let registry = ShardSessionRegistry::default();
@@ -2398,8 +2531,8 @@ mod tests {
         // previous step's commitment survive into the signed RunProof — the
         // LAST step decides, defaulting to zeros ("not provided").
         let rig = shard_rig(vec![
-            Arc::new(FakeHeadForwarder),
-            Arc::new(BlankFinalToplocTail { eos_after: 3 }),
+            attested_head(Arc::new(FakeHeadForwarder)),
+            attested_tail(Arc::new(BlankFinalToplocTail { eos_after: 3 })),
         ])
         .await;
         let registry = ShardSessionRegistry::default();
@@ -2445,10 +2578,10 @@ mod tests {
         // A tail that never EOSes: the drive must stop at the requested
         // max_tokens bound (clamped by MAX_NEW_TOKENS_CAP), never spin.
         let rig = shard_rig(vec![
-            Arc::new(FakeHeadForwarder),
-            Arc::new(FakeTailForwarder {
+            attested_head(Arc::new(FakeHeadForwarder)),
+            attested_tail(Arc::new(FakeTailForwarder {
                 eos_after: i32::MAX,
-            }),
+            })),
         ])
         .await;
         let registry = ShardSessionRegistry::default();
@@ -2486,13 +2619,15 @@ mod tests {
         // input (stateless recompute makes the replay exact) and finish
         // the generation on the fallback tail.
         let rig = shard_rig(vec![
-            Arc::new(FakeHeadForwarder),
-            Arc::new(FlakyTailForwarder {
+            attested_head(Arc::new(FakeHeadForwarder)),
+            attested_tail(Arc::new(FlakyTailForwarder {
                 calls: AtomicUsize::new(0),
                 inner: FakeTailForwarder { eos_after: 3 },
                 stall: Duration::from_secs(5),
-            }),
-            Arc::new(FakeTailForwarder { eos_after: 3 }),
+            })),
+            // The fallback covers the SAME [4,8) stage — it attests the
+            // stage window, and the drive verifies it at re-route time.
+            attested_tail(Arc::new(FakeTailForwarder { eos_after: 3 })),
         ])
         .await;
         let registry = ShardSessionRegistry::default();
@@ -2542,6 +2677,136 @@ mod tests {
                 "the fallback tail executed the remaining steps"
             );
         }
+        rig.shutdown().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn decode_loop_fails_closed_on_unattested_echo_stage() {
+        // The exact hole the Phase K binding closes: a transport-only echo
+        // stage left serving inside a REAL session. Before the binding it
+        // echoed the head's boundary back and the drive SIGNED a
+        // plausible-but-wrong result; now the drive fail-closes before any
+        // step frame reaches it. The tail is a genuine ECHO stage (Codex P1
+        // fix: a transport-only stage does NOT intercept — it echoes the
+        // attestation request back) — the
+        // driver then fails to decode a valid attestation reply and
+        // fail-closes at the exchange, still before any step frame.
+        let rig = shard_rig(vec![
+            attested_head(Arc::new(FakeHeadForwarder)),
+            Arc::new(EchoForwarder), // transport-only echo, NO loaded_stage
+        ])
+        .await;
+        let registry = ShardSessionRegistry::default();
+        registry
+            .insert_gated(decode_record(&rig, 0, 1, None))
+            .expect("gated insert");
+
+        let err = generate_session(
+            rig.head.endpoint(),
+            rig.head.memory_lookup(),
+            &rig.head_kp,
+            &registry,
+            "hand-built",
+            "must-fail-closed",
+            16,
+        )
+        .await
+        .expect_err("an unattested stage must fail the drive closed");
+        assert!(
+            err.contains("attestation rejected"),
+            "the diagnostic must name the attestation rejection, got: {err}"
+        );
+        let result = registry.result_data("hand-built").expect("mounted");
+        assert!(
+            result.result_text.is_none(),
+            "no result_text may survive a fail-closed attestation"
+        );
+        assert!(
+            result.failure.is_some(),
+            "the failure diagnostic must be recorded on the session"
+        );
+        rig.shutdown().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn decode_loop_fails_closed_on_window_mismatch() {
+        // A tail that loaded the WRONG layer window ([0,4) instead of the
+        // assigned [4,8)) — the mis-windowed fallback scenario from the
+        // Phase J carry. The drive must reject it at attestation, never
+        // dispatch into it.
+        let rig = shard_rig(vec![
+            attested_head(Arc::new(FakeHeadForwarder)),
+            attested(
+                Arc::new(FakeTailForwarder { eos_after: 3 }),
+                0,
+                4,
+                true,
+                false,
+            ),
+        ])
+        .await;
+        let registry = ShardSessionRegistry::default();
+        registry
+            .insert_gated(decode_record(&rig, 0, 1, None))
+            .expect("gated insert");
+
+        let err = generate_session(
+            rig.head.endpoint(),
+            rig.head.memory_lookup(),
+            &rig.head_kp,
+            &registry,
+            "hand-built",
+            "wrong-window",
+            16,
+        )
+        .await
+        .expect_err("a mis-windowed stage must fail the drive closed");
+        assert!(
+            err.contains("attestation rejected") && err.contains("layer window"),
+            "the diagnostic must name the window mismatch, got: {err}"
+        );
+        rig.shutdown().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn decode_loop_fails_closed_on_model_digest_mismatch() {
+        // A stage that loaded a DIFFERENT model than the manifest pins
+        // (digest [7;32] vs the signed [9;32]) — right window, wrong
+        // weights. The binding must catch it before any step frame.
+        let rig = shard_rig(vec![
+            attested_head(Arc::new(FakeHeadForwarder)),
+            Arc::new(AttestedForwarder {
+                inner: Arc::new(FakeTailForwarder { eos_after: 3 }),
+                desc: nexus_core_rs::LoadedStageDescriptor {
+                    model_digest: [7u8; 32],
+                    layer_start: 4,
+                    layer_end: 8,
+                    is_first: false,
+                    is_last: true,
+                },
+            }),
+        ])
+        .await;
+        let registry = ShardSessionRegistry::default();
+        registry
+            .insert_gated(decode_record(&rig, 0, 1, None))
+            .expect("gated insert");
+
+        let err = generate_session(
+            rig.head.endpoint(),
+            rig.head.memory_lookup(),
+            &rig.head_kp,
+            &registry,
+            "hand-built",
+            "wrong-model",
+            16,
+        )
+        .await
+        .expect_err("a wrong-model stage must fail the drive closed");
+        assert!(
+            err.contains("attestation rejected") && err.contains("model digest"),
+            "the diagnostic must name the digest mismatch, got: {err}"
+        );
         rig.shutdown().await;
     }
 

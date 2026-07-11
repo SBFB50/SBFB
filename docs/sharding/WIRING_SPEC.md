@@ -26,11 +26,13 @@ repo files > .planning/active/ > commits > prompts > chat
 - **Rule: a fact absent from rank-1 is `Not evidenced`** — do not assert it. If
   you cannot point at a repo file, say so rather than inventing a symbol.
 
-> **Status: PROVISIONAL.** The signed wire primitives, the data plane, and the
-> read-only control plane are live. The **in-vivo session orchestrator** — the
-> component that pilots generation, populates a session registry, and emits a
-> signed `RunProof` on the wire — is a carry **S78**. Treat every "run" / "proof
-> emission" / "live session" clause below as PROVISIONAL until S78.
+> **Status: LIVE-PROVEN (S81 I/J).** The signed wire primitives, the data
+> plane, the in-vivo session orchestrator (mount / drive / result,
+> `shard_session.rs`) and the driver-signed `RunProof` emission are live —
+> benchmark PASS on the real 2-machine rig
+> (`sprint81_t2_j_shard_inference.json`). Still PROVISIONAL: per-worker
+> proof emission + dispute arbitration (routed S82) — mark only THOSE
+> clauses accordingly.
 
 > **Cardinal caveat — admission ≠ confidentialité.** Group admission is
 > authenticated, but it is **not** confidentiality: activations travel in clear
@@ -46,14 +48,16 @@ Three actors, one private compute group:
 - **Initiator** — a node that owns the run. Builds the plan, signs the manifest,
   authorises the group. Never an app (the iframe bridge has no shard method).
 - **Worker** — a node admitted to the `ComputeGroup` allowlist that executes one
-  contiguous layer block and (S78) signs a `RunProof`.
+  contiguous layer block; since S81 K it also ATTESTS its loaded stage at
+  stage-link establishment. The signed `RunProof` of a run is emitted by the
+  session DRIVER (S81 I/J); per-worker proofs are routed S82.
 - **Observer** — any loopback caller reading aggregate session status; sees a
   `member_count`, never an identity.
 
 Sequence (each step is contracted in §3):
 
 ```
-START  →  PLAN  →  SIGN  →  CLAIM/ADMIT  →  RUN-PROOF(S78)  →  OBSERVE
+START  →  PLAN  →  SIGN  →  CLAIM/ADMIT  →  ATTEST(S81 K)  →  RUN-PROOF(driver, S81 I/J)  →  OBSERVE
 ```
 
 ## 3. Per-step contract
@@ -116,20 +120,24 @@ Each step lists **source_ref** (`path:Symbol`, grep-resolvable) · **signed?** �
 - Caps: data-plane frame ≤ `crates/nexus-core-rs/src/shard.rs:MAX_SHARD_FRAME_BYTES`
   = 256 MiB; context ≤ `crates/nexus-core-rs/src/shard.rs:MAX_SHARD_N_CTX` = 8192.
 
-### RUN-PROOF — what a worker EXECUTED (PROVISIONAL / S78)
+### RUN-PROOF — what a worker EXECUTED (driver emission LIVE since S81 I/J)
 - source_ref `crates/nexus-core-rs/src/shard_plan.rs:RunProof`, signed into
   `crates/nexus-core-rs/src/shard_plan.rs:RunProofEntry`; integer-only metrics
   `crates/nexus-core-rs/src/shard_plan.rs:RunMetrics`.
 - Signed? **YES**, DOMAIN tag
   `crates/nexus-core-rs/src/canonical.rs:DOMAIN_RUN_PROOF_V1`.
-- **S78 caveat**: the *primitive* round-trips today (the example proves it), but
-  **on-wire emission during a live run is a carry S78** — there is no orchestrator
-  emitting signed proofs yet. Mark any "the worker emits a proof" claim
-  PROVISIONAL.
+- **Scope (S81 I/J)**: the session DRIVER signs a `RunProofEntry` in production
+  at the end of every drive (`crates/nexus-shell-daemon/src/shard_session.rs:generate_session`);
+  `participants` names the workers that ACTUALLY executed (fallbacks included)
+  and `activation_fingerprint` binds the LAST step's N0 TOPLOC commitment.
+  The driver's proof covers the run it DROVE — it is a self-claim, not an
+  independent verification. **Per-worker** RunProofs from remote shards need a
+  control-plane return channel and are routed S82: mark any "each worker emits
+  its own signed proof" claim PROVISIONAL until then.
 
 ### OBSERVE — read-only aggregate status
 - source_ref `crates/nexus-shell-daemon/src/http.rs:shard_session_response` (body),
-  `crates/nexus-shell-daemon/src/http.rs:project_shard_session` (privacy projection).
+  `crates/nexus-shell-daemon/src/http.rs:shard_session_response` (privacy projection).
 - Signed? n/a (read-only GET). DOMAIN n/a.
 - Auth tier: loopback only — `x-sbfb-token` bearer + loopback Host + absent-or-loopback
   Origin, enforced by `crates/nexus-shell-daemon-core/src/auth.rs:auth_required`;
@@ -144,8 +152,10 @@ GET /api/daemon/shard-session/{id}
 ```
 
 - source_ref `crates/nexus-shell-daemon/src/http.rs:shard_session_response`
-  (builds the body); `crates/nexus-shell-daemon/src/http.rs:live_shard_session`
-  (the empty-store seam); `crates/nexus-shell-daemon/src/http.rs:project_shard_session`
+  (builds the body); the status is served from the LIVE in-memory registry
+  `crates/nexus-shell-daemon/src/shard_session.rs:ShardSessionRegistry`
+  (S81 Phase I replaced the S77 empty-store stub `live_shard_session`, which
+  no longer exists); `crates/nexus-shell-daemon/src/http.rs:shard_session_response`
   (the privacy projection).
 - **Auth tier — loopback only**: `x-sbfb-token` bearer **+** loopback `Host` **+**
   absent-or-loopback `Origin`, enforced by the middleware
@@ -154,15 +164,17 @@ GET /api/daemon/shard-session/{id}
   registered in `crates/nexus-shell-daemon/src/http.rs:authed_routes` (handler
   `crates/nexus-shell-daemon/src/http.rs:shard_session`). Not reachable from a
   sandboxed iframe.
-- **Response (today, every id)** — no live store (S78 carry), so deterministically:
+- **Response (unknown id)** — deterministically:
 
   ```json
   { "found": false, "session": null }
   ```
 
   `200 OK` with honest defaults (never `404`) so the front parse succeeds.
-- **Response (S78, populated)** — `session` exposes ONLY `member_count`, never a
-  `worker_pubkey` / `initiator`.
+- **Response (mounted id, S81 I)** — `session` exposes ONLY `member_count`,
+  never a `worker_pubkey` / `initiator`. The orchestrator's write/drive routes
+  (`group`, `mount`, `generate`, `result`, `drop-shard`) are specified in
+  `docs/protocol/SHARD_PROTOCOL_SPEC.md` §6.
 - Front wrapper: `web/src/api/daemon.ts:getShardSession` (Zod `.strict()`).
 - Runnable example: [`examples/observe.curl.md`](./examples/observe.curl.md).
 
@@ -174,7 +186,7 @@ Violating any of these is a wire/security defect, not a style nit:
    (`crates/nexus-core-rs/src/shard_plan.rs:RunMetrics`) — a float would make
    canonical bytes non-deterministic across platforms and break signatures.
 2. **Never expose `worker_pubkey` or `initiator`** on any read surface. The HTTP
-   projection (`crates/nexus-shell-daemon/src/http.rs:project_shard_session`)
+   projection (`crates/nexus-shell-daemon/src/http.rs:shard_session_response`)
    emits only `session_id` + `member_count` (THREAT_MODEL §16 SI-3/SI-4).
 3. **Additive-only, 0-bump (pre-v1.0).**
    `crates/nexus-core-rs/src/shard_plan.rs:SHARD_PLAN_FORMAT_VERSION` /

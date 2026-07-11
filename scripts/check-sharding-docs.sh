@@ -11,10 +11,16 @@
 #                      (THREAT_MODEL §16, PATTERNS §P64/§P67, the read-only
 #                      route, the front helper) are present in their files.
 #   (2) honesty-gate — README + EXPLANATION + HOW_TO_WIRE each carry the
-#                      PROVISIONAL marker and the cardinal caveat
-#                      "admission ≠ confidentialité"; HOW_TO_WIRE names the
-#                      S78 orchestrator carry; REFERENCE marks its thresholds
-#                      "S78-pending tuning".
+#                      residual-honesty marker (post-S81 the orchestrator +
+#                      live benchmark shipped, so the marker is now the S82
+#                      residual carry — per-worker proofs / dispute
+#                      arbitration — NOT the retired PROVISIONAL banner) and
+#                      the cardinal caveat "admission ≠ confidentialité"
+#                      (UNCHANGED — the confidentiality boundary is
+#                      permanent); REFERENCE marks its thresholds
+#                      "S82-pending tuning". The cardinal caveat is the real
+#                      backstop; the residual marker keeps a future
+#                      "everything done, no caveats" reword failing CI.
 #   (3) french-body  — no English UI strings leak into the 3 French docs
 #                      (REFERENCE.md is English-body by design, exempted).
 #
@@ -92,11 +98,11 @@ require_marker() { # file marker label
   fi
 }
 for d in "${FR_DOCS[@]}"; do
-  require_marker "$d" "PROVISIONAL" "provisional-banner"
+  require_marker "$d" "S82" "residual-carry"
   require_marker "$d" "admission ≠ confidentialité" "cardinal-caveat"
 done
-require_marker "$DOCS_DIR/HOW_TO_WIRE.md" "S78" "orchestrator-carry"
-require_marker "$DOCS_DIR/REFERENCE.md" "S78-pending tuning" "threshold-tuning"
+require_marker "$DOCS_DIR/HOW_TO_WIRE.md" "S81" "orchestrator-shipped"
+require_marker "$DOCS_DIR/REFERENCE.md" "S82-pending tuning" "threshold-tuning"
 
 # ── (3) french-body ──────────────────────────────────────────────────
 # Narrow English-UI word list — a BusyBox-safe subset of
@@ -201,7 +207,7 @@ done
 # source-ref token in WIRING_SPEC.md.
 REQUIRED_ANCHORS="is_pipeline_contiguous covers_full_model verify_signature \
 DOMAIN_SHARD_PLAN_V1 DOMAIN_RUN_PROOF_V1 is_member authorize_claim accept_bi \
-project_shard_session auth_required SHARD_PLAN_FORMAT_VERSION"
+shard_session_response auth_required SHARD_PLAN_FORMAT_VERSION"
 wiring_symbols="$(grep -oE "${bt}(crates|docs|web|scripts)/[^${bt}]+${bt}" "$WIRING_SPEC" \
   | sed "s/.*://; s/${bt}//g")"
 for req in $REQUIRED_ANCHORS; do
@@ -220,18 +226,17 @@ for d in "$WIRING_SPEC" "$SHARD_LLMS"; do
   anchor_present "$d" "Not evidenced"
 done
 
-# honesty-gate extension (plan §20.4: PROVISIONAL/S78 grep-enforced in M AND N):
-# the agent wiring spec carries the PROVISIONAL / S78 markers and the cardinal
-# caveat; the sharding index pins PROVISIONAL + S78 (so a future flip to a
-# "shipped/done" banner fails CI); the root index pins its BOUNDED scope (not a
-# whole-repo index — Sprint 79 Phase I widened the banner to sharding + factory,
-# so the marker is now the deferred-whole-repo clause that survives the reword;
-# the factory section is gated by scripts/check-factory-docs.sh).
-require_marker "$WIRING_SPEC" "PROVISIONAL" "provisional-banner"
-require_marker "$WIRING_SPEC" "S78" "orchestrator-carry"
+# honesty-gate extension (S81 Phase K requalification): the orchestrator +
+# live benchmark shipped (S81 I/J), so the retired PROVISIONAL/S78 markers are
+# replaced by the S82 RESIDUAL carry (per-worker proofs / dispute arbitration)
+# — a real, still-open honesty clause, so a future flip to a "everything done,
+# no caveats" reword still fails CI. The cardinal caveat "admission ≠
+# confidentialité" is UNCHANGED (the confidentiality boundary is permanent).
+# The root index pins its BOUNDED scope (not a whole-repo index; the factory
+# section is gated by scripts/check-factory-docs.sh).
+require_marker "$WIRING_SPEC" "S82" "residual-carry"
 require_marker "$WIRING_SPEC" "admission ≠ confidentialité" "cardinal-caveat"
-require_marker "$SHARD_LLMS" "PROVISIONAL" "llms-provisional-banner"
-require_marker "$SHARD_LLMS" "S78" "llms-orchestrator-carry"
+require_marker "$SHARD_LLMS" "S82" "llms-residual-carry"
 require_marker "$ROOT_LLMS" "whole-repo agent index is" "root-scope-banner"
 
 if [ "$fail" -ne 0 ]; then

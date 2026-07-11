@@ -1,9 +1,9 @@
 # Example — OBSERVE a shard session (read-only control plane)
 
-Status: **PROVISIONAL.** There is no live session store yet (the in-vivo session
-orchestrator + registry is a Sprint **S78** carry), so this route deterministically
-returns the empty envelope for every id. The contract below is exact and stable;
-the *populated* shape is what S78 will fill in.
+Status: **LIVE (S81 Phase I).** The route serves the in-memory
+`ShardSessionRegistry` (gated insert: manifest signature + `is_member`). For
+an UNKNOWN id it deterministically returns the empty envelope below; for a
+mounted session it returns the populated shape.
 
 ## Route
 
@@ -12,8 +12,9 @@ GET /api/daemon/shard-session/{id}
 ```
 
 Source: [`../../../crates/nexus-shell-daemon/src/http.rs`](../../../crates/nexus-shell-daemon/src/http.rs)
-(`shard_session_response` builds the body; `live_shard_session` is the empty-store
-seam; `project_shard_session` is the privacy projection).
+(`shard_session_response` builds the body AND applies the privacy projection —
+aggregate `member_count`, never a `worker_pubkey`/`initiator`; it reads the live
+`ShardSessionRegistry`, S81 Phase I).
 
 **Auth tier — loopback only.** The route lives in the daemon's `authed_routes`:
 it requires the `x-sbfb-token` bearer **and** a loopback `Host` **and** an absent
@@ -33,7 +34,7 @@ curl -sS \
   "http://127.0.0.1:$PORT/api/daemon/shard-session/session-70b-1"
 ```
 
-## Response — empty store (today, every id)
+## Response — unknown id
 
 `200 OK` with honest defaults so the front parse succeeds (never `404`):
 
@@ -41,7 +42,7 @@ curl -sS \
 { "found": false, "session": null }
 ```
 
-## Response — populated (S78, when a session exists)
+## Response — populated (S81 I, when a session is mounted)
 
 When a session is live, `session` exposes **only** the aggregate `member_count` —
 **never** a `worker_pubkey` and **never** the `initiator` (privacy SI-3/SI-4):

@@ -5,8 +5,16 @@
 //! require the binary to be built first:
 //!   cargo build -p nexus-shell-daemon
 //!
-//! Tests that require iroh P2P relay connectivity are marked
-//! `#[ignore]` and run only when `SBFB_INTEGRATION=1` is set.
+//! Relay-gated class (S81 Phase K libellé): the tests that require
+//! iroh P2P relay connectivity are NOT `#[ignore]`-marked — they
+//! SELF-SKIP at runtime unless `SBFB_INTEGRATION=1`, so a default CI
+//! run reports them green WITHOUT exercising any network path. Real
+//! coverage of this class comes from the dedicated nightly/manual
+//! workflow (`.github/workflows/integration-nightly.yml`) and the
+//! live T2 acceptance harness; never count a default green run as
+//! relay coverage. Known state (S81 A3 first real run, artefact
+//! `sprint81_a3_integration_run_098.txt`): part of this class is
+//! test-rotted and repairs are tracked by the S81→S82 audit carry.
 
 use nexus_test_harness::DaemonCluster;
 

@@ -1,0 +1,74 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# nexus-grid relay-gated integration — Sprint 81 Phase K.
+#
+# The multi_daemon integration tests (nexus-test-harness +
+# nexus-coordinator-rs) SELF-SKIP green on a default run unless
+# `SBFB_INTEGRATION=1` — which no push/PR workflow sets, so their
+# network paths were never exercised by CI (the "silent green
+# early-return" the S81 kickoff called out). This workflow closes
+# that hole: it runs the relay-gated class FOR REAL on a nightly
+# cron + on demand (`workflow_dispatch`), mirroring the
+# supply-chain.yml cron+dispatch precedent.
+#
+# A red run here is a SIGNAL, not a push-blocker: the hermetic T1
+# class stays the blocking gate on every push (rust-ci.yml); this
+# job surfaces relay/network rot early — including the known S81 A3
+# test-rot backlog (artefact `sprint81_a3_integration_run_098.txt`,
+# repairs tracked by the S81→S82 audit carry).
+
+name: integration-nightly
+
+on:
+  schedule:
+    # 03:00 UTC nightly — after the day's pushes, before the next
+    # dev session picks up.
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  relay-gated:
+    name: multi_daemon (SBFB_INTEGRATION=1)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry + target
+        uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "v1-rust"
+          shared-key: "integration-ubuntu-latest"
+          cache-on-failure: "true"
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: nextest
+
+      # DaemonCluster spawns the real daemon binary — build it first.
+      - name: Build nexus-shell-daemon (harness dependency)
+        run: cargo build -p nexus-shell-daemon --locked
+
+      - name: Run the relay-gated multi_daemon class
+        env:
+          SBFB_INTEGRATION: "1"
+        run: >
+          cargo nextest run --profile ci --locked
+          -p nexus-test-harness -p nexus-coordinator-rs
+          -E 'binary(multi_daemon)'
+
+      - name: Upload nextest junit.xml
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-integration
+          path: target/nextest/ci/junit.xml
+          if-no-files-found: ignore
+          retention-days: 14

@@ -1,10 +1,15 @@
 # SBFB Sharded-Inference Protocol Specification
 
-**Status:** Sprint 77 — sharding pipeline delivered (A-K), **feature
-PROVISIONAL** (live cross-machine benchmark `RIG-ABSENT`; the in-vivo
-session orchestrator + benchmark are a carry to **Sprint 78**). This
-document specifies the wire contract A-K shipped; it does not claim a
-running production session.
+**Status:** Sprint 77 delivered the pipeline hermetically (A-K); Sprint
+81 Phases I/J delivered the **in-vivo session orchestrator** (mount /
+drive / result over the daemon loopback, §6) and the **live
+cross-machine benchmark** (CodeLlama-34B split RTX 5080-CUDA + M2-Metal,
+16 greedy tokens, harness PASS — `sprint81_t2_j_shard_inference.json`),
+closing the S77 `RIG-ABSENT` carry. Sprint 81 Phase K added the
+**stage attestation** (loaded-stage ↔ signed-manifest binding, §5.2).
+The feature is live-proven on the operator rig; graded verification
+beyond the driver's signed RunProof (per-worker proofs, dispute
+arbitration) is routed S82.
 **Versioning regime:** pre-v1.0 **raw-op additive**. Every signed
 payload pins its `*_FORMAT_VERSION` at `1`; the five `DOMAIN_*_V1`
 families and the `sbfb/shard/1` ALPN are brand-new, so introducing them
@@ -20,9 +25,14 @@ accept a range).
 A model too large for any single worker's VRAM is split across the
 members of a **private compute group** and run **pipeline-parallel**:
 each worker owns a contiguous half-open block of transformer layers
-`[layer_start, layer_end)`, streams the activations of its block to the
-next worker over a long-lived QUIC stream, and the last worker emits the
-output. Pipeline-parallel (not tensor-parallel) is deliberate: it is
+`[layer_start, layer_end)`. The **frozen S77 topology is a HUB (star)**,
+not direct server-to-server: the session **driver** (the head, dialer
+side) walks the pipeline order, sending each stage's input frame and
+reading its output over that stage's long-lived QUIC stream, then
+forwarding it as the next stage's input — every frontier crosses through
+the driver (`shard_session.rs:drive_decode_loop`, S81 Phase J). A
+Petals-style direct-s2s topology is a later optimisation, not what
+ships. Pipeline-parallel (not tensor-parallel) is deliberate: it is
 latency-bound, not bandwidth-bound, so it survives WAN links where an
 all-reduce would not.
 
@@ -37,9 +47,15 @@ activations, and the control-plane status route deliberately exposes
 ### Attestation scope — auto-attestation, not proof of correctness
 
 A valid `ShardedSessionManifestEntry` signature proves only that *the
-initiator authored this plan*; a valid `RunProofEntry` signature proves
-only *which worker* produced it (non-repudiation). Neither attests that
-the computation is **correct**. Graded verification (N0 TOPLOC → N1 VRF
+initiator authored this plan*. The `RunProofEntry` of a run is signed by
+the session **DRIVER** (the head that drove the generation, S81 I/J),
+not by each remote worker: it attests the run the driver measured
+(`participants` names who actually executed, `activation_fingerprint`
+binds the last step's N0 commitment) — a self-claim, non-repudiable for
+the driver, never an independent verification. Per-worker signed proofs
+need a control-plane return channel and are routed S82. Neither
+signature attests that the computation is **correct**. Graded
+verification (N0 TOPLOC → N1 VRF
 spot-check → N2 tolerant redundancy → N3 commit-reveal/SENTINEL) raises
 confidence but, until an independent verifier recomputes a fingerprint,
 a `RunProof` is a **self-claim**. See THREAT_MODEL §16.
@@ -56,7 +72,7 @@ as another. The five families of this subsystem:
 |---|---|---|
 | Compute group allowlist | `nexus-compute-group-v1` | initiator |
 | Sharded-session manifest | `nexus-shard-plan-v1` | initiator |
-| Run proof | `nexus-run-proof-v1` | worker |
+| Run proof | `nexus-run-proof-v1` | session driver (S81 I/J); per-worker = S82 |
 | VRF spot-check draw (N1) | `nexus-vrf-draw-v1` | verifier |
 | Activation commit-reveal (N3) | `nexus-activation-commit-v1` | worker |
 
@@ -174,8 +190,10 @@ success, not a transport error.
 Source: `crates/nexus-core-rs/src/shard.rs`.
 
 Activations flow over a **custom ALPN `sbfb/shard/1`** registered on the
-iroh-QUIC endpoint: one long-lived bidirectional QUIC stream per
-adjacent worker pair (`open_bi`), no application-level ping. Framing is
+iroh-QUIC endpoint. In the shipped HUB topology (§1) each stream is
+between the **driver and one stage worker** (the driver `open_bi`s to
+each stage), not between adjacent workers; one long-lived bidirectional
+QUIC stream per stage, no application-level ping. Framing is
 **length-prefixed, big-endian**.
 
 - **Admission before bytes:** the acceptor checks `is_member` (the dialing
@@ -192,18 +210,82 @@ adjacent worker pair (`open_bi`), no application-level ping. Framing is
 Constraint: llama-arch models only, same GGUF across the group
 (homogeneous cohort).
 
+### 5.1 Application-level step payloads (Sprint 81 Phase J)
+
+A REAL inference session (manifest `model_digest != 0`) carries two
+JSON payload shapes INSIDE the opaque frames, in addition to the raw
+`[n_tokens, n_embd]` fp32-LE boundary tensor exchanged by middle
+stages. They are **not wire structs**: no `*_FORMAT_VERSION`
+governance, never signed — the signed artefacts stay the manifest and
+the RunProof. Their `v` field (`SHARD_STEP_PAYLOAD_V = 1`) is an
+application-level guard so a role mismatch fails LOUD; both codecs are
+`deny_unknown_fields`, so a request never half-parses as a reply (and
+vice versa).
+
+- **`ShardStepRequest`** (driver → FIRST stage, per decode step):
+  `{ v: u16, prompt: String, generated: Vec<i32> }`. The first stage
+  owns the tokenizer: it re-derives its input ids each step (stateless
+  per-step recompute, no cross-step KV reuse — what makes the SI-9
+  fallback replay correct by construction).
+- **`ShardStepReply`** (LAST stage → driver, per decode step):
+  `{ v: u16, token_id: i32, piece: String, is_eos: bool,
+  toploc_hex: String }` — greedy-sampled token + the N0 TOPLOC
+  commitment hex of the post-norm hidden state (empty when the backend
+  cannot provide one; the LAST step's commitment binds
+  `RunProof.activation_fingerprint`).
+
+Source: `crates/nexus-core-rs/src/shard.rs` (`ShardStepRequest`,
+`ShardStepReply`, `SHARD_STEP_PAYLOAD_V`).
+
+### 5.2 Stage attestation (Sprint 81 Phase K)
+
+Before ANY data frame flows on a stage link of a real session, the
+driver requests the stage's self-declared loaded stage and fail-closes
+on mismatch with the signed manifest + `ShardAssignment`
+(THREAT_MODEL §16 « Attestation loaded-stage »). Same opaque-frame JSON
+posture as §5.1 (`SHARD_ATTEST_PAYLOAD_V = 1`, explicit `kind`
+discriminants, `deny_unknown_fields`):
+
+- **`ShardStageAttestationRequest`** (driver → stage):
+  `{ v: u16, kind: "attest-stage-request" }`.
+- **`ShardStageAttestation`** (stage → driver):
+  `{ v: u16, kind: "stage-attestation", model_digest_hex: String
+  (64-hex blake3 of the loaded GGUF, streaming-hashed; all-zeros = no
+  real backend), layer_start: u32, layer_end: u32, is_first: bool,
+  is_last: bool }`.
+
+`ShardProtocol::accept` answers the request BEFORE the forwarder (a
+real backend never sees the probe as activations); the echo/transport
+path (`model_digest == 0`) never emits nor requires an attestation
+(byte-identical to S77 Phase B). The attestation is a **self-claim by
+an admitted member** — it closes the MISCONFIGURATION class, not a
+deliberately byzantine stage (SI-4 residual).
+
 ---
 
-## 6. Control plane — `GET /api/daemon/shard-session/{id}`
+## 6. Control plane — `/api/daemon/shard-session/*` (Sprint 81 Phase I)
 
-Loopback-authenticated (bearer + Host + Origin, lives in the daemon's
-`authed_routes`). Returns `ShardSessionStatusResponse` (§4.7). With no
-live data-plane store yet (the session registry is a Sprint 78 carry),
-the route deterministically answers `200 {found:false, session:null}`
-for every id — a read-only route answers 200 with honest defaults so the
-parse succeeds (the `seed_count` precedent), never 404. There is **no
-`sbfb-bridge.js` shard method**: an app cannot start/join a session from
-inside a sandboxed iframe; entry is the shell `/compute` panel only.
+Loopback-authenticated (bearer + Host + Origin, `authed_routes`; tiers
+in `docs/security/LOOPBACK_ENDPOINTS_TRUST_TIERS.md` §3). The in-vivo
+orchestrator surface, consumed verbatim by the b3_shard harness:
+
+| Route | Effect |
+|---|---|
+| `POST /api/daemon/shard-session/group` | mint + sign the private `ComputeGroupEntry` (admission allowlist) |
+| `POST /api/daemon/shard-session/mount` | placement → signed `ShardedSessionManifestEntry` → readiness barrier → gated registry insert |
+| `POST .../{id}/generate` | drive one generation (echo pass or real decode loop per `model_digest`) |
+| `GET .../{id}/result` | measured outcome (`ShardSessionResultView`, 9 fields): `session_id`, `result_text` (bounded), `ttft_s`, `toks_per_s`, `tokens`, `run_proof` (driver signature hex), `rtt_frontier_ms`, `worker_drop_count`, `failure` |
+| `POST .../{id}/drop-shard` | explicit counted churn of the tail shard (SI-9 acceptance lever) |
+| `GET .../{session_id}` | read-only status (`ShardSessionStatusResponse`, §4.7) |
+
+The registry is in-memory and node-local; insertion is gated on the
+`DOMAIN_SHARD_PLAN_V1` signature + `is_member` checks, so the status
+route can never serve an unauthenticated manifest. The projection stays
+privacy-whitelisted (aggregate `member_count`, never a
+`worker_pubkey`/`initiator`). There is **no `sbfb-bridge.js` shard
+method**: an app cannot start/join a session from inside a sandboxed
+iframe; entry is the shell `/compute` panel + the operator CLI
+(`shard-session serve|plan|identity`, a local operator tool).
 
 ---
 

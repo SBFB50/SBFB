@@ -620,7 +620,43 @@ mod tests {
 
         let author = docs_a.author_create().await.unwrap();
         let doc_a = docs_a.create_doc().await.unwrap();
-        let ticket = doc_a.share_write().await.unwrap();
+
+        // S81 Phase K: rewrite the ticket's dial addrs to the DIRECT
+        // socket addrs ONLY. The share embeds relay + direct
+        // (`RelayAndAddresses`); stripping the relay pins this sync to
+        // the loopback path — hermetic, and immune to the public n0
+        // relay EOL (2026-09-30). Poll first so the direct addr exists
+        // before the share mints the ticket.
+        {
+            let disco = crate::discovery::DiscoveryClient::new(node_a.endpoint());
+            let mut ready = false;
+            for _ in 0..100 {
+                let full = disco.my_endpoint_addr().await.unwrap();
+                if full.ip_addrs().next().is_some() {
+                    ready = true;
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+            assert!(ready, "node A must expose a direct socket addr");
+        }
+        let mut ticket = doc_a.share_write().await.unwrap();
+        ticket.nodes = ticket
+            .nodes
+            .into_iter()
+            .map(|n| {
+                let directs: Vec<std::net::SocketAddr> = n.ip_addrs().copied().collect();
+                let mut direct_only = iroh::EndpointAddr::new(n.id);
+                for d in directs {
+                    direct_only = direct_only.with_ip_addr(d);
+                }
+                direct_only
+            })
+            .collect();
+        assert!(
+            ticket.nodes.iter().any(|n| n.ip_addrs().next().is_some()),
+            "the stripped ticket must still carry a direct dial addr"
+        );
 
         let (doc_b, mut events_b) = docs_b.import_and_subscribe(ticket).await.unwrap();
 

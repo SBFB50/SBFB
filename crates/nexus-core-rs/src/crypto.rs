@@ -182,6 +182,41 @@ pub fn blake3_hash(data: &[u8]) -> [u8; BLAKE3_BYTES] {
     *blake3::hash(data).as_bytes()
 }
 
+/// Compute the BLAKE3 hash of a file by STREAMING its contents through a
+/// fixed-size buffer — the file is never loaded into memory whole.
+///
+/// A sharded GGUF weight file is ~16 GB: hashing it via `std::fs::read`
+/// would OOM an 8 GB tail machine (Sprint 81 Phase J, Codex P1), so the
+/// shard serve path computes its stage-attestation model digest through
+/// this reader. Produces the same digest as [`blake3_hash`] over the same
+/// bytes.
+pub fn blake3_hash_file(path: &std::path::Path) -> Result<[u8; BLAKE3_BYTES]> {
+    use std::io::Read;
+    let mut file = std::fs::File::open(path)
+        .map_err(|e| NexusError::Crypto(format!("blake3 file open {}: {e}", path.display())))?;
+    let mut hasher = blake3::Hasher::new();
+    let mut buf = vec![0u8; 1 << 20];
+    loop {
+        let n = match file.read(&mut buf) {
+            Ok(n) => n,
+            // A signal-interrupted read is transient — retry, never abort
+            // the digest of a ~16 GB file on an EINTR (Codex P3).
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => {
+                return Err(NexusError::Crypto(format!(
+                    "blake3 file read {}: {e}",
+                    path.display()
+                )));
+            }
+        };
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Ok(*hasher.finalize().as_bytes())
+}
+
 /// Append-only hash chain, used by the SBFB kudos ledger.
 ///
 /// Starts from an optional genesis hash (defaulting to all zeros)
@@ -237,6 +272,26 @@ impl Default for Blake3Chain {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn blake3_hash_file_streams_to_the_same_digest_as_in_memory() {
+        // The streaming file hasher must produce byte-identical digests to
+        // the in-memory primitive — including across the 1 MiB internal
+        // buffer boundary (content larger than one read chunk).
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("weights.bin");
+        let content: Vec<u8> = (0..(3 * (1 << 20) + 17)).map(|i| (i % 251) as u8).collect();
+        std::fs::write(&path, &content).expect("write fixture");
+        assert_eq!(
+            blake3_hash_file(&path).expect("streamed digest"),
+            blake3_hash(&content),
+            "streamed and in-memory blake3 digests must match"
+        );
+        assert!(
+            blake3_hash_file(&dir.path().join("absent.bin")).is_err(),
+            "a missing file must surface an error, never a fake digest"
+        );
+    }
 
     #[test]
     fn keypair_generate_is_random() {

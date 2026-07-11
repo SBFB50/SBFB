@@ -3,9 +3,10 @@
 # The `ci` profile is what `.github/workflows/rust-ci.yml` runs.
 # Keep the defaults tight: we want CI to surface flakes loudly
 # instead of hiding them under silent retries, but we also allow a
-# single retry to absorb truly transient network hiccups around the
-# iroh relay handshake in `blobs::tests::two_nodes_fetch_blob_via_ticket`
-# and `docs::tests::two_nodes_sync_via_share_import`.
+# single retry to absorb truly transient QUIC handshake hiccups in
+# `blobs::tests::two_nodes_fetch_blob_via_ticket` and
+# `docs::tests::two_nodes_sync_via_share_import` (direct-only
+# loopback since S81 Phase K — no public relay in the path).
 #
 # If a test retries successfully, the `status-level = "retry"` line
 # makes nextest print the retry as "PASS (retry N)" in the summary,
@@ -49,8 +50,15 @@ slow-timeout = { period = "60s", terminate-after = 3 }
 # first one.
 fail-fast = false
 
-# Single retry for the two iroh 2-node tests that depend on the
-# public n0 relay. Anything that still fails after one retry is a
+# Single retry for EVERY test run under this profile — the [profile.ci]
+# scope includes the nightly `binary(multi_daemon)` job
+# (integration-nightly.yml), not only the two iroh 2-node tests
+# (blobs::two_nodes_fetch_blob_via_ticket,
+# docs::two_nodes_sync_via_share_import) that motivated it. S81 Phase K
+# stripped those two tests' exchanged addrs to DIRECT-ONLY, so they no
+# longer touch the public n0 relay (EOL 2026-09-30); the single retry
+# stays only to absorb transient loopback QUIC handshake hiccups on
+# saturated CI runners. Anything that still fails after one retry is a
 # real bug and must be fixed, not hidden behind more retries.
 retries = 1
 

@@ -5,8 +5,9 @@ machine source of truth. For the narrative, see
 [`EXPLANATION.md`](./EXPLANATION.md); for the role-by-role guide, see
 [`HOW_TO_WIRE.md`](./HOW_TO_WIRE.md).*
 
-> **Status: PROVISIONAL** (live session orchestrator is a Sprint 78 carry, see
-> [`README.md`](./README.md)). The body is intentionally in English: this page
+> **Status: LIVE-PROVEN (S81 I/J)** — the in-vivo session orchestrator and the
+> live 2-machine benchmark shipped, see
+> [`README.md`](./README.md). The body is intentionally in English: this page
 > is reference material consumed by external contributors and agents.
 
 ## Single source of truth
@@ -37,7 +38,7 @@ decoders accept a range).
 |---|---|---|
 | Compute-group allowlist | `nexus-compute-group-v1` | initiator |
 | Sharded-session manifest | `nexus-shard-plan-v1` | initiator |
-| Run proof | `nexus-run-proof-v1` | worker |
+| Run proof | `nexus-run-proof-v1` | session driver (S81 I/J); per-worker = S82 |
 | VRF spot-check draw (N1) | `nexus-vrf-draw-v1` | verifier |
 | Activation commit-reveal (N3) | `nexus-activation-commit-v1` | worker |
 
@@ -66,7 +67,8 @@ empty result as success, not a transport error.
 
 ## Data plane — ALPN `sbfb/shard/1`
 
-One long-lived bidirectional QUIC stream per adjacent worker pair, framing
+One long-lived bidirectional QUIC stream per **driver↔stage** pair (the frozen
+S77 HUB topology — the driver dials each stage, not adjacent workers), framing
 length-prefixed big-endian. Admission (`is_member`) is checked **before**
 `accept_bi` / any frame read; a correctness verdict (N0–N3) is **never** carried
 on the data plane — it is derived from signed `RunProof`s afterwards.
@@ -92,13 +94,14 @@ can never produce a payload its own peers would reject.
 `SHARD_GROUP_ID_MAX` (manifest) and `COMPUTE_GROUP_ID_MAX` (`ComputeGroup`) are
 two **distinct** constants that happen to share the value 128.
 
-## Verification thresholds (S78-pending tuning)
+## Verification thresholds (S82-pending tuning)
 
 These are the **current calibration** of the graded-verification ladder. They
-are documented for the implementer, but the values are **S78-pending tuning**:
+are documented for the implementer, but the values are **S82-pending tuning**:
 they were chosen from the source papers, not yet re-calibrated on the real
-two-machine rig (the live benchmark is `RIG-ABSENT`, see
-[`README.md`](./README.md)).
+two-machine rig. The live benchmark itself EXISTS since S81 Phase J
+(`sprint81_t2_j_shard_inference.json`, PASS — the re-calibration baseline);
+the tuning pass on it is routed S82.
 
 | Stage | Constant | Value | Source |
 |---|---|---|---|
