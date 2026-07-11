@@ -348,6 +348,129 @@ pub fn shard_protocol_factory(
     }))
 }
 
+// ---------------------------------------------------------------------
+// Application-layer step payloads (Sprint 81 Phase J — real inference,
+// PO arbitrage Option B)
+// ---------------------------------------------------------------------
+//
+// The `sbfb/shard/1` framing above is OPAQUE bytes. A REAL inference
+// session needs two application-level payload shapes INSIDE those frames,
+// in addition to the raw `[n_tokens, n_embd]` fp32-LE boundary tensor:
+//
+//   - driver -> FIRST shard: a step request (prompt + tokens generated so
+//     far). The first shard owns the tokenizer/vocab and re-derives its
+//     input ids each step, so the driver never needs the model on disk.
+//   - LAST shard -> driver: a step reply (the greedy-sampled token id,
+//     its detokenized piece, the EOS flag, and the N0 TOPLOC commitment
+//     hex of the post-norm hidden state at the sampled position).
+//
+// Both are JSON inside an opaque frame: they are NOT wire structs, carry
+// no `*_FORMAT_VERSION` governance and are never signed — the signed
+// artefacts stay the manifest and the RunProof (`shard_plan.rs`). The `v`
+// field is an application-level guard so a role mismatch (a JSON payload
+// reaching a mid shard, an fp32 tensor reaching a JSON decoder) fails
+// LOUD instead of feeding a backend garbage. Middle shards keep receiving
+// raw fp32 frames untouched (0 wire bump: the ALPN, the framing and the
+// admission are byte-identical to Sprint 77 Phase B).
+
+/// Application-level version guard for [`ShardStepRequest`] /
+/// [`ShardStepReply`] payloads. NOT a wire `*_FORMAT_VERSION` (the frame
+/// stays opaque); a decoder rejects a mismatch loud.
+pub const SHARD_STEP_PAYLOAD_V: u16 = 1;
+
+/// Driver -> first-shard step payload: the prompt plus every token id the
+/// pipeline generated so far. The first shard tokenizes the prompt with
+/// its own vocab, appends `generated`, and forwards the whole sequence
+/// (stateless per-step recompute — no cross-step KV reuse, which is what
+/// makes the SI-9 fallback replay of a step input CORRECT by
+/// construction: any stage's step input can be replayed on a fallback
+/// worker with no lost state).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ShardStepRequest {
+    /// Must equal [`SHARD_STEP_PAYLOAD_V`].
+    pub v: u16,
+    /// The user prompt (tokenized by the first shard each step).
+    pub prompt: String,
+    /// Token ids generated so far, in order (empty on the first step).
+    #[serde(default)]
+    pub generated: Vec<i32>,
+}
+
+impl ShardStepRequest {
+    /// Build a step request at the current payload version.
+    #[must_use]
+    pub fn new(prompt: impl Into<String>, generated: Vec<i32>) -> Self {
+        ShardStepRequest {
+            v: SHARD_STEP_PAYLOAD_V,
+            prompt: prompt.into(),
+            generated,
+        }
+    }
+
+    /// Encode to the frame payload bytes (JSON).
+    #[must_use]
+    pub fn encode(&self) -> Vec<u8> {
+        serde_json::to_vec(self).expect("step request serialization is infallible")
+    }
+
+    /// Decode a frame payload, rejecting non-JSON bytes (e.g. an fp32
+    /// tensor mis-routed to a first shard) and a version mismatch.
+    pub fn decode(frame: &[u8]) -> Result<Self> {
+        let req: ShardStepRequest = serde_json::from_slice(frame)
+            .map_err(|e| NexusError::Other(format!("shard step request decode: {e}")))?;
+        if req.v != SHARD_STEP_PAYLOAD_V {
+            return Err(NexusError::Other(format!(
+                "shard step request payload v{} (expected v{SHARD_STEP_PAYLOAD_V})",
+                req.v
+            )));
+        }
+        Ok(req)
+    }
+}
+
+/// Last-shard -> driver step payload: one greedy-sampled decode step.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ShardStepReply {
+    /// Must equal [`SHARD_STEP_PAYLOAD_V`].
+    pub v: u16,
+    /// The sampled token id (greedy argmax — deterministic, ties broken
+    /// by the lowest vocab index).
+    pub token_id: i32,
+    /// The detokenized piece for `token_id` (empty for an EOS token).
+    pub piece: String,
+    /// Whether `token_id` is an end-of-generation token.
+    pub is_eos: bool,
+    /// N0 TOPLOC commitment (lowercase blake3 hex, 64 chars) of the last
+    /// shard's post-norm hidden state at the sampled position; empty when
+    /// the backend cannot provide one.
+    #[serde(default)]
+    pub toploc_hex: String,
+}
+
+impl ShardStepReply {
+    /// Encode to the frame payload bytes (JSON).
+    #[must_use]
+    pub fn encode(&self) -> Vec<u8> {
+        serde_json::to_vec(self).expect("step reply serialization is infallible")
+    }
+
+    /// Decode a frame payload, rejecting non-JSON bytes and a version
+    /// mismatch (e.g. an fp32 tensor returned by a mis-roled tail).
+    pub fn decode(frame: &[u8]) -> Result<Self> {
+        let reply: ShardStepReply = serde_json::from_slice(frame)
+            .map_err(|e| NexusError::Other(format!("shard step reply decode: {e}")))?;
+        if reply.v != SHARD_STEP_PAYLOAD_V {
+            return Err(NexusError::Other(format!(
+                "shard step reply payload v{} (expected v{SHARD_STEP_PAYLOAD_V})",
+                reply.v
+            )));
+        }
+        Ok(reply)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -389,6 +512,88 @@ mod tests {
         assert!(
             header_to_frame_len(crafted).is_err(),
             "decode must reject over-cap"
+        );
+    }
+
+    // ---- Application-layer step payload codecs (pure, Phase J) ----
+
+    #[test]
+    fn step_request_roundtrips_and_rejects_garbage() {
+        let req = ShardStepRequest::new("The quick brown fox", vec![3, 17, 42]);
+        let bytes = req.encode();
+        assert_eq!(
+            ShardStepRequest::decode(&bytes).expect("roundtrip"),
+            req,
+            "encode/decode must roundtrip"
+        );
+
+        // An fp32 tensor mis-routed to a first shard is NOT JSON — loud reject.
+        let fp32: Vec<u8> = 1.5_f32.to_le_bytes().to_vec();
+        assert!(
+            ShardStepRequest::decode(&fp32).is_err(),
+            "raw fp32 bytes must not decode as a step request"
+        );
+
+        // A version mismatch is rejected even when the JSON parses.
+        let wrong_v = br#"{"v":9,"prompt":"x","generated":[]}"#;
+        assert!(
+            ShardStepRequest::decode(wrong_v).is_err(),
+            "payload version mismatch must be rejected"
+        );
+
+        // Unknown fields are rejected (deny_unknown_fields): a reply
+        // mis-routed as a request fails loud instead of half-parsing.
+        let reply_bytes = ShardStepReply {
+            v: SHARD_STEP_PAYLOAD_V,
+            token_id: 7,
+            piece: "ok".into(),
+            is_eos: false,
+            toploc_hex: String::new(),
+        }
+        .encode();
+        assert!(
+            ShardStepRequest::decode(&reply_bytes).is_err(),
+            "a step REPLY must not decode as a step REQUEST"
+        );
+    }
+
+    #[test]
+    fn step_reply_roundtrips_and_rejects_garbage() {
+        let reply = ShardStepReply {
+            v: SHARD_STEP_PAYLOAD_V,
+            token_id: 1234,
+            piece: " fox".into(),
+            is_eos: false,
+            toploc_hex: "ab".repeat(32),
+        };
+        let bytes = reply.encode();
+        assert_eq!(
+            ShardStepReply::decode(&bytes).expect("roundtrip"),
+            reply,
+            "encode/decode must roundtrip"
+        );
+        // Raw fp32 boundary bytes must not decode as a reply (the driver
+        // would otherwise mis-read a mid shard's tensor as a token).
+        let fp32: Vec<u8> = [0.25_f32, -1.0]
+            .iter()
+            .flat_map(|f| f.to_le_bytes())
+            .collect();
+        assert!(
+            ShardStepReply::decode(&fp32).is_err(),
+            "raw fp32 bytes must not decode as a step reply"
+        );
+        let wrong_v = br#"{"v":2,"token_id":1,"piece":"","is_eos":true}"#;
+        assert!(
+            ShardStepReply::decode(wrong_v).is_err(),
+            "payload version mismatch must be rejected"
+        );
+        // Cross-reject symmetry (review J J-D2-1): a step REQUEST payload
+        // must not half-parse as a step REPLY (deny_unknown_fields +
+        // disjoint required fields make this structural — asserted here).
+        let request_bytes = ShardStepRequest::new("prompt", vec![1, 2]).encode();
+        assert!(
+            ShardStepReply::decode(&request_bytes).is_err(),
+            "a step REQUEST must not decode as a step REPLY"
         );
     }
 

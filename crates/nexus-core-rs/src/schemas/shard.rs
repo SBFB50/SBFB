@@ -134,10 +134,18 @@ pub struct ShardSessionResultView {
     /// Time to first output frame from the last stage, whole seconds.
     #[schemars(required)]
     pub ttft_s: Option<u64>,
-    /// Measured decode rate, integer tokens per second (floor 1 for a
-    /// completed drive — the harness' anti-false-green gate).
+    /// Measured decode rate, integer tokens per second. Transport-only
+    /// echo sessions floor this at 1 (a liveness signal, not a rate
+    /// claim); a REAL decode (Sprint 81 Phase J, Option B) reports the
+    /// UNFLOORED measured rate, so a sub-1 tok/s pipeline surfaces as 0
+    /// and the harness' >=1 gate BLOCKs honestly.
     #[schemars(required)]
     pub toks_per_s: Option<u64>,
+    /// Output tokens of the last drive (`1` for a transport-only echo
+    /// pass; the generated token count for a REAL decode — the harness'
+    /// anti-false-green tell, Sprint 81 Phase J).
+    #[schemars(required)]
+    pub tokens: Option<u64>,
     /// Lowercase hex of the driver's signed RunProof Ed25519 signature.
     #[schemars(required)]
     pub run_proof: Option<String>,
@@ -413,6 +421,7 @@ mod tests {
                 "rtt_frontier_ms",
                 "run_proof",
                 "session_id",
+                "tokens",
                 "toks_per_s",
                 "ttft_s",
                 "worker_drop_count",

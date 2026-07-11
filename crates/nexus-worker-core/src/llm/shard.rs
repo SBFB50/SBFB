@@ -190,7 +190,7 @@ pub fn toploc_commitment(hidden: &[f32]) -> [u8; 32] {
 }
 
 #[cfg(feature = "llm_llama_cpp")]
-pub use backend::{ShardBackend, ShardBackendForwarder};
+pub use backend::{ShardBackend, ShardBackendForwarder, ShardStageForwarder, StepSample};
 
 #[cfg(feature = "llm_llama_cpp")]
 mod backend {
@@ -202,6 +202,11 @@ mod backend {
     use llama_cpp_2::llama_batch::LlamaBatch;
     use llama_cpp_2::model::params::LlamaModelParams;
     use llama_cpp_2::model::{AddBos, LlamaModel};
+    // `Special` is only consumed by the equally-deprecated `token_to_str`
+    // (see the detokenize call: the maintained `token_to_piece` needs an
+    // `encoding_rs` decoder this crate does not carry).
+    #[allow(deprecated)]
+    use llama_cpp_2::model::Special;
     use llama_cpp_2::token::LlamaToken;
 
     use super::ShardWindow;
@@ -486,6 +491,107 @@ mod backend {
             Ok(toks.into_iter().map(|t| t.0).collect())
         }
 
+        /// Sprint 81 Phase J (Option B) — last-shard forward + **greedy
+        /// sample**: inject the upstream boundary hidden state, run the
+        /// window (final norm + lm_head resident, `is_last` partial load),
+        /// read the LOGITS of the last position, greedy-argmax one token,
+        /// detokenize its piece and commit the post-norm hidden state
+        /// (N0 TOPLOC, [`super::toploc_commitment`]).
+        ///
+        /// Greedy is deterministic (ties broken by the LOWEST vocab
+        /// index), which is what lets the live benchmark verify token
+        /// correctness across runs (preflight S1a-8).
+        ///
+        /// # Errors
+        ///
+        /// [`LlmBackendError`] on a shape mismatch, on context/decode/
+        /// extraction failure, or if called on a shard that is not the
+        /// (strict) last of a multi-shard pipeline.
+        pub fn forward_hidden_sample_last(&self, hidden: &[f32]) -> LlmBackendResult<StepSample> {
+            if !self.window.is_last() || self.window.is_first() {
+                return Err(LlmBackendError::InvalidConfig {
+                    reason: format!(
+                        "forward_hidden_sample_last requires a strict last shard \
+                         (window [{},{}) is_first={} is_last={})",
+                        self.window.start(),
+                        self.window.end(),
+                        self.window.is_first(),
+                        self.window.is_last()
+                    ),
+                });
+            }
+            let n_tokens = super::hidden_token_count(hidden.len(), self.n_embd).ok_or_else(
+                || LlmBackendError::InvalidConfig {
+                    reason: format!(
+                        "injected hidden state length {} is not a positive multiple of n_embd {}",
+                        hidden.len(),
+                        self.n_embd
+                    ),
+                },
+            )?;
+            let backend = shared_backend()?;
+            let mut ctx = self
+                .model
+                .new_context(backend, self.context_params())
+                .map_err(|e| LlmBackendError::Api(format!("shard new_context: {e}")))?;
+
+            let mut batch = LlamaBatch::new_embeddings(n_tokens, self.n_embd, 1);
+            for i in 0..n_tokens {
+                let row = &hidden[i * self.n_embd..(i + 1) * self.n_embd];
+                batch
+                    .add_embedding(row, i as i32, &[0], true)
+                    .map_err(|e| LlmBackendError::Api(format!("shard add_embedding: {e}")))?;
+            }
+            ctx.decode(&mut batch)
+                .map_err(|e| LlmBackendError::Api(format!("shard decode hidden: {e}")))?;
+
+            let last = (n_tokens - 1) as i32;
+            // Post-norm hidden state of the sampled position — the N0
+            // TOPLOC material (Phase G contract).
+            let emb = ctx
+                .embeddings_ith(last)
+                .map_err(|e| LlmBackendError::Api(format!("shard embeddings_ith({last}): {e}")))?;
+            let toploc = super::toploc_commitment(emb);
+
+            // lm_head logits of the last position (the batch flags every
+            // position, so `last` is always initialized). Greedy argmax,
+            // deterministic: the FIRST strictly-greater logit wins, so
+            // ties resolve to the lowest vocab index.
+            // `get_logits_ith` always returns an `n_vocab`-wide slice for a
+            // logits-flagged position (review J 1A-1: it can NOT come back
+            // empty — an lm_head genuinely absent from the partial load
+            // would trip a native assert inside the fork, never a graceful
+            // empty slice; the `is_last` load keeping lm_head resident is
+            // the invariant this method relies on).
+            let logits = ctx.get_logits_ith(last);
+            let mut best = 0usize;
+            let mut best_v = f32::NEG_INFINITY;
+            for (i, &v) in logits.iter().enumerate() {
+                if v > best_v {
+                    best_v = v;
+                    best = i;
+                }
+            }
+            let token = LlamaToken::new(i32::try_from(best).map_err(|_| {
+                LlmBackendError::Api(format!("sampled vocab index {best} exceeds i32"))
+            })?);
+            let is_eos = self.model.is_eog_token(token);
+            let piece = if is_eos {
+                String::new()
+            } else {
+                #[allow(deprecated)] // token_to_piece needs an encoding_rs decoder we don't carry
+                self.model
+                    .token_to_str(token, Special::Plaintext)
+                    .map_err(|e| LlmBackendError::Api(format!("shard detokenize: {e}")))?
+            };
+            Ok(StepSample {
+                token_id: token.0,
+                piece,
+                is_eos,
+                toploc,
+            })
+        }
+
         fn collect_boundary(
             &self,
             ctx: &llama_cpp_2::context::LlamaContext<'_>,
@@ -534,24 +640,127 @@ mod backend {
 
     impl nexus_core_rs::ShardForwarder for ShardBackendForwarder {
         fn forward(&self, upstream_frame: &[u8]) -> nexus_core_rs::Result<Vec<u8>> {
-            if upstream_frame.len() % 4 != 0 {
-                return Err(nexus_core_rs::NexusError::Other(format!(
-                    "shard frame {} bytes is not a multiple of 4 (fp32)",
-                    upstream_frame.len()
-                )));
-            }
-            let hidden: Vec<f32> = upstream_frame
-                .chunks_exact(4)
-                .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-                .collect();
+            let hidden = le_bytes_to_f32s(upstream_frame)?;
             let out = self.backend.forward_hidden(&hidden).map_err(|e| {
                 nexus_core_rs::NexusError::Other(format!("shard forward_hidden: {e}"))
             })?;
-            let mut bytes = Vec::with_capacity(out.len() * 4);
-            for v in out {
-                bytes.extend_from_slice(&v.to_le_bytes());
+            Ok(f32s_to_le_bytes(&out))
+        }
+    }
+
+    /// One greedy-sampled decode step from the last shard (Sprint 81
+    /// Phase J, Option B). `toploc` is the N0 TOPLOC commitment of the
+    /// post-norm hidden state at the sampled position (Phase G material —
+    /// the driver copies the LAST step's commitment into
+    /// `RunProof::activation_fingerprint`).
+    #[derive(Debug, Clone)]
+    pub struct StepSample {
+        /// The sampled token id (greedy argmax, deterministic).
+        pub token_id: i32,
+        /// The detokenized piece (empty for an EOS token).
+        pub piece: String,
+        /// Whether the sampled token ends the generation.
+        pub is_eos: bool,
+        /// N0 TOPLOC commitment of the post-norm hidden state.
+        pub toploc: [u8; 32],
+    }
+
+    /// Decode a raw little-endian fp32 boundary frame.
+    fn le_bytes_to_f32s(frame: &[u8]) -> nexus_core_rs::Result<Vec<f32>> {
+        if !frame.len().is_multiple_of(4) {
+            return Err(nexus_core_rs::NexusError::Other(format!(
+                "shard frame {} bytes is not a multiple of 4 (fp32)",
+                frame.len()
+            )));
+        }
+        Ok(frame
+            .chunks_exact(4)
+            .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            .collect())
+    }
+
+    /// Encode a boundary tensor as raw little-endian fp32 bytes.
+    fn f32s_to_le_bytes(values: &[f32]) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(values.len() * 4);
+        for v in values {
+            bytes.extend_from_slice(&v.to_le_bytes());
+        }
+        bytes
+    }
+
+    /// Role-aware [`nexus_core_rs::ShardForwarder`] — the Sprint 81
+    /// Phase J REAL-inference stage (PO arbitrage Option B; supersedes the
+    /// transport-only `EchoForwarder` mount for a real session).
+    ///
+    /// Dispatch is derived from the backend's validated [`ShardWindow`],
+    /// never from the frame bytes:
+    ///
+    /// - **first shard** — decodes a [`nexus_core_rs::ShardStepRequest`]
+    ///   JSON payload, re-tokenizes the prompt with its own vocab, appends
+    ///   the generated ids and emits the boundary fp32-LE tensor;
+    /// - **middle shard** — raw fp32 in, raw fp32 out (identical to
+    ///   [`ShardBackendForwarder`]);
+    /// - **last shard** — raw fp32 in, one greedy decode step out as a
+    ///   [`nexus_core_rs::ShardStepReply`] JSON payload.
+    ///
+    /// A window that is BOTH first and last is rejected loud: a model that
+    /// fits one worker is S76 endpoint-federation territory (the placement
+    /// refuses to shard it), never a shard stage.
+    #[derive(Debug)]
+    pub struct ShardStageForwarder {
+        backend: Arc<ShardBackend>,
+    }
+
+    impl ShardStageForwarder {
+        /// Wrap a loaded backend as a role-aware data-plane stage.
+        #[must_use]
+        pub fn new(backend: Arc<ShardBackend>) -> Self {
+            Self { backend }
+        }
+    }
+
+    impl nexus_core_rs::ShardForwarder for ShardStageForwarder {
+        fn forward(&self, upstream_frame: &[u8]) -> nexus_core_rs::Result<Vec<u8>> {
+            let window = self.backend.window();
+            if window.is_first() && window.is_last() {
+                return Err(nexus_core_rs::NexusError::Other(
+                    "single-shard window: a model that fits one worker is endpoint \
+                     federation (S76), not a shard stage"
+                        .to_string(),
+                ));
             }
-            Ok(bytes)
+            if window.is_first() {
+                let req = nexus_core_rs::ShardStepRequest::decode(upstream_frame)?;
+                let mut ids = self.backend.tokenize(&req.prompt).map_err(|e| {
+                    nexus_core_rs::NexusError::Other(format!("shard tokenize: {e}"))
+                })?;
+                ids.extend_from_slice(&req.generated);
+                let out = self.backend.forward_tokens(&ids).map_err(|e| {
+                    nexus_core_rs::NexusError::Other(format!("shard forward_tokens: {e}"))
+                })?;
+                return Ok(f32s_to_le_bytes(&out));
+            }
+            if window.is_last() {
+                let hidden = le_bytes_to_f32s(upstream_frame)?;
+                let sample = self
+                    .backend
+                    .forward_hidden_sample_last(&hidden)
+                    .map_err(|e| nexus_core_rs::NexusError::Other(format!("shard sample: {e}")))?;
+                return Ok(nexus_core_rs::ShardStepReply {
+                    v: nexus_core_rs::SHARD_STEP_PAYLOAD_V,
+                    token_id: sample.token_id,
+                    piece: sample.piece,
+                    is_eos: sample.is_eos,
+                    toploc_hex: hex::encode(sample.toploc),
+                }
+                .encode());
+            }
+            // Middle shard: raw fp32 -> raw fp32.
+            let hidden = le_bytes_to_f32s(upstream_frame)?;
+            let out = self.backend.forward_hidden(&hidden).map_err(|e| {
+                nexus_core_rs::NexusError::Other(format!("shard forward_hidden: {e}"))
+            })?;
+            Ok(f32s_to_le_bytes(&out))
         }
     }
 }
@@ -796,6 +1005,77 @@ mod gguf_tests {
         assert!(
             cos > 0.999,
             "3-way split must match full forward (cosine {cos} <= 0.999)"
+        );
+    }
+
+    /// Sprint 81 Phase J (Option B) — the LAST shard produces LOGITS under
+    /// the fork's partial load (`is_last` keeps the output norm + lm_head)
+    /// and a full head->tail step through [`ShardStageForwarder`] yields a
+    /// deterministic greedy token. This is the empirical decider for the
+    /// real-inference wiring: if the `is_last` graph skipped lm_head, the
+    /// sample call would error loud here, never a silent garbage token.
+    #[test]
+    #[ignore = "requires SBFB_SHARD_TEST_GGUF (llama-arch GGUF on disk)"]
+    fn shard_stage_forwarder_generates_a_token_end_to_end() {
+        use nexus_core_rs::ShardForwarder;
+        let Some(path) = gguf_path() else {
+            eprintln!("SBFB_SHARD_TEST_GGUF unset — skipping");
+            return;
+        };
+        let n_layer = {
+            let probe =
+                ShardBackend::load(&path, 0, 0, true, true, 0, 512).expect("load whole model");
+            probe.window().end()
+        };
+        let k = n_layer / 2;
+
+        let head = std::sync::Arc::new(
+            ShardBackend::load(&path, 0, k, true, false, 0, 512).expect("head shard"),
+        );
+        let tail = std::sync::Arc::new(
+            ShardBackend::load(&path, k, n_layer, false, true, 0, 512).expect("tail shard"),
+        );
+        let head_fwd = ShardStageForwarder::new(std::sync::Arc::clone(&head));
+        let tail_fwd = ShardStageForwarder::new(std::sync::Arc::clone(&tail));
+
+        // Step 0: driver-side request -> head -> fp32 boundary -> tail ->
+        // greedy-sampled step reply.
+        let req = nexus_core_rs::ShardStepRequest::new("The quick brown fox", vec![]);
+        let boundary = head_fwd.forward(&req.encode()).expect("head step");
+        assert!(
+            boundary.len() % 4 == 0 && !boundary.is_empty(),
+            "head must emit a non-empty fp32 boundary"
+        );
+        let reply_bytes = tail_fwd.forward(&boundary).expect("tail step");
+        let reply = nexus_core_rs::ShardStepReply::decode(&reply_bytes).expect("step reply JSON");
+        assert!(
+            reply.token_id >= 0,
+            "sampled token id must be a vocab index"
+        );
+        assert_eq!(
+            reply.toploc_hex.len(),
+            64,
+            "the reply must carry the N0 TOPLOC commitment hex"
+        );
+
+        // Determinism (greedy, S1a-8): the same step yields the same token.
+        let reply2_bytes = tail_fwd
+            .forward(&head_fwd.forward(&req.encode()).expect("head step 2"))
+            .expect("tail step 2");
+        let reply2 = nexus_core_rs::ShardStepReply::decode(&reply2_bytes).expect("reply 2");
+        assert_eq!(
+            reply.token_id, reply2.token_id,
+            "greedy must be deterministic"
+        );
+
+        // A step 1 with the sampled token appended still forwards (the
+        // stateless per-step recompute the driver loops on).
+        let req1 =
+            nexus_core_rs::ShardStepRequest::new("The quick brown fox", vec![reply.token_id]);
+        let boundary1 = head_fwd.forward(&req1.encode()).expect("head step 1");
+        assert!(
+            boundary1.len() > boundary.len(),
+            "one more token must widen the [n_tokens, n_embd] boundary"
         );
     }
 

@@ -196,9 +196,9 @@ pub use sentinel::{
     ema_step, localize_corrupted_frontier,
 };
 pub use shard::{
-    EchoForwarder, MAX_SHARD_FRAME_BYTES, MAX_SHARD_N_CTX, SHARD_REJECT_NOT_MEMBER, ShardForwarder,
-    ShardProtocol, conn_rtt, open_shard_connection, read_frame, shard_protocol_factory,
-    write_frame,
+    EchoForwarder, MAX_SHARD_FRAME_BYTES, MAX_SHARD_N_CTX, SHARD_REJECT_NOT_MEMBER,
+    SHARD_STEP_PAYLOAD_V, ShardForwarder, ShardProtocol, ShardStepReply, ShardStepRequest,
+    conn_rtt, open_shard_connection, read_frame, shard_protocol_factory, write_frame,
 };
 pub use shard_plan::{
     KvCachePolicy, RUN_PROOF_FORMAT_VERSION, RUN_PROOF_MAX_PARTICIPANTS, RunMetrics, RunProof,

@@ -241,7 +241,15 @@ async fn handle_shard_session(paths: &ShellDaemonPaths, cmd: ShardSessionCommand
             println!("key file: {}", key_path.display());
             Ok(())
         }
-        ShardSessionCommand::Serve { group, key } => {
+        ShardSessionCommand::Serve {
+            group,
+            key,
+            model,
+            layer_start,
+            layer_end,
+            n_gpu_layers,
+            n_ctx,
+        } => {
             use nexus_core_rs::node::{NodeConfig, create_node_with_protocols};
             use nexus_core_rs::{DiscoveryClient, EchoForwarder, SHARD_ALPN};
             let key_path = key.unwrap_or(default_key);
@@ -262,9 +270,102 @@ async fn handle_shard_session(paths: &ShellDaemonPaths, cmd: ShardSessionCommand
                     entry.group.group_id
                 );
             }
-            let factory =
-                nexus_core_rs::shard_protocol_factory(entry, std::sync::Arc::new(EchoForwarder))
-                    .map_err(|e| anyhow::anyhow!("shard protocol wiring failed: {e}"))?;
+            // Sprint 81 Phase J (Option B): with --model, load the layer
+            // window through the forked backend and serve the REAL
+            // role-aware stage; otherwise stay the transport-only echo.
+            #[cfg(not(feature = "llm_llama_cpp"))]
+            let _ = (layer_start, layer_end, n_gpu_layers, n_ctx);
+            let (forwarder, role_banner): (
+                std::sync::Arc<dyn nexus_core_rs::ShardForwarder>,
+                String,
+            ) = match &model {
+                None => (
+                    std::sync::Arc::new(EchoForwarder),
+                    "transport-only echo forwarder".to_string(),
+                ),
+                #[cfg(feature = "llm_llama_cpp")]
+                Some(gguf) => {
+                    let start = layer_start.context("--layer-start is required with --model")?;
+                    let end = layer_end.context("--layer-end is required with --model")?;
+                    // Cheap window precondition (review J J8-1): an
+                    // out-of-range window trips a native GGML_ASSERT that
+                    // ABORTS the process inside `load_from_file`, BEFORE
+                    // the recoverable ShardWindow check — `load`'s doc
+                    // mandates callers pre-validate. Catch the trivially
+                    // checkable operator typo here with a clean error; the
+                    // model-bound check (`end > n_layer`) stays the fork's
+                    // native assert (no metadata-only probe exposed by the
+                    // binding).
+                    if end != 0 && start >= end {
+                        anyhow::bail!(
+                            "invalid layer window [{start},{end}): start must be < end \
+                             (use --layer-end 0 for 'to the model's last layer')"
+                        );
+                    }
+                    println!(
+                        "loading GGUF {} window [{start},{end}) (n_gpu_layers={n_gpu_layers}, \
+                         n_ctx={n_ctx}) — partial load, this can take a minute…",
+                        gguf.display()
+                    );
+                    let is_first = start == 0;
+                    // `--layer-end 0` = "run to the model's last layer" =>
+                    // the tail. A LITERAL end is declared non-last; if it
+                    // actually equals the model's layer count the backend
+                    // rejects the flag mismatch LOUD (window/flags check) —
+                    // re-serve the true tail with `--layer-end 0`.
+                    let is_last = end == 0;
+                    let backend = nexus_worker_core::llm::shard::ShardBackend::load(
+                        gguf,
+                        start,
+                        end,
+                        is_first,
+                        is_last,
+                        n_gpu_layers,
+                        n_ctx.min(nexus_core_rs::MAX_SHARD_N_CTX),
+                    )
+                    .map_err(|e| anyhow::anyhow!("shard backend load failed: {e}"))?;
+                    let w = backend.window();
+                    // Banner prints the loaded window + role so the operator can
+                    // cross-check {window, role} against `shard-session plan`
+                    // and the mount BEFORE trusting the driver's RunProof
+                    // (Codex GPT-5.6 Sol P1, operator-verifiability half). The
+                    // model DIGEST is verified out-of-band with `b3sum <gguf>`
+                    // against the mount's `model_digest` — we deliberately do
+                    // NOT re-read the whole GGUF here (a `std::fs::read` of a
+                    // ~16 GB file would OOM an 8 GB tail machine, Codex P1). The
+                    // full readiness attestation binding loaded-stage ↔ signed
+                    // manifest is a Phase K carry (THREAT_MODEL §16).
+                    let banner = format!(
+                        "REAL layer-block stage [{},{}) of {} (is_first={}, is_last={}, \
+                         n_embd={}) — verify the model digest with `b3sum` against the \
+                         mount's model_digest",
+                        w.start(),
+                        w.end(),
+                        gguf.display(),
+                        w.is_first(),
+                        w.is_last(),
+                        backend.n_embd(),
+                    );
+                    (
+                        std::sync::Arc::new(
+                            nexus_worker_core::llm::shard::ShardStageForwarder::new(
+                                std::sync::Arc::new(backend),
+                            ),
+                        ),
+                        banner,
+                    )
+                }
+                #[cfg(not(feature = "llm_llama_cpp"))]
+                Some(_) => {
+                    anyhow::bail!(
+                        "--model requires a build with the forked backend: rebuild with \
+                         `--features llm_llama_cpp_cuda` (RTX 5080) or \
+                         `--features llm_llama_cpp_metal` (Mac)"
+                    );
+                }
+            };
+            let factory = nexus_core_rs::shard_protocol_factory(entry, forwarder)
+                .map_err(|e| anyhow::anyhow!("shard protocol wiring failed: {e}"))?;
             let node = create_node_with_protocols(
                 NodeConfig::default().with_secret_key(secret),
                 vec![(SHARD_ALPN.to_vec(), factory)],
@@ -275,7 +376,7 @@ async fn handle_shard_session(paths: &ShellDaemonPaths, cmd: ShardSessionCommand
                 .my_endpoint_addr()
                 .await
                 .map_err(|e| anyhow::anyhow!("no dialable address yet: {e}"))?;
-            println!("serving sbfb/shard/1 (transport-only echo forwarder)");
+            println!("serving sbfb/shard/1 ({role_banner})");
             println!("identity: {}", hex::encode(kp.public_bytes()));
             println!("paste this address into the mount config `workers[].addr`:");
             println!("{}", serde_json::to_string(&addr)?);
@@ -284,6 +385,76 @@ async fn handle_shard_session(paths: &ShellDaemonPaths, cmd: ShardSessionCommand
             node.shutdown()
                 .await
                 .map_err(|e| anyhow::anyhow!("shard-serve node shutdown failed: {e}"))?;
+            Ok(())
+        }
+        ShardSessionCommand::Plan {
+            session_id,
+            total_layers,
+            model_bytes,
+            workers,
+        } => {
+            use nexus_coordinator_rs::placement::{
+                ModelSpec, PlacementOutcome, RttMatrix, WorkerPlacementProfile, plan_placement,
+            };
+            let mut candidates = Vec::with_capacity(workers.len());
+            for w in &workers {
+                let (pk_hex, vram) = w.split_once(':').with_context(|| {
+                    format!("worker '{w}' is not <pubkey_hex>:<vram_free_bytes>")
+                })?;
+                let pubkey = crate::shard_session::parse_pubkey_hex(pk_hex)
+                    .map_err(|e| anyhow::anyhow!("worker '{w}': {e}"))?;
+                let vram_free_bytes: u64 = vram
+                    .parse()
+                    .with_context(|| format!("worker '{w}': vram bytes is not a u64"))?;
+                candidates.push(WorkerPlacementProfile {
+                    worker_pubkey: pubkey,
+                    vram_free_bytes,
+                    shard_hashes: vec![],
+                    launch_profile_hash: [0u8; 32],
+                });
+            }
+            let spec = ModelSpec {
+                total_layers,
+                quantized_vram_bytes: model_bytes,
+            };
+            match plan_placement(&candidates, &RttMatrix::new(), &spec, &session_id)
+                .map_err(|e| anyhow::anyhow!("placement failed: {e}"))?
+            {
+                PlacementOutcome::EndpointFederation => {
+                    println!(
+                        "NO SHARD: the model ({model_bytes} bytes) fits a single worker's \
+                         declared free VRAM — use S76 endpoint federation instead"
+                    );
+                }
+                PlacementOutcome::Sharded(plan) => {
+                    println!(
+                        "deterministic placement for session '{session_id}' \
+                         ({total_layers} layers, {model_bytes} bytes):"
+                    );
+                    let last = plan
+                        .assignments
+                        .iter()
+                        .map(|a| a.layer_end)
+                        .max()
+                        .unwrap_or(0);
+                    for a in &plan.assignments {
+                        let is_first = a.layer_start == 0;
+                        let is_last = a.layer_end == last;
+                        println!(
+                            "  worker {}…  --layer-start {} --layer-end {}   \
+                             (is_first={is_first}, is_last={is_last}, {} layers)",
+                            &hex::encode(a.worker_pubkey)[..16],
+                            a.layer_start,
+                            if is_last { 0 } else { a.layer_end },
+                            a.layer_end - a.layer_start,
+                        );
+                    }
+                    println!(
+                        "boot each `shard-session serve --model <gguf>` with ITS window above; \
+                         the mount re-derives this exact plan from the same inputs"
+                    );
+                }
+            }
             Ok(())
         }
         ShardSessionCommand::Group {
@@ -309,9 +480,10 @@ async fn handle_shard_session(paths: &ShellDaemonPaths, cmd: ShardSessionCommand
             }
             Ok(())
         }
-        ShardSessionCommand::Mount { config } => {
-            let raw = std::fs::read_to_string(&config)
-                .with_context(|| format!("failed to read mount config {}", config.display()))?;
+        ShardSessionCommand::Mount { mount_config } => {
+            let raw = std::fs::read_to_string(&mount_config).with_context(|| {
+                format!("failed to read mount config {}", mount_config.display())
+            })?;
             let body: serde_json::Value =
                 serde_json::from_str(&raw).context("mount config is not valid JSON")?;
             shard_api_call(
@@ -333,12 +505,20 @@ async fn handle_shard_session(paths: &ShellDaemonPaths, cmd: ShardSessionCommand
             .await?;
             Ok(())
         }
-        ShardSessionCommand::Generate { session_id, prompt } => {
+        ShardSessionCommand::Generate {
+            session_id,
+            prompt,
+            max_tokens,
+        } => {
+            let mut body = serde_json::json!({ "session_id": session_id, "prompt": prompt });
+            if let Some(n) = max_tokens {
+                body["max_tokens"] = serde_json::json!(n);
+            }
             shard_api_call(
                 paths,
                 reqwest::Method::POST,
                 &format!("/api/daemon/shard-session/{session_id}/generate"),
-                Some(serde_json::json!({ "session_id": session_id, "prompt": prompt })),
+                Some(body),
             )
             .await?;
             Ok(())

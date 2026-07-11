@@ -15,9 +15,14 @@
 # `scripts/acceptance/.b3_shard_last_result.json`, override
 # B3_ARTIFACT) AND exits with a status-specific code, so the result is
 # never a prose-only "DIFFERE-materiel" (README §4 testability gate):
-#   - PASS       exit 0  — a sharded generation completed end-to-end:
-#                          a signed RunProof was collected for each
-#                          shard AND toks_per_s >= 1 (the §14.4 floor).
+#   - PASS       exit 0  — a REAL sharded generation completed
+#                          end-to-end: the DRIVER's signed RunProof was
+#                          collected AND toks_per_s >= 1 (the §14.4
+#                          floor) AND the decode is real (tokens >= 2,
+#                          result_text != prompt — the anti-echo tells,
+#                          S81 Phase J preflight R-J-4/G5). Per-shard
+#                          proofs + N0-N3 binding stay an explicit
+#                          carry (control-plane return channel).
 #   - BLOCK      exit 1  — the session mounted but the generation did
 #                          not converge within budget, OR a network
 #                          gate tripped (BLOCK{rtt>80ms} /
@@ -29,33 +34,24 @@
 #                          mismatch) OR no live shard-session is
 #                          mountable end-to-end. NOT a product failure;
 #                          the test simply could not run.
-# Artefact shape (§14.2):
-#   {"status","stage","model","n_shards","ttft_s","toks_per_s",
+# Artefact shape (§14.2 + S81 Phase J `tokens`):
+#   {"status","stage","model","n_shards","ttft_s","toks_per_s","tokens",
 #    "rtt_frontier_ms","run_proof","diagnosis","last_response"}
 #
-# === Honest expected status TODAY: RIG-ABSENT ===
-# The cross-machine sharding CORE is delivered and hermetically tested
-# (placement, routing, N0-N3 verification, the `sbfb/shard/1`
-# data-plane boundary-frame forwarder over a long-lived bi-stream with
-# admission, the forked layer-block backend, the worker claim). Since
-# S81 Phase I the production SESSION ORCHESTRATOR EXISTS: it mounts a
-# shard session, drives a token-by-token cross-shard generation,
-# measures TTFT/tok-s, and collects an in-vivo signed RunProof:
-#   - the daemon route `GET /api/daemon/shard-session/{id}` reads the
-#     live session registry and answers `{found:true, ...}` once a
-#     session is mounted (the empty `{found:false}` envelope is now
-#     only the UNMOUNTED state);
-#   - `mount_session` populates the registry and `generate_session`
-#     is the first production `RunProof::new` / `RunProofEntry::sign`
-#     call-site (no longer `#[cfg(test)]`-only);
-#   - the driver that `open_shard_connection` documents now exists
-#     (`shard_session::drive_pipeline`).
-# So `ttft_s` / `toks_per_s` / `run_proof` ARE populated once the
-# operator mounts a session and drives it. What remains before a real
-# PASS is the LIVE 2-machine rig + convergence (Phase J). Absent a
-# mounted session or the rig, this harness reports RIG-ABSENT with a
-# precise diagnosis; the JSON `status` field is the verdict, never a
-# prose excuse.
+# === S81 Phase J (PO arbitrage Option B): the REAL inference path ===
+# Since S81 Phase I the production SESSION ORCHESTRATOR exists (mount,
+# drive, RunProof); since S81 Phase J the serve can host a REAL layer
+# block (`shard-session serve --model <gguf> --layer-start/--layer-end`,
+# built with `--features llm_llama_cpp_cuda` / `_metal`) and the drive
+# runs a REAL autoregressive decode: step requests to the tokenizing
+# head, fp32 boundary tensors through the pipe, greedy-sampled step
+# replies from the tail, per-step SI-9 deadlines with mid-decode
+# fallback re-route. `/result` therefore reports the REAL `tokens`
+# count and an UNFLOORED `toks_per_s` for a real session.
+# A transport-only echo serve (no `--model`) still exists for pure
+# plumbing checks — this harness REFUSES to PASS it (anti-echo tells
+# below): an echo run parrots the prompt with tokens=1 and is BLOCKed
+# as `echo-transport-only`, never a sharded-inference PASS.
 # The harness runs FORWARD: mount a session (nexus-shell-daemon
 # shard-session group + serve + mount), set SHARD_SESSION_ID, and the
 # generation/measurement/churn stages below run to a real PASS or BLOCK.
@@ -102,15 +98,20 @@ RTT_GATE_MS="${RTT_GATE_MS:-80}"
 POLL_SECS="${POLL_SECS:-2}"
 OLLAMA_URL="${OLLAMA_URL:-http://127.0.0.1:11434}"
 PROMPT="${PROMPT:-In one word, what is the capital of France?}"
+# Bounded REAL decode (S81 Phase J): forwarded to the generate route;
+# the per-step recompute makes long generations quadratic, keep it short.
+MAX_TOKENS="${MAX_TOKENS:-16}"
 B3_ARTIFACT="${B3_ARTIFACT:-$SCRIPT_DIR/.b3_shard_last_result.json}"
 
 # Runtime state referenced by the artefact writer (filled as we progress).
 MODEL="$MODEL_20GB"
 TTFT_S=""
 TOKS_PER_S=""
+TOKENS=""
 RTT_FRONTIER_MS=""
 RUN_PROOF=""
 LAST_RESPONSE=""
+RESULT_RESPONSE=""
 
 log() { printf '[b3-shard] %s\n' "$*"; }
 
@@ -128,15 +129,17 @@ emit_artifact() {
   # $1=status $2=stage $3=diagnosis
   local status="$1" stage="$2" diag="$3"
   local n_shards="${N_SHARDS:-}" ttft="${TTFT_S:-}" toks="${TOKS_PER_S:-}"
-  local rtt="${RTT_FRONTIER_MS:-}" _emitted=0
+  local tokens="${TOKENS:-}" rtt="${RTT_FRONTIER_MS:-}" _emitted=0
   [ -z "$n_shards" ] && n_shards="null"
   [ -z "$ttft" ] && ttft="null"
   [ -z "$toks" ] && toks="null"
+  [ -z "$tokens" ] && tokens="null"
   [ -z "$rtt" ] && rtt="null"
   mkdir -p "$(dirname "$B3_ARTIFACT")" 2>/dev/null || true
   if command -v python3 >/dev/null 2>&1; then
     B3_STATUS="$status" B3_STAGE="$stage" B3_MODEL="${MODEL:-}" \
-    B3_NSHARDS="$n_shards" B3_TTFT="$ttft" B3_TOKS="$toks" B3_RTT="$rtt" \
+    B3_NSHARDS="$n_shards" B3_TTFT="$ttft" B3_TOKS="$toks" B3_TOKENS="$tokens" \
+    B3_RTT="$rtt" \
     B3_PROOF="${RUN_PROOF:-}" B3_DIAG="$diag" B3_RESP="${LAST_RESPONSE:-}" \
     python3 -c '
 import json, os
@@ -152,6 +155,7 @@ print(json.dumps({
     "n_shards": num(os.environ["B3_NSHARDS"]),
     "ttft_s": num(os.environ["B3_TTFT"]),
     "toks_per_s": num(os.environ["B3_TOKS"]),
+    "tokens": num(os.environ["B3_TOKENS"]),
     "rtt_frontier_ms": num(os.environ["B3_RTT"]),
     "run_proof": os.environ["B3_PROOF"],
     "diagnosis": os.environ["B3_DIAG"],
@@ -174,9 +178,10 @@ print(json.dumps({
     case "$n_shards" in ''|*[!0-9]*) n_shards=null ;; esac
     case "$ttft" in ''|*[!0-9]*) ttft=null ;; esac
     case "$toks" in ''|*[!0-9]*) toks=null ;; esac
+    case "$tokens" in ''|*[!0-9]*) tokens=null ;; esac
     case "$rtt" in ''|*[!0-9]*) rtt=null ;; esac
-    printf '{"status":"%s","stage":"%s","model":"%s","n_shards":%s,"ttft_s":%s,"toks_per_s":%s,"rtt_frontier_ms":%s,"run_proof":"%s","diagnosis":"%s","last_response":"%s"}\n' \
-      "$status" "$stage" "$model_e" "$n_shards" "$ttft" "$toks" "$rtt" \
+    printf '{"status":"%s","stage":"%s","model":"%s","n_shards":%s,"ttft_s":%s,"toks_per_s":%s,"tokens":%s,"rtt_frontier_ms":%s,"run_proof":"%s","diagnosis":"%s","last_response":"%s"}\n' \
+      "$status" "$stage" "$model_e" "$n_shards" "$ttft" "$toks" "$tokens" "$rtt" \
       "$proof_e" "$diag_e" "$resp_e" \
       >"$B3_ARTIFACT"
   fi
@@ -259,15 +264,21 @@ if [ "$PC_PID" != "$PROJECT_ID" ]; then
 fi
 LAST_RESPONSE=""
 
-# Local Ollama / GGUF: the ~20 GB model must be present on the head.
-TAGS="$(curl -fsS "$OLLAMA_URL/api/tags" 2>/dev/null || true)"
-if [ -n "$TAGS" ]; then
-  MODEL_BASE="${MODEL_20GB%%:*}"
-  if ! printf '%s' "$TAGS" | grep -q "$MODEL_BASE"; then
-    rig_absent "model '$MODEL_20GB' not present on the pipeline head (ollama pull $MODEL_20GB, or place its GGUF)"
-  fi
+# Local model presence on the head. GGUF-direct mode first (S81 Phase J:
+# MODEL_20GB is a FILE PATH to the llama-arch GGUF the serves load) —
+# only fall back to the Ollama tag check for a model NAME.
+if [ -f "$MODEL_20GB" ]; then
+  log "model GGUF present on disk: $MODEL_20GB ($(wc -c <"$MODEL_20GB" 2>/dev/null || echo '?') bytes)"
 else
-  log "note: Ollama not reachable at $OLLAMA_URL — assuming a GGUF-only head; the session orchestrator validates the model at mount"
+  TAGS="$(curl -fsS "$OLLAMA_URL/api/tags" 2>/dev/null || true)"
+  if [ -n "$TAGS" ]; then
+    MODEL_BASE="${MODEL_20GB%%:*}"
+    if ! printf '%s' "$TAGS" | grep -q "$MODEL_BASE"; then
+      rig_absent "model '$MODEL_20GB' not present on the pipeline head (ollama pull $MODEL_20GB, or place its GGUF and point MODEL_20GB at the file)"
+    fi
+  else
+    log "note: Ollama not reachable at $OLLAMA_URL — assuming a GGUF-only head; the session orchestrator validates the model at mount"
+  fi
 fi
 
 # Second machine (Mac M2, Metal) must be configured + reachable: sharding
@@ -324,11 +335,38 @@ if [ -n "$RTT_FRONTIER_MS" ] && [ "$RTT_FRONTIER_MS" -gt "$RTT_GATE_MS" ]; then
   block "network-gate" "frontier RTT ${RTT_FRONTIER_MS}ms exceeds the ${RTT_GATE_MS}ms gate (rtt>${RTT_GATE_MS}ms = NO-GO; a ~20 GB pipeline-parallel decode is not viable over this link — do not inflate the budget)"
 fi
 
+# Validate MAX_TOKENS is a positive integer BEFORE it reaches the JSON
+# body (Codex GPT-5.6 Sol: a non-numeric value would inject into the
+# request; this is RIG-ABSENT = operator misconfig, not a product BLOCK).
+case "${MAX_TOKENS:-}" in
+  ''|*[!0-9]*) rig_absent "MAX_TOKENS must be a positive integer, got '${MAX_TOKENS:-}'" ;;
+esac
+[ "$((10#$MAX_TOKENS))" -ge 1 ] || rig_absent "MAX_TOKENS must be >= 1, got '$MAX_TOKENS'"
+
 # Submit a deterministic prompt and poll the session for the generated
-# response + the per-shard signed RunProofs.
-GEN="$(eval curl -fsS -X POST "$AUTH" -H "'Content-Type: application/json'" \
-  -d "'$(printf '{"session_id":"%s","prompt":"%s"}' "$SHARD_SESSION_ID" "$PROMPT")'" \
-  "'$PC_DAEMON/api/daemon/shard-session/$SHARD_SESSION_ID/generate'" 2>/dev/null || true)"
+# response + the DRIVER-signed RunProof (per-shard proofs are a carry —
+# never claimed here, Phase J preflight R-J-4). The JSON body is built
+# with python3 json.dumps when available so an operator PROMPT /
+# SHARD_SESSION_ID carrying quotes/backslashes cannot break the gate or
+# inject a shell command (Codex GPT-5.6 Sol); the no-python3 fallback
+# rejects the unsafe chars rather than eval them.
+if command -v python3 >/dev/null 2>&1; then
+  GEN_BODY="$(B3_SID="$SHARD_SESSION_ID" B3_PROMPT="$PROMPT" B3_MAXTOK="$MAX_TOKENS" python3 -c '
+import json, os
+print(json.dumps({
+    "session_id": os.environ["B3_SID"],
+    "prompt": os.environ["B3_PROMPT"],
+    "max_tokens": int(os.environ["B3_MAXTOK"]),
+}))')"
+else
+  case "$SHARD_SESSION_ID$PROMPT" in
+    *[\"\\\']*) rig_absent "no python3 to safely JSON-encode the request and SHARD_SESSION_ID/PROMPT contains a quote/backslash — install python3 or use a plain prompt" ;;
+  esac
+  GEN_BODY="$(printf '{"session_id":"%s","prompt":"%s","max_tokens":%s}' "$SHARD_SESSION_ID" "$PROMPT" "$MAX_TOKENS")"
+fi
+GEN="$(curl -fsS -X POST -H "x-sbfb-token: $TOKEN" -H "Content-Type: application/json" \
+  -d "$GEN_BODY" \
+  "$PC_DAEMON/api/daemon/shard-session/$SHARD_SESSION_ID/generate" 2>/dev/null || true)"
 LAST_RESPONSE="$GEN"
 
 DEADLINE=$(( SUBMIT_AT + GATE_TIMEOUT_SECS ))
@@ -337,17 +375,23 @@ while :; do
   NOW="$(date +%s)"
   RESP="$(eval curl -fsS "$AUTH" "'$PC_DAEMON/api/daemon/shard-session/$SHARD_SESSION_ID/result'" 2>/dev/null || true)"
   [ -n "$RESP" ] && LAST_RESPONSE="$RESP"
+  # Preserve the /result response that actually carried tokens/text/proof
+  # (Codex GPT-5.6 Sol): the churn drop-shard reply below clobbers
+  # LAST_RESPONSE otherwise, so the committed artefact would lose the raw
+  # generation evidence.
+  [ -n "$RESP" ] && RESULT_RESPONSE="$RESP"
   RESULT_TEXT="$(printf '%s' "$RESP" | sed -n 's/.*"result_text":"\([^"]*\)".*/\1/p')"
   if [ -z "$TTFT_S" ]; then
     TTFT_S="$(printf '%s' "$RESP" | sed -n 's/.*"ttft_s"[[:space:]]*:[[:space:]]*\([0-9]\{1,\}\).*/\1/p')"
   fi
   TOKS_PER_S="$(printf '%s' "$RESP" | sed -n 's/.*"toks_per_s"[[:space:]]*:[[:space:]]*\([0-9]\{1,\}\).*/\1/p')"
+  TOKENS="$(printf '%s' "$RESP" | sed -n 's/.*"tokens"[[:space:]]*:[[:space:]]*\([0-9]\{1,\}\).*/\1/p')"
   RUN_PROOF="$(printf '%s' "$RESP" | sed -n 's/.*"run_proof"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
   if [ -n "$RESULT_TEXT" ]; then
     break
   fi
   if [ "$NOW" -ge "$DEADLINE" ]; then
-    block "generation" "no result within ${GATE_TIMEOUT_SECS}s for session $SHARD_SESSION_ID — the session mounted but the cross-shard decode did not converge (check the Mac M2 shard's forward, the frontier link, and the per-shard RunProof signatures). Last response: ${RESP:-<none>}"
+    block "generation" "no result within ${GATE_TIMEOUT_SECS}s for session $SHARD_SESSION_ID — the session mounted but the cross-shard decode did not converge (check the Mac M2 shard's forward, the frontier link, and the driver RunProof signature). Last response: ${RESP:-<none>}"
   fi
   sleep "$POLL_SECS"
 done
@@ -357,15 +401,32 @@ done
 # (replace_failed_server, Phase E) should re-assign the dropped stage.
 log "=== churn (drop the Mac M2 shard, expect active failover) ==="
 CHURN="$(eval curl -fsS -X POST "$AUTH" "'$PC_DAEMON/api/daemon/shard-session/$SHARD_SESSION_ID/drop-shard'" 2>/dev/null || true)"
-[ -n "$CHURN" ] && LAST_RESPONSE="$CHURN"
+# Keep the /result generation response as the artefact's LAST_RESPONSE
+# (the churn reply is recorded separately), so the committed evidence is
+# the raw generation, not just {found,dropped} (Codex GPT-5.6 Sol).
+[ -n "${RESULT_RESPONSE:-}" ] && LAST_RESPONSE="$RESULT_RESPONSE"
 
 # ==========================================================================
-# VERDICT — anti-false-green gate: a PASS REQUIRES a non-empty run_proof
-# AND a measured toks_per_s >= 1 (plan §14.4). An empty proof or an
-# unmeasured rate is a BLOCK to diagnose, never a hollow PASS on a stub.
+# VERDICT — anti-false-green gates (S81 Phase J preflight R-J-4/G5):
+#   1. the ECHO TELLS: result_text parroting the prompt, or tokens < 2, is
+#      the transport-echo signature (EchoForwarder serve) — BLOCK, never a
+#      sharded-inference PASS, whatever the proof/rate gates say;
+#   2. a PASS requires the DRIVER's non-empty signed RunProof (per-shard
+#      proofs + N0-N3 binding stay an explicit carry);
+#   3. toks_per_s >= 1 (plan §14.4 floor) — the daemon reports the REAL
+#      decode rate UNFLOORED, so a sub-1 tok/s pipeline blocks here.
 # ==========================================================================
+if [ "$RESULT_TEXT" = "$PROMPT" ]; then
+  block "verdict" "echo-transport-only: result_text parrots the prompt verbatim — the serve path is the EchoForwarder plumbing proof, NOT real sharded inference. Boot each worker with shard-session serve --model <gguf> --layer-start/--layer-end (build --features llm_llama_cpp_cuda/_metal) and re-run."
+fi
+case "${TOKENS:-}" in
+  ''|*[!0-9]*) block "verdict" "tokens not reported (got '${TOKENS:-}') — cannot assert a real multi-token decode. Last response: ${LAST_RESPONSE:-<none>}" ;;
+esac
+if [ "$TOKENS" -lt 2 ]; then
+  block "verdict" "tokens=${TOKENS} < 2: a single output frame is the transport-echo signature, not an autoregressive decode — refusing a hollow PASS."
+fi
 if [ -z "$RUN_PROOF" ]; then
-  block "verdict" "result_text present but run_proof EMPTY: no per-shard signed RunProof was collected — the cross-shard verification (N0-N3) did not bind the generation. Refusing a hollow PASS. Last response: ${LAST_RESPONSE:-<none>}"
+  block "verdict" "result_text present but run_proof EMPTY: the driver's signed RunProof was not collected. Refusing a hollow PASS. Last response: ${LAST_RESPONSE:-<none>}"
 fi
 case "${TOKS_PER_S:-}" in
   ''|*[!0-9]*) block "verdict" "toks_per_s not measured (got '${TOKS_PER_S:-}') — cannot assert the >=1 tok/s floor. Last response: ${LAST_RESPONSE:-<none>}" ;;
@@ -374,13 +435,14 @@ if [ "$TOKS_PER_S" -lt 1 ]; then
   block "verdict" "toks_per_s=${TOKS_PER_S} below the >=1 floor (plan §14.4) — the sharded pipeline is too slow to be viable over this rig/link. NO-GO, do not inflate."
 fi
 
-NOTE="model=$MODEL n_shards=$N_SHARDS ttft_s=${TTFT_S:-?} toks_per_s=$TOKS_PER_S rtt_frontier_ms=${RTT_FRONTIER_MS:-?} run_proof=${RUN_PROOF:0:16}… result_text=$RESULT_TEXT"
+NOTE="model=$MODEL n_shards=$N_SHARDS tokens=$TOKENS ttft_s=${TTFT_S:-?} toks_per_s=$TOKS_PER_S rtt_frontier_ms=${RTT_FRONTIER_MS:-?} run_proof=${RUN_PROOF:0:16}… result_text=$RESULT_TEXT"
 log "model          : $MODEL ($N_SHARDS shards)"
+log "tokens         : $TOKENS (real autoregressive decode, anti-echo tells passed)"
 log "ttft           : ${TTFT_S:-?}s"
-log "throughput     : ${TOKS_PER_S} tok/s (floor 1)"
+log "throughput     : ${TOKS_PER_S} tok/s (floor 1, UNFLOORED daemon report)"
 log "frontier RTT   : ${RTT_FRONTIER_MS:-?}ms (gate ${RTT_GATE_MS}ms)"
-log "run_proof      : ${RUN_PROOF:0:16}… (per-shard signed, N0-N3 bound)"
+log "run_proof      : ${RUN_PROOF:0:16}… (DRIVER-signed RunProof over the measured run; per-shard N0-N3 binding is an explicit carry)"
 log "result_text    : $RESULT_TEXT"
-log "A ~20 GB model was sharded across the 5080 + Mac M2 and generated a"
-log "verified response over sbfb/shard/1. Paste this trace into sprint77_verification.md."
+log "The model was sharded across the 5080 + Mac M2 and generated a REAL"
+log "greedy decode over sbfb/shard/1 (driver-signed, HUB baseline)."
 pass "generation" "$NOTE"

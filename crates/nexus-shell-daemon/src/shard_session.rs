@@ -135,6 +135,26 @@ pub const HOP_DEADLINE_DEFAULT_MS: u64 = 120_000;
 /// during the readiness probe.
 const RTT_SAMPLE_POLL_MS: u64 = 25;
 
+/// Default number of new tokens a REAL inference drive generates when the
+/// request does not say (Sprint 81 Phase J, Option B). Short by design:
+/// the per-step recompute (no cross-step KV reuse, the F2 carry) makes
+/// long generations quadratic — the live benchmark measures a bounded,
+/// deterministic decode, not a chat.
+pub const DEFAULT_MAX_NEW_TOKENS: u32 = 16;
+
+/// Hard cap on `max_tokens` accepted by the generate route — bounds the
+/// drive duration (anti-DoS on the loopback surface; the per-step frame
+/// is already bounded by `MAX_SHARD_FRAME_BYTES`).
+pub const MAX_NEW_TOKENS_CAP: u32 = 256;
+
+/// Hard cap on the accumulated `result_text` of one decode drive (review
+/// J D3-1). A byzantine ADMITTED tail controls each reply's `piece` up to
+/// the 256 MiB frame cap; without a cumulative bound the registry would
+/// hold (and re-serialize on every `GET /result`) gigabytes. 64 KiB is
+/// ~256 bytes per token at the `MAX_NEW_TOKENS_CAP` — generous for any
+/// legitimate detokenized text, unreachable except by misbehaviour.
+pub const MAX_RESULT_TEXT_BYTES: usize = 64 * 1024;
+
 // ---------------------------------------------------------------------
 // Mount request DTOs (loopback HTTP body / CLI config file)
 // ---------------------------------------------------------------------
@@ -303,6 +323,10 @@ pub struct SessionResultData {
     pub result_text: Option<String>,
     pub ttft_s: Option<u64>,
     pub toks_per_s: Option<u64>,
+    /// Output tokens of the last drive (transport-only echo = 1; a REAL
+    /// decode reports its generated token count — the harness'
+    /// anti-false-green tell, Phase J).
+    pub tokens: Option<u64>,
     pub run_proof: Option<String>,
     pub rtt_frontier_ms: Option<u64>,
     pub worker_drop_count: u32,
@@ -428,16 +452,27 @@ impl ShardSessionRegistry {
         let sessions = self.lock();
         sessions.get(session_id).map(|r| {
             let outcome = r.outcome.as_ref();
+            let transport_only = r.entry.manifest.model_digest == [0u8; 32];
             SessionResultData {
                 session_id: r.entry.manifest.session_id.clone(),
                 result_text: outcome.map(|o| o.result_text.clone()),
                 ttft_s: outcome.map(|o| o.ttft_ms / 1000),
                 toks_per_s: outcome.map(|o| {
-                    // Integer tokens/sec floor-guarded against a sub-ms
-                    // drive (never divide by zero, never report 0 for a
-                    // completed instant drive).
-                    (o.tokens.saturating_mul(1000) / o.decode_ms.max(1)).max(1)
+                    let rate = o.tokens.saturating_mul(1000) / o.decode_ms.max(1);
+                    if transport_only {
+                        // Echo plumbing proof: the "token" is one frame
+                        // pass; floor-guard an instant drive so the value
+                        // stays a liveness signal, never a rate claim.
+                        rate.max(1)
+                    } else {
+                        // REAL decode (Phase J): report the measured rate
+                        // UNFLOORED — a sub-1 tok/s pipeline must surface
+                        // as 0 so the harness' >=1 gate BLOCKs honestly
+                        // (preflight R-J-4: no anti-false-green bypass).
+                        rate
+                    }
                 }),
+                tokens: outcome.map(|o| o.tokens),
                 run_proof: outcome.map(|o| hex::encode(o.run_proof.signature)),
                 rtt_frontier_ms: r.rtt_frontier_ms,
                 worker_drop_count: r.worker_drop_count,
@@ -835,6 +870,7 @@ pub async fn generate_session(
     registry: &ShardSessionRegistry,
     session_id: &str,
     prompt: &str,
+    max_new_tokens: u32,
 ) -> Result<(), String> {
     // Snapshot what the drive needs, then release the lock (never hold it
     // across an await).
@@ -883,6 +919,7 @@ pub async fn generate_session(
         readiness_deadline,
         session_id,
         prompt,
+        max_new_tokens,
     )
     .await;
 
@@ -914,8 +951,63 @@ pub async fn generate_session(
     }
 }
 
+/// Persistent per-stage bi-stream for the multi-step decode drive
+/// (Sprint 81 Phase J, Option B). The worker's accept loop serves frames
+/// on ONE bi-stream until FIN, so a real generation keeps a single
+/// stream per stage for its whole lifetime instead of a stream per hop
+/// (the D2 long-lived reuse contract, now actually exercised multi-frame).
+struct StageLink {
+    conn: Connection,
+    send: iroh::endpoint::SendStream,
+    recv: iroh::endpoint::RecvStream,
+}
+
+/// Open the stage's long-lived bi-stream, bounded by `deadline`.
+async fn open_stage_link(conn: Connection, deadline: Duration) -> Result<StageLink, String> {
+    let (send, recv) = tokio::time::timeout(deadline, conn.open_bi())
+        .await
+        .map_err(|_| format!("open_bi exceeded its {deadline:?} deadline"))?
+        .map_err(|e| format!("open_bi failed: {}", sanitize_diagnostic(&e.to_string())))?;
+    Ok(StageLink { conn, send, recv })
+}
+
+/// One step exchange on a persistent stage link — the WHOLE write + read
+/// under ONE deadline (SI-9, same rationale as [`drive_hop`]: the write
+/// path backpressures on QUIC flow control, so a byzantine worker that
+/// never drains its recv would otherwise stall a large-frame write
+/// forever).
+async fn step_hop(
+    link: &mut StageLink,
+    input: &[u8],
+    deadline: Duration,
+) -> Result<Vec<u8>, String> {
+    tokio::time::timeout(deadline, async {
+        write_frame(&mut link.send, input).await.map_err(|e| {
+            format!(
+                "frame write failed: {}",
+                sanitize_diagnostic(&e.to_string())
+            )
+        })?;
+        read_frame(&mut link.recv)
+            .await
+            .map_err(|e| format!("frame read failed: {}", sanitize_diagnostic(&e.to_string())))?
+            .ok_or_else(|| "stream finished before an output frame".to_string())
+    })
+    .await
+    .map_err(|_| {
+        format!(
+            "hop exceeded its {deadline:?} deadline \
+             (SI-9 withholding guard — covers write/read)"
+        )
+    })?
+}
+
 /// The measured pipeline walk. Split from [`generate_session`] so the
-/// teardown + status bookkeeping wrap it exactly once.
+/// teardown + status bookkeeping wrap it exactly once. Dispatches on the
+/// manifest's `model_digest`: 32 zeros = the S77/Phase-I transport-only
+/// echo pass (one frame through the pipeline, plumbing proof);
+/// anything else = the Phase J REAL decode loop
+/// ([`drive_decode_loop`], PO arbitrage Option B).
 #[allow(clippy::too_many_arguments)]
 async fn drive_pipeline(
     endpoint: &Endpoint,
@@ -930,7 +1022,26 @@ async fn drive_pipeline(
     readiness_deadline: Duration,
     session_id: &str,
     prompt: &str,
+    max_new_tokens: u32,
 ) -> Result<ShardRunOutcome, String> {
+    if entry.manifest.model_digest != [0u8; 32] {
+        return drive_decode_loop(
+            endpoint,
+            lookup,
+            keypair,
+            registry,
+            entry,
+            addrs,
+            conns,
+            used,
+            hop_deadline,
+            readiness_deadline,
+            session_id,
+            prompt,
+            max_new_tokens,
+        )
+        .await;
+    }
     let started = Instant::now();
     let mut replay = ActivationReplayCache::new();
     let mut frame: Vec<u8> = prompt.as_bytes().to_vec();
@@ -1095,6 +1206,293 @@ async fn drive_pipeline(
     })
 }
 
+/// Decode a last-shard reply's `toploc_hex` (lowercase blake3 hex, 64
+/// chars) into the 32-byte N0 TOPLOC commitment, returning zeros ("not
+/// provided") for an empty / wrong-length / non-hex value. Total (never
+/// errors) so [`drive_decode_loop`] can assign the fingerprint on EVERY
+/// step — the LAST reply always decides what the RunProof signs
+/// (Codex GPT-5.6 Sol P1).
+fn parse_toploc_hex(toploc_hex: &str) -> [u8; 32] {
+    if toploc_hex.len() != 64 {
+        return [0u8; 32];
+    }
+    match hex::decode(toploc_hex) {
+        Ok(bytes) => <[u8; 32]>::try_from(bytes.as_slice()).unwrap_or([0u8; 32]),
+        Err(_) => [0u8; 32],
+    }
+}
+
+/// Sprint 81 Phase J (PO arbitrage Option B) — the REAL autoregressive
+/// decode drive over `sbfb/shard/1`.
+///
+/// Per generated token, the HUB walks the pipeline once (stateless
+/// per-step recompute — no cross-step KV reuse, the F2 carry): the FIRST
+/// stage receives a [`nexus_core_rs::ShardStepRequest`] JSON payload
+/// (prompt + generated ids — the first shard owns the tokenizer), every
+/// middle stage exchanges the raw fp32-LE boundary tensor, and the LAST
+/// stage answers a [`nexus_core_rs::ShardStepReply`] (greedy-sampled
+/// token + N0 TOPLOC commitment). Statelessness is what makes the SI-9
+/// churn semantics CORRECT mid-decode: a stage's step input replays on
+/// its plan-time fallback with zero lost state (the fallback then owns
+/// the stage for the remaining steps).
+///
+/// Measurement: TTFT = time to the FIRST step reply; the decode rate is
+/// tokens over the whole drive; the LAST step's TOPLOC commitment lands
+/// in `RunProof::activation_fingerprint` (first production binding of the
+/// Phase G slot). Participants = every worker that actually executed at
+/// least one step (fallbacks included), never the plan's primaries.
+#[allow(clippy::too_many_arguments)]
+async fn drive_decode_loop(
+    endpoint: &Endpoint,
+    lookup: &MemoryLookup,
+    keypair: &KeyPair,
+    registry: &ShardSessionRegistry,
+    entry: &ShardedSessionManifestEntry,
+    addrs: &BTreeMap<[u8; 32], EndpointAddr>,
+    conns: &mut BTreeMap<[u8; 32], Connection>,
+    used: &mut Vec<Connection>,
+    hop_deadline: Duration,
+    readiness_deadline: Duration,
+    session_id: &str,
+    prompt: &str,
+    max_new_tokens: u32,
+) -> Result<ShardRunOutcome, String> {
+    use nexus_core_rs::{ShardStepReply, ShardStepRequest};
+
+    let started = Instant::now();
+    let mut replay = ActivationReplayCache::new();
+    let mut rx_bytes: u64 = 0;
+    let mut tx_bytes: u64 = 0;
+    let mut drops: u32 = 0;
+    let mut participants: Vec<[u8; 32]> = Vec::new();
+
+    let assignments = entry.manifest.plan.assignments.clone();
+
+    /// Live driving state of one pipeline stage.
+    struct StageState {
+        /// The worker currently owning this stage (fallback after churn).
+        exec: [u8; 32],
+        /// The plan-time fallback, consumed by the first churn.
+        fallback: Option<[u8; 32]>,
+        /// The persistent bi-stream (opened lazily on first use).
+        link: Option<StageLink>,
+    }
+    let mut stages: Vec<StageState> = assignments
+        .iter()
+        .map(|a| StageState {
+            exec: a.worker_pubkey,
+            fallback: a.fallback_node,
+            link: None,
+        })
+        .collect();
+
+    let max_new = max_new_tokens.clamp(1, MAX_NEW_TOKENS_CAP);
+    let mut generated: Vec<i32> = Vec::with_capacity(max_new as usize);
+    let mut text = String::new();
+    let mut ttft_ms: Option<u64> = None;
+    let mut fingerprint = [0u8; 32];
+
+    'steps: for _step in 0..max_new {
+        let mut frame: Vec<u8> = ShardStepRequest::new(prompt, generated.clone()).encode();
+
+        for (i, a) in assignments.iter().enumerate() {
+            // Resume point for THIS stage at THIS step: its input frame,
+            // keyed by the frontier layer (mirror of the transport path).
+            replay.insert(a.layer_start, frame.clone());
+            let st = &mut stages[i];
+
+            // Ensure the stage link exists: reuse the readiness-barrier
+            // connection on the first step, else dial fresh (bounded by
+            // the readiness deadline, review D2-2).
+            if st.link.is_none() {
+                let conn = match conns.remove(&st.exec) {
+                    Some(c) => c,
+                    None => {
+                        let addr = addrs
+                            .get(&st.exec)
+                            .ok_or_else(|| format!("no dial address for stage {i} worker"))?
+                            .clone();
+                        tokio::time::timeout(
+                            readiness_deadline,
+                            open_shard_connection(endpoint, lookup, addr),
+                        )
+                        .await
+                        .map_err(|_| format!("stage {i} re-dial exceeded {readiness_deadline:?}"))?
+                        .map_err(|e| {
+                            format!(
+                                "stage {i} dial failed: {}",
+                                sanitize_diagnostic(&e.to_string())
+                            )
+                        })?
+                    }
+                };
+                st.link = Some(
+                    open_stage_link(conn, hop_deadline)
+                        .await
+                        .map_err(|e| format!("stage {i} stream open failed: {e}"))?,
+                );
+            }
+
+            tx_bytes = tx_bytes.saturating_add(frame.len() as u64);
+            let link = st.link.as_mut().expect("link ensured above");
+            let out = match step_hop(link, &frame, hop_deadline).await {
+                Ok(out) => out,
+                Err(hop_err) => {
+                    // Churn (SI-9 fired MID-DECODE): count the drop, close
+                    // the stalled link, re-route the stage to its plan-time
+                    // fallback and REPLAY this step's stage input — or fail
+                    // clean. The fallback owns the stage from here on.
+                    let stalled = st.link.take().expect("link existed");
+                    stalled.conn.close(0u32.into(), b"hop-deadline");
+                    used.push(stalled.conn);
+                    drops = drops.saturating_add(1);
+                    registry.count_drop(session_id);
+                    let worker_hex = hex::encode(&st.exec[..8]);
+                    let Some(fallback) = st.fallback.take() else {
+                        return Err(format!(
+                            "stage {i} worker {worker_hex} failed mid-decode ({hop_err}) and \
+                             the plan carries no fallback_node — failing clean instead of \
+                             hanging"
+                        ));
+                    };
+                    let fb_hex = hex::encode(&fallback[..8]);
+                    let fb_addr = addrs
+                        .get(&fallback)
+                        .ok_or_else(|| format!("fallback {fb_hex} has no dial address"))?
+                        .clone();
+                    info!(
+                        session = %session_id,
+                        stage = i,
+                        failed = %worker_hex,
+                        fallback = %fb_hex,
+                        "mid-decode hop deadline fired — re-routing to fallback \
+                         (stateless resume-from-cache)"
+                    );
+                    st.exec = fallback;
+                    let (fb_conn, _rtt) =
+                        probe_shard_readiness(endpoint, lookup, fb_addr, readiness_deadline)
+                            .await
+                            .map_err(|e| format!("stage {i} fallback {fb_hex} not ready: {e}"))?;
+                    st.link = Some(open_stage_link(fb_conn, hop_deadline).await.map_err(|e| {
+                        format!("stage {i} fallback {fb_hex} stream open failed: {e}")
+                    })?);
+                    let cached = replay
+                        .get(a.layer_start)
+                        .expect("stage input was inserted before dispatch")
+                        .to_vec();
+                    tx_bytes = tx_bytes.saturating_add(cached.len() as u64);
+                    let link = st.link.as_mut().expect("fallback link set above");
+                    step_hop(link, &cached, hop_deadline).await.map_err(|e| {
+                        format!("stage {i} fallback {fb_hex} also failed ({e}) — failing clean")
+                    })?
+                }
+            };
+            if !participants.contains(&st.exec) {
+                participants.push(st.exec);
+            }
+            rx_bytes = rx_bytes.saturating_add(out.len() as u64);
+            frame = out;
+        }
+
+        // The last stage answered one greedy decode step.
+        let reply = ShardStepReply::decode(&frame).map_err(|e| {
+            format!(
+                "last stage answered an undecodable step reply: {}",
+                sanitize_diagnostic(&e.to_string())
+            )
+        })?;
+        if ttft_ms.is_none() {
+            ttft_ms = Some(started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64);
+        }
+        generated.push(reply.token_id);
+        // Bounded accumulation (review J D3-1): `piece` is
+        // attacker-controlled by an admitted-but-byzantine tail (the SI-9
+        // adversary already modeled), and MAX_SHARD_FRAME_BYTES alone
+        // bounds ONE reply at 256 MiB — the cumulative product would be
+        // gigabytes held in the registry and re-serialized on every
+        // GET /result. A legitimate greedy decode piece is a few bytes;
+        // blowing the cap is byzantine behaviour → fail CLEAN, never a
+        // silent truncation of a signed-run's text.
+        if text.len().saturating_add(reply.piece.len()) > MAX_RESULT_TEXT_BYTES {
+            return Err(format!(
+                "last stage reply grows result_text past MAX_RESULT_TEXT_BYTES \
+                 ({MAX_RESULT_TEXT_BYTES} bytes) — byzantine oversized piece, failing clean"
+            ));
+        }
+        text.push_str(&reply.piece);
+        // Re-assign the fingerprint on EVERY step (Codex GPT-5.6 Sol P1):
+        // the RunProof contract is « the LAST step's N0 TOPLOC commitment ».
+        // A conditional update kept the previous step's fingerprint when the
+        // final reply carried an empty/invalid toploc (the payload allows an
+        // empty toploc) — signing a stale commitment as if it were the last
+        // step's. Assign unconditionally, defaulting to zeros (« not
+        // provided ») so the LAST reply always decides.
+        fingerprint = parse_toploc_hex(&reply.toploc_hex);
+        if reply.is_eos {
+            break 'steps;
+        }
+    }
+
+    // Park every live link for the caller's teardown, FINishing each send
+    // stream first (review J J1b-1): the worker's accept loop reads frames
+    // until a clean FIN — without it the QUIC close surfaces as an
+    // AcceptError on every healthy session instead of the documented
+    // clean-FIN termination (`drive_hop` honors the same contract).
+    for st in stages {
+        if let Some(mut link) = st.link {
+            link.send.finish().ok();
+            used.push(link.conn);
+        }
+    }
+
+    let tokens = generated.len() as u64;
+    if tokens == 0 {
+        return Err("decode loop produced zero tokens".to_string());
+    }
+    let ttft_ms =
+        ttft_ms.unwrap_or_else(|| started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64);
+    let decode_ms = started
+        .elapsed()
+        .as_millis()
+        .min(u128::from(u64::MAX))
+        .max(1) as u64;
+
+    let metrics = RunMetrics {
+        ttft_ms,
+        decode_milli_tokens_per_sec: tokens.saturating_mul(1_000_000) / decode_ms,
+        p95_token_latency_ms: decode_ms / tokens,
+        network_rx_bytes: rx_bytes,
+        network_tx_bytes: tx_bytes,
+        worker_drop_count: drops,
+    };
+
+    let mut proof = RunProof::new(
+        keypair.public_bytes(),
+        session_id,
+        entry.manifest.model_digest,
+        nexus_core_rs::crypto::blake3_hash(prompt.as_bytes()),
+        metrics,
+        participants,
+    );
+    // First production binding of the Phase G slot: the LAST step's N0
+    // TOPLOC commitment from the last shard (zeros when the tail could
+    // not provide one — "not provided", never a fake).
+    proof.activation_fingerprint = fingerprint;
+    let run_proof =
+        RunProofEntry::sign(proof, keypair).map_err(|e| format!("run proof sign failed: {e}"))?;
+    run_proof
+        .verify_signature()
+        .map_err(|e| format!("freshly signed run proof failed verification: {e}"))?;
+
+    Ok(ShardRunOutcome {
+        result_text: text,
+        ttft_ms,
+        decode_ms,
+        tokens,
+        run_proof,
+    })
+}
+
 // ---------------------------------------------------------------------
 // Helpers shared with the CLI serve tool
 // ---------------------------------------------------------------------
@@ -1237,12 +1635,15 @@ mod tests {
     }
 
     /// A model spec too large for any single test worker, so the placement
-    /// MUST shard across both (never EndpointFederation).
+    /// MUST shard across both (never EndpointFederation). `model_digest`
+    /// is ZEROS: these fixtures drive echo forwarders, i.e. TRANSPORT
+    /// sessions — the drive dispatches on the digest (Phase J), and a
+    /// non-zero digest would route the echo rig into the real decode loop.
     fn two_shard_model() -> ShardModelSpec {
         ShardModelSpec {
             total_layers: 8,
             quantized_vram_bytes: 1_500,
-            model_digest: [1u8; 32],
+            model_digest: [0u8; 32],
             tokenizer_hash: [2u8; 32],
             chat_template_hash: [3u8; 32],
         }
@@ -1267,13 +1668,26 @@ mod tests {
         assignments: Vec<ShardAssignment>,
         addrs: BTreeMap<[u8; 32], EndpointAddr>,
     ) -> ShardSessionRecord {
+        // Digest ZEROS = a transport-echo session (see `two_shard_model`);
+        // the Phase J decode tests build their record with
+        // `hand_built_record_with_digest` instead.
+        hand_built_record_with_digest(head_kp, group, assignments, addrs, [0u8; 32])
+    }
+
+    fn hand_built_record_with_digest(
+        head_kp: &KeyPair,
+        group: &ComputeGroupEntry,
+        assignments: Vec<ShardAssignment>,
+        addrs: BTreeMap<[u8; 32], EndpointAddr>,
+        model_digest: [u8; 32],
+    ) -> ShardSessionRecord {
         let manifest = ShardedSessionManifest::new(
             head_kp.public_bytes(),
             "hand-built",
             group.group.group_id.clone(),
             1,
             ShardPlan::new(assignments),
-            [1u8; 32],
+            model_digest,
             [2u8; 32],
             [3u8; 32],
         );
@@ -1582,6 +1996,7 @@ mod tests {
             &registry,
             "s81-i-lifecycle",
             "boundary-activation-prompt",
+            DEFAULT_MAX_NEW_TOKENS,
         )
         .await
         .expect("drive");
@@ -1651,6 +2066,7 @@ mod tests {
             &registry,
             "hand-built",
             "prompt",
+            DEFAULT_MAX_NEW_TOKENS,
         )
         .await
         .unwrap_err();
@@ -1704,6 +2120,7 @@ mod tests {
             &registry,
             "hand-built",
             "resume-me",
+            DEFAULT_MAX_NEW_TOKENS,
         )
         .await
         .expect("the fallback re-route must complete the drive");
@@ -1741,6 +2158,388 @@ mod tests {
             assert!(
                 !participants.contains(&stalled),
                 "the dropped primary must NOT be signed as a participant"
+            );
+        }
+        rig.shutdown().await;
+    }
+
+    // ---- Phase J (Option B) — real decode loop, faked stages ----
+
+    /// Fake FIRST-shard forwarder: decodes the step-request JSON and emits
+    /// a deterministic `[1, 2]`-shaped fp32 boundary encoding (prompt
+    /// length, generated count) — enough for a fake tail to "sample" from.
+    #[derive(Debug)]
+    struct FakeHeadForwarder;
+    impl ShardForwarder for FakeHeadForwarder {
+        fn forward(&self, frame: &[u8]) -> nexus_core_rs::Result<Vec<u8>> {
+            let req = nexus_core_rs::ShardStepRequest::decode(frame)?;
+            let vals = [req.prompt.len() as f32, req.generated.len() as f32];
+            let mut out = Vec::with_capacity(8);
+            for v in vals {
+                out.extend_from_slice(&v.to_le_bytes());
+            }
+            Ok(out)
+        }
+    }
+
+    /// Fake LAST-shard forwarder: reads the boundary, "samples" token
+    /// `100 + n_generated`, flags EOS once `eos_after` tokens exist.
+    #[derive(Debug)]
+    struct FakeTailForwarder {
+        eos_after: i32,
+    }
+    impl FakeTailForwarder {
+        fn reply_for(&self, frame: &[u8]) -> nexus_core_rs::Result<Vec<u8>> {
+            if !frame.len().is_multiple_of(4) {
+                return Err(nexus_core_rs::NexusError::Other(
+                    "fake tail fed a non-fp32 frame".into(),
+                ));
+            }
+            let vals: Vec<f32> = frame
+                .chunks_exact(4)
+                .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                .collect();
+            let n_generated = vals.get(1).copied().unwrap_or(0.0) as i32;
+            let is_eos = n_generated + 1 >= self.eos_after;
+            Ok(nexus_core_rs::ShardStepReply {
+                v: nexus_core_rs::SHARD_STEP_PAYLOAD_V,
+                token_id: 100 + n_generated,
+                piece: if is_eos {
+                    String::new()
+                } else {
+                    format!("tok{n_generated} ")
+                },
+                is_eos,
+                toploc_hex: "cd".repeat(32),
+            }
+            .encode())
+        }
+    }
+    impl ShardForwarder for FakeTailForwarder {
+        fn forward(&self, frame: &[u8]) -> nexus_core_rs::Result<Vec<u8>> {
+            self.reply_for(frame)
+        }
+    }
+
+    /// Fake tail that answers its FIRST step then stalls forever on the
+    /// second — the SI-9 mid-decode withholding worker.
+    #[derive(Debug)]
+    struct FlakyTailForwarder {
+        calls: AtomicUsize,
+        inner: FakeTailForwarder,
+        stall: Duration,
+    }
+    impl ShardForwarder for FlakyTailForwarder {
+        fn forward(&self, frame: &[u8]) -> nexus_core_rs::Result<Vec<u8>> {
+            if self.calls.fetch_add(1, Ordering::SeqCst) >= 1 {
+                std::thread::sleep(self.stall);
+            }
+            self.inner.reply_for(frame)
+        }
+    }
+
+    /// Fake tail whose EOS reply carries an EMPTY toploc_hex while its
+    /// non-final replies carry a valid one — exercises the Codex P1
+    /// regression (the last step's absent commitment must NOT let the
+    /// previous step's fingerprint survive into the RunProof).
+    #[derive(Debug)]
+    struct BlankFinalToplocTail {
+        eos_after: i32,
+    }
+    impl ShardForwarder for BlankFinalToplocTail {
+        fn forward(&self, frame: &[u8]) -> nexus_core_rs::Result<Vec<u8>> {
+            let vals: Vec<f32> = frame
+                .chunks_exact(4)
+                .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                .collect();
+            let n_generated = vals.get(1).copied().unwrap_or(0.0) as i32;
+            let is_eos = n_generated + 1 >= self.eos_after;
+            Ok(nexus_core_rs::ShardStepReply {
+                v: nexus_core_rs::SHARD_STEP_PAYLOAD_V,
+                token_id: 100 + n_generated,
+                piece: if is_eos {
+                    String::new()
+                } else {
+                    format!("tok{n_generated} ")
+                },
+                is_eos,
+                // valid commitment on non-final steps, EMPTY on the last
+                toploc_hex: if is_eos {
+                    String::new()
+                } else {
+                    "ab".repeat(32)
+                },
+            }
+            .encode())
+        }
+    }
+
+    #[test]
+    fn parse_toploc_hex_defaults_to_zeros_on_absent_or_invalid() {
+        // Codex P1: the fingerprint helper must be total — empty / wrong
+        // length / non-hex all map to zeros ("not provided"), a full 64-hex
+        // round-trips to its bytes.
+        assert_eq!(super::parse_toploc_hex(""), [0u8; 32], "empty → zeros");
+        assert_eq!(
+            super::parse_toploc_hex("abcd"),
+            [0u8; 32],
+            "wrong length → zeros"
+        );
+        assert_eq!(
+            super::parse_toploc_hex(&"zz".repeat(32)),
+            [0u8; 32],
+            "non-hex → zeros"
+        );
+        assert_eq!(
+            super::parse_toploc_hex(&"cd".repeat(32)),
+            [0xcd; 32],
+            "valid 64-hex → bytes"
+        );
+    }
+
+    /// A REAL-session record (non-zero model digest) over explicit head /
+    /// tail assignments — bypasses the placement so stage ORDER is pinned
+    /// (the decode loop requires stage 0 = the tokenizing head).
+    fn decode_record(
+        rig: &Rig,
+        head_idx: usize,
+        tail_idx: usize,
+        fallback_for_tail: Option<usize>,
+    ) -> ShardSessionRecord {
+        let head_pk = rig.workers[head_idx].2.public_bytes();
+        let tail_pk = rig.workers[tail_idx].2.public_bytes();
+        let mut addrs = BTreeMap::new();
+        addrs.insert(head_pk, rig.workers[head_idx].1.clone());
+        addrs.insert(tail_pk, rig.workers[tail_idx].1.clone());
+        let mut tail_assignment = assignment(tail_pk, 4, 8);
+        if let Some(fb) = fallback_for_tail {
+            let fb_pk = rig.workers[fb].2.public_bytes();
+            addrs.insert(fb_pk, rig.workers[fb].1.clone());
+            tail_assignment.fallback_node = Some(fb_pk);
+        }
+        hand_built_record_with_digest(
+            &rig.head_kp,
+            &rig.group,
+            vec![assignment(head_pk, 0, 4), tail_assignment],
+            addrs,
+            [9u8; 32],
+        )
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn decode_loop_generates_until_eos() {
+        // A REAL session (non-zero digest) drives the autoregressive loop:
+        // step requests to the head, fp32 through the pipe, step replies
+        // from the tail, stop on EOS. The outcome must carry the REAL
+        // token count, the concatenated pieces, an UNFLOORED rate, and the
+        // LAST step's TOPLOC commitment inside the signed RunProof.
+        let rig = shard_rig(vec![
+            Arc::new(FakeHeadForwarder),
+            Arc::new(FakeTailForwarder { eos_after: 3 }),
+        ])
+        .await;
+        let registry = ShardSessionRegistry::default();
+        registry
+            .insert_gated(decode_record(&rig, 0, 1, None))
+            .expect("gated insert");
+
+        generate_session(
+            rig.head.endpoint(),
+            rig.head.memory_lookup(),
+            &rig.head_kp,
+            &registry,
+            "hand-built",
+            "decode-me",
+            16,
+        )
+        .await
+        .expect("decode drive completes");
+
+        let result = registry.result_data("hand-built").expect("mounted");
+        assert_eq!(
+            result.result_text.as_deref(),
+            Some("tok0 tok1 "),
+            "pieces concatenate in decode order (EOS piece is empty)"
+        );
+        assert_eq!(result.tokens, Some(3), "EOS on the third sampled token");
+        assert!(
+            result.failure.is_none(),
+            "a completed decode has no failure"
+        );
+        {
+            let sessions = registry.lock();
+            let run = sessions
+                .get("hand-built")
+                .unwrap()
+                .outcome
+                .as_ref()
+                .unwrap();
+            assert_eq!(run.tokens, 3);
+            assert_eq!(
+                run.run_proof.proof.activation_fingerprint, [0xcd; 32],
+                "the LAST step's N0 TOPLOC commitment binds the proof"
+            );
+            run.run_proof
+                .verify_signature()
+                .expect("driver proof verifies");
+            let participants = &run.run_proof.proof.participants;
+            assert!(
+                participants.contains(&rig.workers[0].2.public_bytes())
+                    && participants.contains(&rig.workers[1].2.public_bytes()),
+                "both executing stages are signed participants"
+            );
+        }
+        rig.shutdown().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn decode_loop_signs_last_step_fingerprint_even_when_blank() {
+        // Codex P1: a final reply with an EMPTY toploc must NOT let the
+        // previous step's commitment survive into the signed RunProof — the
+        // LAST step decides, defaulting to zeros ("not provided").
+        let rig = shard_rig(vec![
+            Arc::new(FakeHeadForwarder),
+            Arc::new(BlankFinalToplocTail { eos_after: 3 }),
+        ])
+        .await;
+        let registry = ShardSessionRegistry::default();
+        registry
+            .insert_gated(decode_record(&rig, 0, 1, None))
+            .expect("gated insert");
+
+        generate_session(
+            rig.head.endpoint(),
+            rig.head.memory_lookup(),
+            &rig.head_kp,
+            &registry,
+            "hand-built",
+            "blank-final",
+            16,
+        )
+        .await
+        .expect("decode completes");
+
+        // Copy the two Copy values out under the lock, then release it
+        // BEFORE the await (no MutexGuard held across `shutdown`).
+        let (tokens, fingerprint) = {
+            let sessions = registry.lock();
+            let run = sessions
+                .get("hand-built")
+                .unwrap()
+                .outcome
+                .as_ref()
+                .unwrap();
+            (run.tokens, run.run_proof.proof.activation_fingerprint)
+        };
+        assert_eq!(tokens, 3, "EOS on the third token");
+        assert_eq!(
+            fingerprint, [0u8; 32],
+            "the EMPTY last-step toploc must sign as zeros, NEVER the prior \
+             step's 0xab commitment"
+        );
+        rig.shutdown().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn decode_loop_respects_max_tokens() {
+        // A tail that never EOSes: the drive must stop at the requested
+        // max_tokens bound (clamped by MAX_NEW_TOKENS_CAP), never spin.
+        let rig = shard_rig(vec![
+            Arc::new(FakeHeadForwarder),
+            Arc::new(FakeTailForwarder {
+                eos_after: i32::MAX,
+            }),
+        ])
+        .await;
+        let registry = ShardSessionRegistry::default();
+        registry
+            .insert_gated(decode_record(&rig, 0, 1, None))
+            .expect("gated insert");
+
+        generate_session(
+            rig.head.endpoint(),
+            rig.head.memory_lookup(),
+            &rig.head_kp,
+            &registry,
+            "hand-built",
+            "bounded",
+            4,
+        )
+        .await
+        .expect("bounded decode completes");
+
+        let result = registry.result_data("hand-built").expect("mounted");
+        assert_eq!(result.tokens, Some(4), "the max_tokens bound is honored");
+        assert_eq!(
+            result.result_text.as_deref(),
+            Some("tok0 tok1 tok2 tok3 "),
+            "every bounded step contributed its piece"
+        );
+        rig.shutdown().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn decode_loop_reroutes_mid_decode_to_fallback() {
+        // SI-9 MID-DECODE churn (the R-J-5 live-exercisable path): the tail
+        // answers step 0 then withholds step 1; the drive must count the
+        // drop, re-probe the plan-time fallback, REPLAY step 1's stage
+        // input (stateless recompute makes the replay exact) and finish
+        // the generation on the fallback tail.
+        let rig = shard_rig(vec![
+            Arc::new(FakeHeadForwarder),
+            Arc::new(FlakyTailForwarder {
+                calls: AtomicUsize::new(0),
+                inner: FakeTailForwarder { eos_after: 3 },
+                stall: Duration::from_secs(5),
+            }),
+            Arc::new(FakeTailForwarder { eos_after: 3 }),
+        ])
+        .await;
+        let registry = ShardSessionRegistry::default();
+        let mut record = decode_record(&rig, 0, 1, Some(2));
+        record.hop_deadline = Duration::from_millis(500);
+        record.readiness_deadline = Duration::from_secs(10);
+        registry.insert_gated(record).expect("gated insert");
+
+        generate_session(
+            rig.head.endpoint(),
+            rig.head.memory_lookup(),
+            &rig.head_kp,
+            &registry,
+            "hand-built",
+            "churn-me",
+            16,
+        )
+        .await
+        .expect("the mid-decode fallback re-route must complete the drive");
+
+        let result = registry.result_data("hand-built").expect("mounted");
+        assert_eq!(result.tokens, Some(3), "the generation completed to EOS");
+        assert_eq!(
+            result.result_text.as_deref(),
+            Some("tok0 tok1 "),
+            "the replayed step continued the SAME sequence on the fallback"
+        );
+        assert_eq!(
+            result.worker_drop_count, 1,
+            "exactly one counted mid-decode drop"
+        );
+        {
+            let sessions = registry.lock();
+            let run = sessions
+                .get("hand-built")
+                .unwrap()
+                .outcome
+                .as_ref()
+                .unwrap();
+            let participants = &run.run_proof.proof.participants;
+            assert!(
+                participants.contains(&rig.workers[1].2.public_bytes()),
+                "the flaky tail EXECUTED step 0 — an honest participant"
+            );
+            assert!(
+                participants.contains(&rig.workers[2].2.public_bytes()),
+                "the fallback tail executed the remaining steps"
             );
         }
         rig.shutdown().await;
@@ -1809,6 +2608,7 @@ mod tests {
             &registry,
             "s81-i-stale",
             "first-run",
+            DEFAULT_MAX_NEW_TOKENS,
         )
         .await
         .expect("first drive");
@@ -1832,6 +2632,7 @@ mod tests {
             &registry,
             "s81-i-stale",
             "second-run",
+            DEFAULT_MAX_NEW_TOKENS,
         )
         .await;
         let result = registry.result_data("s81-i-stale").unwrap();
@@ -1980,6 +2781,7 @@ mod tests {
             &registry,
             "hand-built",
             &big_prompt,
+            DEFAULT_MAX_NEW_TOKENS,
         )
         .await
         .unwrap_err();
@@ -2031,6 +2833,7 @@ mod tests {
             &registry,
             "hand-built",
             "prompt",
+            DEFAULT_MAX_NEW_TOKENS,
         )
         .await
         .unwrap_err();
@@ -2074,6 +2877,7 @@ mod tests {
             &registry,
             "s81-i-zeroframe",
             "frame-me",
+            DEFAULT_MAX_NEW_TOKENS,
         )
         .await
         .expect("drive");

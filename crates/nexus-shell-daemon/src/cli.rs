@@ -187,10 +187,14 @@ pub enum ShardSessionCommand {
     },
 
     /// Serve `sbfb/shard/1` on this machine with the given signed group
-    /// as the admission allowlist. Transport-only (echo forwarder): the
-    /// real layer-block backend stays the worker's feature-gated build.
-    /// Prints the endpoint address JSON the head's mount config needs,
-    /// then blocks until ctrl+c.
+    /// as the admission allowlist. Without `--model` this is
+    /// transport-only (echo forwarder). With `--model` + a layer window
+    /// (Sprint 81 Phase J, Option B) it loads ONLY that window of the
+    /// GGUF via the forked backend and serves the REAL role-aware stage
+    /// (head tokenizes, middle forwards fp32, tail greedy-samples) —
+    /// requires a build with `--features llm_llama_cpp_cuda` (5080) or
+    /// `llm_llama_cpp_metal` (Mac). Prints the endpoint address JSON the
+    /// head's mount config needs, then blocks until ctrl+c.
     Serve {
         /// Path to the signed `ComputeGroupEntry` JSON (from `group --out`).
         #[arg(long, value_name = "PATH")]
@@ -198,6 +202,47 @@ pub enum ShardSessionCommand {
         /// Key file override (default: `<shell-daemon-root>/shard-serve.key`).
         #[arg(long, value_name = "PATH")]
         key: Option<std::path::PathBuf>,
+        /// Path to the llama-arch GGUF to serve a REAL layer block from.
+        /// Omitted = transport-only echo forwarder.
+        #[arg(long, value_name = "GGUF")]
+        model: Option<std::path::PathBuf>,
+        /// Inclusive start layer of this machine's window (with --model).
+        /// Take it from `shard-session plan` so the mount's deterministic
+        /// placement reproduces the same split.
+        #[arg(long, value_name = "N", requires = "model")]
+        layer_start: Option<u32>,
+        /// Exclusive end layer of this machine's window (with --model;
+        /// `0` = run to the model's last layer).
+        #[arg(long, value_name = "N", requires = "model")]
+        layer_end: Option<u32>,
+        /// GPU-offloaded layer count for this window (with --model).
+        /// Default offloads every loaded layer.
+        #[arg(long, value_name = "N", default_value_t = 999)]
+        n_gpu_layers: u32,
+        /// Context length for the shard session (with --model). Bounds
+        /// the per-step boundary frame and the KV scratch.
+        #[arg(long, value_name = "N", default_value_t = 512)]
+        n_ctx: u32,
+    },
+
+    /// Preview the DETERMINISTIC placement for a session WITHOUT mounting
+    /// or dialing anything (Sprint 81 Phase J): prints each worker's layer
+    /// window so the operator boots every `serve --model` with exactly the
+    /// split the mount will re-derive (same placement inputs => same plan).
+    Plan {
+        /// Stable session handle (must match the mount config's).
+        #[arg(long, value_name = "ID")]
+        session_id: String,
+        /// Total transformer layers of the model.
+        #[arg(long, value_name = "N")]
+        total_layers: u32,
+        /// Quantized model footprint in bytes (the GGUF file size).
+        #[arg(long, value_name = "BYTES")]
+        model_bytes: u64,
+        /// One candidate per worker as `<pubkey_hex>:<vram_free_bytes>`
+        /// (repeatable, from `identity` on each machine).
+        #[arg(long = "worker", value_name = "PUBKEY_HEX:VRAM_BYTES")]
+        workers: Vec<String>,
     },
 
     /// Mint the signed private compute group via the local daemon (the
@@ -219,9 +264,13 @@ pub enum ShardSessionCommand {
     /// session_id + group + workers[addr,vram] + model) via the local
     /// daemon: placement → signed manifest → readiness barrier → live.
     Mount {
-        /// Path to the mount config JSON.
+        /// Path to the mount config JSON. Field id is `mount_config`, NOT
+        /// `config`: clap merges same-id args with the GLOBAL `--config`
+        /// (daemon paths), and the positional value would silently
+        /// override the daemon root (latent Phase I bug, surfaced by the
+        /// first live mount in Phase J).
         #[arg(value_name = "CONFIG_JSON")]
-        config: std::path::PathBuf,
+        mount_config: std::path::PathBuf,
     },
 
     /// Read a session's live aggregate status.
@@ -237,6 +286,10 @@ pub enum ShardSessionCommand {
         /// The prompt to drive.
         #[arg(long)]
         prompt: String,
+        /// Maximum new tokens for a REAL inference session (ignored by a
+        /// transport-only session, which always does one echo pass).
+        #[arg(long, value_name = "N")]
+        max_tokens: Option<u32>,
     },
 
     /// Poll the measured result of the last driven generation.
@@ -593,6 +646,43 @@ mod tests {
             Some("/tmp/fixture.toml".to_string())
         );
         assert!(matches!(cli.command, Command::Status));
+    }
+
+    #[test]
+    fn shard_mount_positional_never_shadows_global_config() {
+        // Regression for the LIVE-bitten clap collision (S81 Phase J,
+        // review J8-3): the Mount positional was id=`config`, MERGING with
+        // the GLOBAL `--config` (daemon paths) — the mount-config path
+        // silently overrode the daemon root and the CLI dialed a
+        // non-existent daemon. `Cli::command().debug_assert()` does NOT
+        // catch global-vs-subcommand-positional merges, so this parse
+        // asserts the two stay distinct forever.
+        let cli = Cli::try_parse_from([
+            "nexus-shell-daemon",
+            "--config",
+            "/daemon/config.toml",
+            "shard-session",
+            "mount",
+            "/rig/mount.json",
+        ])
+        .unwrap();
+        assert_eq!(
+            cli.config
+                .as_deref()
+                .map(|p| p.to_string_lossy().into_owned()),
+            Some("/daemon/config.toml".to_string()),
+            "the GLOBAL --config must keep pointing at the daemon paths"
+        );
+        match cli.command {
+            Command::ShardSession(ShardSessionCommand::Mount { mount_config }) => {
+                assert_eq!(
+                    mount_config.to_string_lossy(),
+                    "/rig/mount.json",
+                    "the positional must land on mount_config only"
+                );
+            }
+            other => panic!("expected ShardSession::Mount, got {other:?}"),
+        }
     }
 
     #[test]

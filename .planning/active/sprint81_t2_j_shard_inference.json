@@ -1,0 +1,44 @@
+{
+  "suite": "sprint81-shard-j-real-inference-acceptance",
+  "kind": "named-live-check",
+  "iroh_lock": "iroh =1.0.1 / iroh-docs =0.101.0 / iroh-gossip =0.101.0 / iroh-blobs =0.103.0",
+  "date": "2026-07-10",
+  "deployed_commit": "58cef6d + Phase J working tree (committed with this artefact)",
+  "vocabulary_note": "closed T2 vocabulary; the verdict JSON below is the RAW artefact emitted by scripts/acceptance/b3_shard_pipeline.sh (B3_ARTIFACT), wrapped in the palier envelope per the transport-axis artefacts. This is the SHARD axis of the S81 bi-axis T2 gate — the live half of Phase J; the hermetic halves are the 3 decode-loop tests (generates_until_eos, respects_max_tokens, reroutes_mid_decode_to_fallback) + the step-payload codec tests + the GGUF integration test shard_stage_forwarder_generates_a_token_end_to_end (PASS on mistral-7b CPU, logits-on-is_last empirically proven)",
+  "scoping_note": "PO arbitrage Option B (2026-07-10, preflight J DESIGN-CONFLICT Gate 0): J wires REAL inference on sbfb/shard/1 then runs live — the line 'delta tests 0 Rust' of plan par.J is superseded by the arbitrage; 'if PASS -> carry P1 sharding S77 CLOSED' is the criterion and is MET. Rig: CodeLlama-34B GGUF 16283594912 bytes, blake3 67d84c04b33ebd84d60488c4ed898ea609a1784fe513159e4ef7e9cbe93814a9, byte-identical file on BOTH machines; deterministic placement (shard-session plan, water-fill on declared offers 13.5G/3.8G): HEAD = dev Windows RTX 5080 CUDA layers [0,37) is_first (tokenize + 37 blocks, ~12.5 GB VRAM measured 14.3/16.3 loaded), TAIL = Mac M2 8GB Metal layers [37,48) is_last (11 blocks + output norm + lm_head + greedy sampling + detokenize, serve RSS ~5.9 GB, PhysMem 77M unused — tight but stable); n_layer resolved by the fork at load = 48 exactly (validates total_layers). Fleet post-flip iroh 1.0.1 (Phase H same-day), never a 0.98/1.0 mix. Stack: session s81-j-live mounted via the production orchestrator (group mint -> serve x2 REAL stages -> mount: placement + signed manifest + readiness barrier, rtt_frontier_ms 14 < 80 gate), then the harness drove its own generation via POST generate (max_tokens 16) and polled /result",
+  "paliers": {
+    "shard_real_inference": {
+      "verdict": "PASS",
+      "raw": {
+        "status": "PASS",
+        "stage": "generation",
+        "model": "C:/Users/FlowUP/spike_fork/codellama-34b.gguf",
+        "n_shards": 2,
+        "ttft_s": 0,
+        "toks_per_s": 2,
+        "tokens": 16,
+        "rtt_frontier_ms": 14,
+        "run_proof": "64331aeb8ff0b1bc83590968c98525f884466b2e922d4830fb88dadc6b90fcbe3bb72a52950a3c28dbaf9bb8ebc2718911400350d1d0064f827e35946fdc5f06",
+        "diagnosis": "model=C:/Users/FlowUP/spike_fork/codellama-34b.gguf n_shards=2 tokens=16 ttft_s=0 toks_per_s=2 rtt_frontier_ms=14 run_proof=64331aeb8ff0b1bc… result_text=\\nIn one word, what is the capital of France?\\nIn one word",
+        "last_response": "{\"found\":true,\"dropped\":true}"
+      },
+      "criterion": "anti-echo tells (result_text != prompt AND tokens >= 2) + non-empty DRIVER-signed RunProof + toks_per_s >= 1 UNFLOORED (plan par.14.4 floor; the daemon reports the real rate unfloored for a non-zero model_digest session) + rtt_frontier under the 80ms gate — all four gates passed on the FIRST harness run",
+      "observed": "16 greedy tokens decoded autoregressively across the two REAL stages (per step: ShardStepRequest JSON -> CUDA head tokenizes + forwards [0,37) -> fp32-LE boundary [n_tokens,8192] through the HUB -> Metal tail forwards [37,48) + lm_head argmax + detokenize -> ShardStepReply JSON), 2 tok/s inside the 1-3 tok/s HUB single-stream floor window the preflight S1a-2 predicted (stateless per-step recompute, no cross-step KV reuse — F2 carry), ttft_s 0 (whole-second resolution: ttft_ms/1000 integer division). HONESTY (review J7-1/J6-3): the gated PASS run's result_text is a REPETITIVE CONTINUATION of the harness prompt (real base-model behaviour on an instruction-shaped prompt), NOT a correct answer — the four gates prove non-echo + multi-token + driver-signed proof + rate, never semantic correctness; correctness is evidenced by the determinism_runs below. The explicit post-drive drop-shard cut is evidenced by last_response {found:true,dropped:true} in the raw artefact (the worker_drop_count counter lives on the /result view, not in the harness artefact — review J7-3)",
+      "determinism_runs": {
+        "prompt": "The capital of France is",
+        "max_tokens": 16,
+        "run_1_result_text": " Paris.\nThe capital of France is Paris. The capital of France is Paris",
+        "run_2_result_text": " Paris.\nThe capital of France is Paris. The capital of France is Paris",
+        "note": "operator pre-runs on the SAME mounted session, raw /result result_text values transcribed VERBATIM (review J7-1: machine-comparable corroboration instead of prose-only): run 1 == run 2 byte-identical — greedy argmax with lowest-index tie-break is deterministic cross-run (preflight S1a-8) — and the answer is CORRECT (Paris), evidencing real weights on both sides of the wire, not an echo. These pre-runs also served as the discarded Metal/CUDA warm-up (S1a-6): COLD first run ttft_s=1, WARM harness run ttft_s=0 (1-second resolution — review J-D5-2: cold/warm split reported here, finer ttft_ms exposure carried to Phase K)"
+      }
+    }
+  },
+  "hub_baseline_note": "judged against the HUB baseline (star topology, every frontier crosses the driver) — NEVER the Petals direct-s2s envelope of the design addendum par.6 (preflight S2-J-01); at 2 machines the WAN-traversal ratio is ~1x anyway (S1a-3). The rig is LAN (192.168.1.x), not WAN: this PASS is a LAN PASS and is labeled as such (S6-3). PATH-TYPE CAVEAT (review J-D5-1): the connection type (direct vs relay) is NOT machine-asserted by the daemon or the harness — only the RTT is sampled (14ms at the readiness barrier, under the 80ms gate but above the 1-5ms direct-LAN prediction, plausibly the transient relay->holepunch window); the preflight S6-4 direct-path assertion stays a CARRY for Phase K (query the iroh conn_type at the readiness barrier)",
+  "carries": {
+    "per_shard_runproofs_n0_n3_binding": "the run_proof above is the DRIVER's signed attestation over the measured run (participants = both executing stages, activation_fingerprint = the tail's LAST-step N0 TOPLOC commitment, first production binding of the Phase G slot); per-worker RunProofs from remote shards + the N1-N3 cross-verification of the commitment still need the control-plane return channel (feed raw-op/docs, never a new ALPN) — explicit carry, harness labels corrected accordingly (R-J-4)",
+    "si9_withholding_live": "the SI-9 withholding->fallback->resume path is exercised HERMETICALLY (decode_loop_reroutes_mid_decode_to_fallback: flaky tail answers step 0, stalls step 1, fallback re-probed + step input replayed + generation completes) and live only as the counted post-drive cut; a live mid-decode drop needs a 3rd rig machine as fallback — Phase K certif labels scope accordingly (R-J-5)",
+    "kv_reuse_f2": "stateless per-step recompute (fresh context per forward) is what makes the churn replay exact, at the cost of quadratic long generations — cross-step KV reuse stays the F2 carry; the 1-3 tok/s floor window still held at 16 tokens"
+  },
+  "harness_version_note": "the raw PASS above was captured by b3_shard_pipeline.sh BEFORE the Codex-round harness fixes (LAST_RESPONSE preservation + driver-signed relabels + max_tokens validation + eval/JSON-escape). Consequence on this raw: `last_response` shows the churn `{found:true,dropped:true}` (the pre-fix drop-shard clobber), NOT the /result generation response the FINAL harness preserves. The PASS verdict + the metric fields (tokens=16, toks_per_s=2, ttft_s=0, rtt=14, run_proof) are the genuine /result values and are unaffected; only the `last_response` provenance field reflects the pre-fix behaviour. A re-run on the final harness would carry the generation /result in `last_response` (rig teardown after the run; not re-executed to avoid a second 16 GB model load — the metrics are identical and machine-emitted).",
+  "artifact_hygiene": "no 16-hex MEMBER-pubkey prefix leaks into this artefact (S3-4 check): the 16-hex run_proof prefix in diagnosis is the driver's SIGNATURE prefix (public attestation material), not a member identity; rig.local.env and .b3_shard_last_result.json stay gitignored"
+}

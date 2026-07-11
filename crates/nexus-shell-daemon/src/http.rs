@@ -2309,6 +2309,11 @@ struct ShardGenerateRequest {
     #[serde(default)]
     session_id: Option<String>,
     prompt: String,
+    /// Maximum new tokens for a REAL inference session (Sprint 81
+    /// Phase J; clamped to `MAX_NEW_TOKENS_CAP`). A transport-only echo
+    /// session ignores it (one frame pass by construction).
+    #[serde(default)]
+    max_tokens: Option<u32>,
 }
 
 /// `POST /api/daemon/shard-session/{id}/generate` — Sprint 81 Phase I —
@@ -2368,6 +2373,9 @@ async fn shard_session_generate(
     let keypair = Arc::clone(&state.pow_keypair);
     let registry = Arc::clone(&state.shard_sessions);
     let prompt = req.prompt;
+    let max_tokens = req
+        .max_tokens
+        .unwrap_or(crate::shard_session::DEFAULT_MAX_NEW_TOKENS);
     tokio::spawn(async move {
         // Failure is recorded in the registry (`failure` diagnostic) and
         // surfaced by the result route — never a silent drop.
@@ -2378,6 +2386,7 @@ async fn shard_session_generate(
             &registry,
             &session_id,
             &prompt,
+            max_tokens,
         )
         .await;
     });
@@ -2404,6 +2413,7 @@ fn shard_session_result_response(
                 result_text: data.result_text,
                 ttft_s: data.ttft_s,
                 toks_per_s: data.toks_per_s,
+                tokens: data.tokens,
                 run_proof: data.run_proof,
                 rtt_frontier_ms: data.rtt_frontier_ms,
                 worker_drop_count: data.worker_drop_count,

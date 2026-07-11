@@ -159,3 +159,15 @@ tempfile = "3.12"
 # Mirrors the worker's `tests/e2e.rs` guard.
 [target.'cfg(unix)'.dev-dependencies]
 libc = "0.2"
+
+[features]
+# Sprint 81 Phase J (PO arbitrage Option B) — real layer-block inference
+# for `shard-session serve`. Default stays cmake-free (mirror of
+# nexus-worker-core): the vanilla build serves the transport-only echo
+# forwarder; operators building a real shard stage opt in per machine
+# (`llm_llama_cpp_cuda` on the RTX 5080, `llm_llama_cpp_metal` on the
+# Mac M2). CI never builds these features (double test discipline, S77 R2).
+default = []
+llm_llama_cpp = ["nexus-worker-core/llm_llama_cpp"]
+llm_llama_cpp_cuda = ["llm_llama_cpp", "nexus-worker-core/llm_llama_cpp_cuda"]
+llm_llama_cpp_metal = ["llm_llama_cpp", "nexus-worker-core/llm_llama_cpp_metal"]

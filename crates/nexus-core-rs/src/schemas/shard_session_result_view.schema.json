@@ -24,8 +24,14 @@
       "description": "The session id.",
       "type": "string"
     },
+    "tokens": {
+      "description": "Output tokens of the last drive (`1` for a transport-only echo\npass; the generated token count for a REAL decode — the harness'\nanti-false-green tell, Sprint 81 Phase J).",
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
     "toks_per_s": {
-      "description": "Measured decode rate, integer tokens per second (floor 1 for a\ncompleted drive — the harness' anti-false-green gate).",
+      "description": "Measured decode rate, integer tokens per second. Transport-only\necho sessions floor this at 1 (a liveness signal, not a rate\nclaim); a REAL decode (Sprint 81 Phase J, Option B) reports the\nUNFLOORED measured rate, so a sub-1 tok/s pipeline surfaces as 0\nand the harness' >=1 gate BLOCKs honestly.",
       "format": "uint64",
       "minimum": 0,
       "type": "integer"
@@ -48,6 +54,7 @@
     "result_text",
     "ttft_s",
     "toks_per_s",
+    "tokens",
     "run_proof",
     "rtt_frontier_ms",
     "worker_drop_count",
