@@ -255,6 +255,52 @@ bash scripts/acceptance/b3_shard_pipeline.sh        # axe shard
   1.0.2 épingle encore ed25519-dalek rc) ; re-check au push groupé
   (gate D1/C3). Trigger veille iroh-docs 0.102+ : PAS fired.
 
+## Acceptance (gate de testabilité — README §4)
+
+> Section consignée rétroactivement par `fix(sprint81)` (audit gate S81,
+> finding **S81-J-1** : le wrap-up K avait omis cette section machine-lisible
+> alors que `web/src/api/daemon.ts` a été touché en Phase I —
+> `ShardSessionViewSchema.rtt_frontier_ms`). Aucun risque produit : le champ
+> n'est rendu par aucun composant (couvert par 51 Vitest `daemon.test.ts`) ;
+> le P1 portait sur la consignation du gate, pas sur le code.
+
+### T1 — E2E hermétique (verdict ∈ {GREEN, RED, N-A-no-frontend-change})
+
+- **Surface web** (`web/e2e/`, `npm run test:e2e`) : **GREEN** — 44 passed /
+  2 skipped (env-gated `@shard` + `@compute`) / 0 failed (re-run 2026-07-12,
+  EXIT=0). Honnêteté : au wrap-up K la suite était **RED** (3/45 — pollution
+  inter-spec préexistante S79-H `app-authoring.spec.ts`, jamais détectée car
+  aucun wrap-up depuis S77 n'a joué la suite web complète et GHA est rouge
+  env). Corrigée par l'isolation `playwright.config.ts` : le seul spec qui
+  publie (`app-authoring`) tourne en dernier via un projet Playwright
+  `chromium-authoring` avec `dependencies: ["chromium"]` (aucune route
+  d'unpublish n'existe — feed append-only pre-launch), garantissant un daemon
+  vierge pour les assertions empty-state de `browse-search` (finding
+  **S81-A3-1**).
+- **Surface operator** (`tools/factory-operator/e2e/`) : **GREEN** — 10/10
+  Playwright hermétiques (Operator Rust réel rebuild in-run).
+- **T1-infra (6 sous-tests cross-machine mappés BLOQUANT)** : **GREEN** —
+  mapping committé Phase K (23 tests grep-vérifiés, groupe nextest
+  `two-node-convergence` ; `dispatch_loop.rs:396` = convergence `task:`
+  incrémentale post-subscribe sur 2 nœuds iroh). Classe relay-gated (4/10)
+  explicitement EXCLUE (nightly, cf. note CI).
+
+### T2 — acceptance JSON bi-axe (status ∈ {PASS, BLOCK, RIG-ABSENT, N-A-no-cross-machine-feature})
+
+- **status = PASS** (top-level bi-axe) — `sprint81_t2_acceptance.json`, parse
+  vérifié (10/10 paliers). Inclut `b3_p2_quorum` = **PASS** (1er quorum de
+  l'histoire projet, C10, 6s end-to-end). Provenance per-worker
+  operator-corroborated contractualisée dans l'agrégat (raw run 2 écrasé —
+  honnête). Vocabulaire palier-level étendu (`ACTED`/`MIXED`/`NOT-RUN`)
+  documenté in-artifact, ratification STANDING routée S82 (finding S81-J-3).
+
+**Note CI (S81-A3-2 / S81-J-2, routé S82)** : le volet « + CI chaque push » du
+gate est actuellement inopérant pour les E2E — GHA « CI » rouge depuis 2026-05
+(`glib-sys`/GTK absent du runner), Woodpecker ne câble pas Playwright. Les E2E
+ci-dessus sont joués localement (`verify.sh`) ; couverture CI distante à
+rétablir au push groupé (`workflow_dispatch integration-nightly` + réparation
+GHA GTK).
+
 ## 5. Métriques sprint
 
 - Rust nextest Windows : **2014 (entrée) → 2084 (fin J) → 2095 (fin K)**,

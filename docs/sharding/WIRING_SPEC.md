@@ -143,7 +143,8 @@ Each step lists **source_ref** (`path:Symbol`, grep-resolvable) · **signed?** �
   Origin, enforced by `crates/nexus-shell-daemon-core/src/auth.rs:auth_required`;
   route registered in `crates/nexus-shell-daemon/src/http.rs:authed_routes`.
 - Preconditions: none to call; the projection NEVER exposes `worker_pubkey`/`initiator`
-  (only `session_id` + `member_count`). Full HTTP contract + response shapes in §4.
+  (only `session_id`, `member_count` and the aggregate `rtt_frontier_ms`, S81 I).
+  Full HTTP contract + response shapes in §4.
 
 ## 4. Control-plane HTTP contract
 
@@ -171,8 +172,8 @@ GET /api/daemon/shard-session/{id}
   ```
 
   `200 OK` with honest defaults (never `404`) so the front parse succeeds.
-- **Response (mounted id, S81 I)** — `session` exposes ONLY `member_count`,
-  never a `worker_pubkey` / `initiator`. The orchestrator's write/drive routes
+- **Response (mounted id, S81 I)** — `session` exposes `member_count` and the
+  aggregate `rtt_frontier_ms`, never a `worker_pubkey` / `initiator`. The orchestrator's write/drive routes
   (`group`, `mount`, `generate`, `result`, `drop-shard`) are specified in
   `docs/protocol/SHARD_PROTOCOL_SPEC.md` §6.
 - Front wrapper: `web/src/api/daemon.ts:getShardSession` (Zod `.strict()`).
@@ -187,7 +188,8 @@ Violating any of these is a wire/security defect, not a style nit:
    canonical bytes non-deterministic across platforms and break signatures.
 2. **Never expose `worker_pubkey` or `initiator`** on any read surface. The HTTP
    projection (`crates/nexus-shell-daemon/src/http.rs:shard_session_response`)
-   emits only `session_id` + `member_count` (THREAT_MODEL §16 SI-3/SI-4).
+   emits only aggregates — `session_id`, `member_count`, `rtt_frontier_ms`
+   (THREAT_MODEL §16 SI-3/SI-4).
 3. **Additive-only, 0-bump (pre-v1.0).**
    `crates/nexus-core-rs/src/shard_plan.rs:SHARD_PLAN_FORMAT_VERSION` /
    `crates/nexus-core-rs/src/shard_plan.rs:RUN_PROOF_FORMAT_VERSION` stay at 1; a

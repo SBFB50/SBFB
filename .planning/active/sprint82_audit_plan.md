@@ -47,7 +47,7 @@ anti-anchoring du canon audit).
 | F review files | 15 phases × 3 artefacts (preflight/review/codex) + review = UN SEUL header `## Verdict` ; Phase J : boucle Codex 2 P1 (fingerprint corrigé + binding CARRY → vérifier K l'a fermé) |
 | G carry-overs | §3 ci-dessous — chaque item CLOSED ou re-routé avec rationale |
 | H HARDENING | trigger iroh FIRED consigné (G) + last_validated bumpés (LOOPBACK 2026-07-11) ; drift vs état réel |
-| I meta-process | bodies 9 sections ; Codex bruts non réécrits ; G8 verdicts (I/J/K = PLAN-ADAPT documentés) ; bascule Codex mi-sprint tracée `e7ff73c` |
+| I meta-process | bodies 9 sections ; Codex bruts non réécrits ; G8 verdicts (I/K = PLAN-ADAPT ; **J = DESIGN-CONFLICT résolu arbitrage PO Option B**, tracé `sprint81_phase_j_preflight.md §Arbitrage PO` + body `43623a5` — corrigé audit S81-I-1) ; bascule Codex mi-sprint tracée `e7ff73c` |
 | J testabilité (standing) | T1 6 sous-tests mappés BLOQUANT-vert (mapping committé K) + T2 agrégat bi-axe vocabulaire fermé ; 0 prose DIFFERE-* ; le job `integration-nightly.yml` existe ET a tourné ≥1 fois (vérifier un run réel, pas juste le fichier) |
 | K docs-contract (standing) | clôture K : LOOPBACK §3 +6 lignes shard-session ; SHARD_PROTOCOL_SPEC §5.1/5.2/§6 ; lot doc-stale docs/sharding requalifié (llms.txt, WIRING_SPEC ×4 dont réf pendante :147) ; `spec_consts_exist` étendu types J+K ; frontière S82 neuve non indexée = P1 |
 

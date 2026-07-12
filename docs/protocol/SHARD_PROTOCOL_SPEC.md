@@ -176,9 +176,10 @@ Domain `nexus-run-proof-v1`. Fields: `version: u16`,
 ### 4.7 Observed DTO — `ShardSessionView` / `ShardSessionStatusResponse`
 
 The control-plane projection (`crates/nexus-core-rs/src/schemas/shard.rs`).
-`ShardSessionView` exposes EXACTLY `session_id: String` +
-`member_count: usize` — never a `worker_pubkey`/`initiator`
-(SI-3/SI-4). `ShardSessionStatusResponse` = `{ found: bool, session:
+`ShardSessionView` exposes `session_id: String`, `member_count: usize`
+and `rtt_frontier_ms: Option<u64>` (an aggregate frontier-RTT transport
+measurement, added S81 Phase I) — never a `worker_pubkey`/`initiator`
+identity (SI-3/SI-4). `ShardSessionStatusResponse` = `{ found: bool, session:
 Option<ShardSessionView> }`; `session` is always serialized (`null` when
 absent) so the front Zod `.strict()` envelope parses an empty result as
 success, not a transport error.

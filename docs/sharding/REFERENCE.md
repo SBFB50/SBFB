@@ -56,11 +56,12 @@ are integers (no floats in signed payloads — see [`EXPLANATION.md`](./EXPLANAT
 | `ShardedSessionManifest` | `version: u16`, `initiator: [u8;32]`, `session_id: String`, `group_id: String`, `revision: u64`, `plan: ShardPlan`, `model_digest/tokenizer_hash/chat_template_hash: [u8;32]` | yes | `nexus-shard-plan-v1` |
 | `RunMetrics` | `ttft_ms: u64`, `decode_milli_tokens_per_sec: u64` (tok/s × 1000), `p95_token_latency_ms: u64`, `network_rx_bytes/tx_bytes: u64`, `worker_drop_count: u32` | no (in a run proof) | — |
 | `RunProof` | `version: u16`, `worker_pubkey: [u8;32]`, `session_id: String`, `model_digest: [u8;32]`, `prompt_profile_hash: [u8;32]`, `activation_fingerprint: [u8;32]` (N0; 32 zeros = not provided), `metrics: RunMetrics`, `participants: Vec<[u8;32]>` | yes | `nexus-run-proof-v1` |
-| `ShardSessionView` | `session_id: String`, `member_count: usize` | no (observed DTO) | — |
+| `ShardSessionView` | `session_id: String`, `member_count: usize`, `rtt_frontier_ms: Option<u64>` (aggregate transport measurement, S81 I) | no (observed DTO) | — |
 | `ShardSessionStatusResponse` | `found: bool`, `session: Option<ShardSessionView>` | no (observed DTO) | — |
 
-The control-plane DTO `ShardSessionView` exposes **exactly** `session_id` +
-`member_count`, never a `worker_pubkey`/`initiator` (privacy whitelist,
+The control-plane DTO `ShardSessionView` exposes `session_id`,
+`member_count` and `rtt_frontier_ms` (an aggregate transport measurement,
+S81 Phase I), never a `worker_pubkey`/`initiator` (privacy whitelist,
 THREAT_MODEL §16 SI-3/SI-4). `ShardSessionStatusResponse.session` is always
 serialized (`null` when absent) so the front Zod `.strict()` envelope parses an
 empty result as success, not a transport error.

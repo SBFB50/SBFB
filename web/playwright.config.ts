@@ -54,8 +54,26 @@ export default defineConfig({
   },
   projects: [
     {
+      // Read-only hermetic specs run FIRST, against a virgin daemon.
+      // browse-empty / browse-search assert the empty-state ("Aucune app",
+      // zero grid), which only holds before anything is published.
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
+      testIgnore: /app-authoring\.spec\.ts$/,
+    },
+    {
+      // app-authoring is the ONLY spec that publishes into the shared
+      // singleton daemon, and no unpublish route exists (the feed is
+      // append-only pre-launch), so its two fixtures persist for the rest
+      // of the run. It MUST therefore run LAST. `dependencies` makes that
+      // ordering explicit and robust, instead of relying on the fragile
+      // alphabetical filename order that previously let app-authoring seed
+      // before browse-search and turn its empty-state assertions red
+      // (audit S81-A3-1).
+      name: "chromium-authoring",
+      use: { ...devices["Desktop Chrome"] },
+      testMatch: /app-authoring\.spec\.ts$/,
+      dependencies: ["chromium"],
     },
   ],
 });

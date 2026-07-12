@@ -391,16 +391,25 @@ Runtime isolation roadmap dans
   Arc 3.5 Factory Complete Vision **6/6 COMPLET**.
   S69 audit PASS (0 P0, 0 P1, 3 P2, 2 P3) — `c6c135f`.
   P2P valide cross-machine : LAN Win↔Mac, WAN dev↔VPS Helsinki.
-  CI operationnel : Woodpecker ci.sbfb.world + GHA.
+  CI : Woodpecker ci.sbfb.world operationnel (fmt/clippy/`cargo test`
+  workspace + doctest / web unit+build+size / operator tsc+lint / gates
+  docs). **GHA « CI » ROUGE depuis 2026-05** (deps GTK absentes du runner
+  -> `glib-sys` build-fail : les steps clippy + operator vitest + E2E
+  Playwright n'aboutissent pas). Consequence : les E2E Playwright (web +
+  operator) et les vitest operator ne tournent dans AUCUN CI distant —
+  reparation routee S82 (audit S81-A3-2 / S81-J-2).
 - **~2730 tests total** (2095 Rust nextest Windows natif 0-skip /
   2099 canonique Docker Linux [+4 `#[cfg(unix)]`] / 412 Vitest `web/` /
-  41+1skip E2E web `compute-shard` / **201 Vitest factory-operator
+  44+2skip E2E web hermetique (`test:e2e` ; 2 skip env-gated @shard/@compute ;
+  isolation fix S81-A3-1 : app-authoring seede en dernier via projet Playwright
+  `dependencies`) / **201 Vitest factory-operator
   (35 fichiers) + 10 E2E Playwright operator hermétiques** / size-limit
   web 6/6 + operator budgets verts) — Win + Docker fmt/clippy/doctest
   verts ; les tests iroh-networked `multi_daemon`+`cross_daemon_blob`+
   `blob_serve_coep` (6) sont env-INSTABLES en Docker-on-Windows (reseau
   hote parfois degrade : verts au run J 10/07, rouges au run K 11/07 ;
-  toujours verts sur Win natif + le CI Linux Woodpecker/GHA) ; **classe
+  toujours verts sur Win natif + le CI Linux Woodpecker `cargo test`
+  workspace — pas GHA, rouge env) ; **classe
   env voisine S80** : les tests HTTP loopback `operator_server` depassent
   30s sous Docker-on-Windows (verts <1s natif) → toujours passer
   `SBFB_TEST_HTTP_TIMEOUT_SECS=120` au run `sbfb-ci` local (echappatoire
