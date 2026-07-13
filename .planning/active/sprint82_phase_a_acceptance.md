@@ -44,21 +44,21 @@ red-before-green hermétique (cf. PATTERNS §P74).
 
 ### T2 — re-jeu live JSON (status ∈ {PASS, BLOCK{diagnosis}, RIG-ABSENT})
 
-**RIG-ABSENT — escalade PO explicite (PO-1=B).** `sprint82_t2_bootseed.json`,
-status=`RIG-ABSENT`. Le re-jeu live cold-boot cross-machine (PC RTX 5080 +
-Ollama + release `nexus-worker`, worker Mac, ancre VPS live, timing cold-boot
-relatif au submit) n'est PAS pilotable dans cette session autonome (opération
-sortante réseau). **Ce n'est PAS un 4e report sec** : le fix + la preuve
-hermétique T1 sont livrés dans ce commit ; la CLÔTURE de l'escalade OVERDUE 3/3
-reste conditionnée au re-jeu live, escaladée au PO.
+**PASS — escalade OVERDUE 3/3 FERMÉE (PO-1=B).** `sprint82_t2_bootseed.json`,
+`status=PASS`, `delay_s=18` (< budget 30s), `stage=result-replication`, attribué
+au worker froid cible (`result_text="Paris."` + `result_hash`). Re-jeu live
+cross-machine `BOOT_AFTER_SUBMIT=1` joué le 2026-07-13 (Mac rallumé par l'opérateur) :
+tâche soumise au coordinateur VPS → worker froid booté APRÈS le submit → il a
+rattrapé le `task:` déjà pendant et produit le résultat en **18 s** via la cadence
+cold-boot agressive + le rattrapage de voisinage. L'attribution passe (le log du
+worker froid porte `"result written"` pour ce task_id — Codex P1-3), donc le
+résultat est bien produit par LE worker froid cible, pas un concurrent. **La preuve
+LIVE (c) PO-1=B est fournie : l'escalade `S81-G-ESC-1` (OVERDUE 3/3) est CLOSED**
+(code + T1 hermétique GREEN + T2 live PASS<30s).
 
-Commande opérateur pour clore (depuis le PC, `rig.local.env` configuré, WORKER_BIN
-requis pour que le log du worker froid cible attribue le résultat — Codex P1-3) :
+Commande de re-jeu (depuis le PC, `rig.local.env` configuré) :
 ```
 BOOT_AFTER_SUBMIT=1 \
   B3_ARTIFACT=.planning/active/sprint82_t2_bootseed.json \
   bash scripts/acceptance/b3_live_pc_vps.sh
 ```
-Attendu : `status=PASS`, `delay_s < 30`, attribué au worker froid cible (sinon
-`BLOCK{attribution}` si un worker concurrent produit). Écrase l'artefact
-`RIG-ABSENT` par le run réel.
