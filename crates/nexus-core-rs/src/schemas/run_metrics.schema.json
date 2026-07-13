@@ -21,7 +21,7 @@
       "type": "integer"
     },
     "p95_token_latency_ms": {
-      "description": "95th-percentile per-token latency, milliseconds.",
+      "description": "Coarse per-token latency, milliseconds. HONESTY NOTE (Sprint 82\nPhase B): despite the field name, the driver fills this with the\narithmetic MEAN (`decode_ms / tokens`), not a true 95th percentile —\na signed all-integer aggregate kept byte-stable (renaming or\nrecomputing the signed value would bump `RUN_PROOF_FORMAT_VERSION`).\nThe HONEST inter-token-latency distribution (real p50/p95,\nnearest-rank) is measured host-side and surfaced on the non-signed\n`ShardSessionResultView` (`itl_p50_ms` / `itl_p95_ms`) plus the\n`sprint82_t2_benchmarks.json` artefact.",
       "format": "uint64",
       "minimum": 0,
       "type": "integer"

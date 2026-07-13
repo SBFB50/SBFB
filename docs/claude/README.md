@@ -615,7 +615,7 @@ satisfait, le sprint n'est pas fermable, peu importe le nombre de
 phases déjà livrées.
 
 **Gate de testabilité par-sprint** (évalué à la phase de wrap-up,
-consigné dans `sprint{N}_verification.md` sous `## Acceptance`). Trois
+consigné dans `sprint{N}_verification.md` sous `## Acceptance`). Quatre
 tiers, chacun avec un vocabulaire de verdict FERMÉ et machine-lisible —
 **fini le `DIFFERE-materiel` tapé en prose** :
 
@@ -624,6 +624,7 @@ tiers, chacun avec un vocabulaire de verdict FERMÉ et machine-lisible —
 | **T0** Unit/Integration | `cargo nextest` + Vitest (§7.4) | counts, tous verts | déjà enforced |
 | **T1** E2E hermétique (solo) | `npm run test:e2e` (Playwright, vrai daemon `--web-root`, sans Ollama) | `GREEN` / `RED` / `N-A-no-frontend-change` | **BLOQUANT** : `RED` bloque le wrap-up. Toujours exécutable (le binaire build en CI) → jamais légitimement skippable. CI relance l'hermétique à chaque push |
 | **T2** Acceptance live | spec compute flagship (solo, Ollama) **et/ou** `scripts/acceptance/b3_live_pc_vps.sh` (multi-machine, **artefact JSON**) | `PASS` / `BLOCK{diagnosis}` / `RIG-ABSENT` / `N-A-no-cross-machine-feature` | l'artefact JSON DOIT exister et parser ; `PASS` ou `RIG-ABSENT` laisse fermer ; `BLOCK` exige un `diagnosis` non vide + route un carry P1 |
+| **T3** Benchmark de référence *(OPT-IN, ratifié S82 Phase B)* | harness de mesure standard déterministe (ex. `scripts/acceptance/benchmarks_standards.sh` : llama-bench pp512/tg128 + perplexity-parity wikitext-2 + TTFT/TPOT/ITL au vocabulaire vLLM/MLPerf) → **artefact JSON versionné** (`schema_version` + modèle NAME/blake3 + quant + split + métriques) | `PASS` / `BLOCK{rig}` / `REGRESSION{metric}` / `N-A-no-benchmark` | ne s'applique **que** si le sprint mesure de la perf ; l'artefact JSON versionné DOIT exister et parser ; `PASS` ou `BLOCK{rig}` laisse fermer ; `REGRESSION` (une métrique franchit le seuil vs la baseline committée) exige un rationale + route un carry ; jamais `RIG-ABSENT` quand un autre tier engage déjà le rig |
 
 **Invariant d'honnêteté (mécanique).** `RIG-ABSENT` n'est émis QUE par
 le préflight du harness (échec SSH / Ollama absent / binaire absent /
@@ -651,8 +652,28 @@ l'ouverture, et que le wrap-up écrive la Track J dans l'audit_plan S{N+1}.
 (3) Le hook **lightcheck** (Check 10) émet un WARN au commit de wrap-up si
 `verification.md` ne porte pas de verdict T1/T2 machine-lisible. Un sprint
 sans surface frontend (`N-A-no-frontend-change`) ou non cross-machine
-(`N-A-no-cross-machine-feature`) passe les trois — seuls l'oubli et la
-prose-au-lieu-de-JSON sont punis.
+(`N-A-no-cross-machine-feature`) passe ces trois backstops T1/T2 — seuls
+l'oubli et la prose-au-lieu-de-JSON sont punis.
+
+**Tier T3 — Benchmark (opt-in, ratifié S82 Phase B).** Le tier T3 ne
+concerne QUE un sprint qui **mesure de la perf** (nouveau harness de
+benchmark, optimisation à chiffrer, décision topologie/quant à trancher) ;
+tout autre sprint le passe avec `N-A-no-benchmark`, l'opt-in n'ajoute aucune
+charge. Ce paragraphe **ratifie la règle dans la source de vérité** (les
+agents consultent le README §4, §7.1) ; sa mécanique se calque, quand elle
+sera câblée dans les prompts d'agent, sur T1/T2, et n'est PAS encore reflétée
+comme une clause dédiée dans `prompts/agent/audit-gate-checks.md` ni comme un
+invariant kickoff numéroté (P3-suivi, non bloquant). La règle canonique :
+quand T3 s'active, (a) l'**audit gate** du sprint N+1 vérifie — au titre de
+sa **Track J — Testabilité** — que l'artefact benchmark versionné existe,
+parse, porte un `schema_version` et compare ses métriques à la baseline
+committée (une régression non justifiée = carry) ; (b) le **kickoff** exige
+que le plan NOMME le harness T3 + l'artefact JSON versionné dès l'ouverture,
+sinon consigne `N-A-no-benchmark`. Le vocabulaire de mesure est standard
+(llama-bench pp512/tg128 ; perplexity wikitext-2 ; TTFT/TPOT/ITL vLLM/MLPerf)
+pour que les baselines restent comparables dans le temps et qu'une
+optimisation future se décide sur des chiffres versionnés, pas sur une
+impression.
 
 Chaque phase respecte une discipline stricte :
 

@@ -112,8 +112,44 @@ RTT_FRONTIER_MS=""
 RUN_PROOF=""
 LAST_RESPONSE=""
 RESULT_RESPONSE=""
+# Sprint 82 Phase B — fine benchmark metrics from the extended /result view
+# (host-side instrumentation, vLLM/MLPerf vocabulary). null until measured.
+TTFT_MS=""
+TPOT_MS=""
+ITL_P50_MS=""
+ITL_P95_MS=""
+DECODE_MTOKS=""
+# Model content hash — lets benchmarks_standards.sh bind THIS shard run's
+# metrics to the exact model bytes it benchmarked (Codex P1-A: a same-basename
+# different-content model must not be accepted). null until computed.
+MODEL_B3=""
 
 log() { printf '[b3-shard] %s\n' "$*"; }
+
+# Model hygiene (Sprint 82 Phase B, preflight S3 caution): the committed
+# artefact must carry the model NAME, never a filesystem path (a prior sample
+# leaked `C:/Users/<user>/spike_fork/...` = FS layout + username). Strip any
+# directory prefix (POSIX or Windows) to the basename.
+redact_model() {
+  local m="$1"
+  m="${m##*/}"
+  m="${m##*\\}"
+  printf '%s' "$m"
+}
+
+# blake3 of the model file (validated 64-hex or "" — mirror of the benchmark
+# harness). Best-effort: absent b3sum leaves model_blake3 null (the benchmark
+# then BLOCKs at its provenance gate, so no false comparable-PASS).
+b3_blake3_of() {
+  local f="$1" h
+  [ -f "$f" ] || { printf ''; return; }
+  command -v b3sum >/dev/null 2>&1 || { printf ''; return; }
+  h="$(b3sum "$f" 2>/dev/null | awk '{print $1}')"
+  case "$h" in
+    *[!0-9a-f]* | '') printf '' ;;
+    *) [ "${#h}" -eq 64 ] && printf '%s' "$h" || printf '' ;;
+  esac
+}
 
 # --- JSON artefact (machine-readable, written on every exit) --------------
 # Encoding via python3 (json.dumps — bullet-proof for backslashes, quotes,
@@ -130,16 +166,27 @@ emit_artifact() {
   local status="$1" stage="$2" diag="$3"
   local n_shards="${N_SHARDS:-}" ttft="${TTFT_S:-}" toks="${TOKS_PER_S:-}"
   local tokens="${TOKENS:-}" rtt="${RTT_FRONTIER_MS:-}" _emitted=0
+  # Sprint 82 Phase B fine metrics (default to JSON null when unmeasured).
+  local ttft_ms="${TTFT_MS:-}" tpot_ms="${TPOT_MS:-}" itl50="${ITL_P50_MS:-}"
+  local itl95="${ITL_P95_MS:-}" mtoks="${DECODE_MTOKS:-}"
+  # Model hygiene: NAME only, never a filesystem path (preflight S3 caution).
+  local model_name; model_name="$(redact_model "${MODEL:-}")"
   [ -z "$n_shards" ] && n_shards="null"
   [ -z "$ttft" ] && ttft="null"
   [ -z "$toks" ] && toks="null"
   [ -z "$tokens" ] && tokens="null"
   [ -z "$rtt" ] && rtt="null"
+  [ -z "$ttft_ms" ] && ttft_ms="null"
+  [ -z "$tpot_ms" ] && tpot_ms="null"
+  [ -z "$itl50" ] && itl50="null"
+  [ -z "$itl95" ] && itl95="null"
+  [ -z "$mtoks" ] && mtoks="null"
   mkdir -p "$(dirname "$B3_ARTIFACT")" 2>/dev/null || true
   if command -v python3 >/dev/null 2>&1; then
-    B3_STATUS="$status" B3_STAGE="$stage" B3_MODEL="${MODEL:-}" \
+    B3_STATUS="$status" B3_STAGE="$stage" B3_MODEL="$model_name" B3_MB3="${MODEL_B3:-}" \
     B3_NSHARDS="$n_shards" B3_TTFT="$ttft" B3_TOKS="$toks" B3_TOKENS="$tokens" \
-    B3_RTT="$rtt" \
+    B3_RTT="$rtt" B3_TTFTMS="$ttft_ms" B3_TPOT="$tpot_ms" B3_ITL50="$itl50" \
+    B3_ITL95="$itl95" B3_MTOKS="$mtoks" \
     B3_PROOF="${RUN_PROOF:-}" B3_DIAG="$diag" B3_RESP="${LAST_RESPONSE:-}" \
     python3 -c '
 import json, os
@@ -152,11 +199,17 @@ print(json.dumps({
     "status": os.environ["B3_STATUS"],
     "stage": os.environ["B3_STAGE"],
     "model": os.environ["B3_MODEL"],
+    "model_blake3": (os.environ["B3_MB3"] or None),
     "n_shards": num(os.environ["B3_NSHARDS"]),
     "ttft_s": num(os.environ["B3_TTFT"]),
     "toks_per_s": num(os.environ["B3_TOKS"]),
     "tokens": num(os.environ["B3_TOKENS"]),
     "rtt_frontier_ms": num(os.environ["B3_RTT"]),
+    "ttft_ms": num(os.environ["B3_TTFTMS"]),
+    "tpot_ms": num(os.environ["B3_TPOT"]),
+    "itl_p50_ms": num(os.environ["B3_ITL50"]),
+    "itl_p95_ms": num(os.environ["B3_ITL95"]),
+    "decode_milli_tokens_per_sec": num(os.environ["B3_MTOKS"]),
     "run_proof": os.environ["B3_PROOF"],
     "diagnosis": os.environ["B3_DIAG"],
     "last_response": os.environ["B3_RESP"],
@@ -167,7 +220,7 @@ print(json.dumps({
     # `command -v` finds but that errors when run) -> pure-bash encoder. Lossy
     # (drops backslash/quote/control) but always valid JSON, never a lost artefact.
     local model_e proof_e diag_e resp_e
-    model_e="$(_json_safe "${MODEL:-}")"
+    model_e="$(_json_safe "$model_name")"
     proof_e="$(_json_safe "${RUN_PROOF:-}")"
     diag_e="$(_json_safe "$diag")"
     resp_e="$(_json_safe "${LAST_RESPONSE:-}")"
@@ -180,8 +233,17 @@ print(json.dumps({
     case "$toks" in ''|*[!0-9]*) toks=null ;; esac
     case "$tokens" in ''|*[!0-9]*) tokens=null ;; esac
     case "$rtt" in ''|*[!0-9]*) rtt=null ;; esac
-    printf '{"status":"%s","stage":"%s","model":"%s","n_shards":%s,"ttft_s":%s,"toks_per_s":%s,"tokens":%s,"rtt_frontier_ms":%s,"run_proof":"%s","diagnosis":"%s","last_response":"%s"}\n' \
-      "$status" "$stage" "$model_e" "$n_shards" "$ttft" "$toks" "$tokens" "$rtt" \
+    case "$ttft_ms" in ''|*[!0-9]*) ttft_ms=null ;; esac
+    case "$tpot_ms" in ''|*[!0-9]*) tpot_ms=null ;; esac
+    case "$itl50" in ''|*[!0-9]*) itl50=null ;; esac
+    case "$itl95" in ''|*[!0-9]*) itl95=null ;; esac
+    case "$mtoks" in ''|*[!0-9]*) mtoks=null ;; esac
+    # model_blake3 is a JSON STRING (64-hex) or null.
+    local mb3="${MODEL_B3:-}"
+    case "$mb3" in ''|*[!0-9a-f]*) mb3=null ;; *) mb3="\"$mb3\"" ;; esac
+    printf '{"status":"%s","stage":"%s","model":"%s","model_blake3":%s,"n_shards":%s,"ttft_s":%s,"toks_per_s":%s,"tokens":%s,"rtt_frontier_ms":%s,"ttft_ms":%s,"tpot_ms":%s,"itl_p50_ms":%s,"itl_p95_ms":%s,"decode_milli_tokens_per_sec":%s,"run_proof":"%s","diagnosis":"%s","last_response":"%s"}\n' \
+      "$status" "$stage" "$model_e" "$mb3" "$n_shards" "$ttft" "$toks" "$tokens" "$rtt" \
+      "$ttft_ms" "$tpot_ms" "$itl50" "$itl95" "$mtoks" \
       "$proof_e" "$diag_e" "$resp_e" \
       >"$B3_ARTIFACT"
   fi
@@ -268,7 +330,8 @@ LAST_RESPONSE=""
 # MODEL_20GB is a FILE PATH to the llama-arch GGUF the serves load) —
 # only fall back to the Ollama tag check for a model NAME.
 if [ -f "$MODEL_20GB" ]; then
-  log "model GGUF present on disk: $MODEL_20GB ($(wc -c <"$MODEL_20GB" 2>/dev/null || echo '?') bytes)"
+  MODEL_B3="$(b3_blake3_of "$MODEL_20GB")"
+  log "model GGUF present on disk: $MODEL_20GB ($(wc -c <"$MODEL_20GB" 2>/dev/null || echo '?') bytes, blake3 ${MODEL_B3:-<no b3sum>})"
 else
   TAGS="$(curl -fsS "$OLLAMA_URL/api/tags" 2>/dev/null || true)"
   if [ -n "$TAGS" ]; then
@@ -387,6 +450,15 @@ while :; do
   TOKS_PER_S="$(printf '%s' "$RESP" | sed -n 's/.*"toks_per_s"[[:space:]]*:[[:space:]]*\([0-9]\{1,\}\).*/\1/p')"
   TOKENS="$(printf '%s' "$RESP" | sed -n 's/.*"tokens"[[:space:]]*:[[:space:]]*\([0-9]\{1,\}\).*/\1/p')"
   RUN_PROOF="$(printf '%s' "$RESP" | sed -n 's/.*"run_proof"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+  # Sprint 82 Phase B fine metrics from the extended /result view (each an
+  # independent field match, so JSON field order is irrelevant).
+  if [ -z "$TTFT_MS" ]; then
+    TTFT_MS="$(printf '%s' "$RESP" | sed -n 's/.*"ttft_ms"[[:space:]]*:[[:space:]]*\([0-9]\{1,\}\).*/\1/p')"
+  fi
+  TPOT_MS="$(printf '%s' "$RESP" | sed -n 's/.*"tpot_ms"[[:space:]]*:[[:space:]]*\([0-9]\{1,\}\).*/\1/p')"
+  ITL_P50_MS="$(printf '%s' "$RESP" | sed -n 's/.*"itl_p50_ms"[[:space:]]*:[[:space:]]*\([0-9]\{1,\}\).*/\1/p')"
+  ITL_P95_MS="$(printf '%s' "$RESP" | sed -n 's/.*"itl_p95_ms"[[:space:]]*:[[:space:]]*\([0-9]\{1,\}\).*/\1/p')"
+  DECODE_MTOKS="$(printf '%s' "$RESP" | sed -n 's/.*"decode_milli_tokens_per_sec"[[:space:]]*:[[:space:]]*\([0-9]\{1,\}\).*/\1/p')"
   if [ -n "$RESULT_TEXT" ]; then
     break
   fi
@@ -435,7 +507,9 @@ if [ "$TOKS_PER_S" -lt 1 ]; then
   block "verdict" "toks_per_s=${TOKS_PER_S} below the >=1 floor (plan §14.4) — the sharded pipeline is too slow to be viable over this rig/link. NO-GO, do not inflate."
 fi
 
-NOTE="model=$MODEL n_shards=$N_SHARDS tokens=$TOKENS ttft_s=${TTFT_S:-?} toks_per_s=$TOKS_PER_S rtt_frontier_ms=${RTT_FRONTIER_MS:-?} run_proof=${RUN_PROOF:0:16}… result_text=$RESULT_TEXT"
+# Diagnosis becomes the committed artefact's `diagnosis` field: use the model
+# NAME, never the path (Sprint 82 Phase B hygiene), and surface the fine metrics.
+NOTE="model=$(redact_model "$MODEL") n_shards=$N_SHARDS tokens=$TOKENS ttft_s=${TTFT_S:-?} toks_per_s=$TOKS_PER_S ttft_ms=${TTFT_MS:-?} tpot_ms=${TPOT_MS:-?} itl_p50_ms=${ITL_P50_MS:-?} itl_p95_ms=${ITL_P95_MS:-?} decode_mtok_s=${DECODE_MTOKS:-?} rtt_frontier_ms=${RTT_FRONTIER_MS:-?} run_proof=${RUN_PROOF:0:16}… result_text=$RESULT_TEXT"
 log "model          : $MODEL ($N_SHARDS shards)"
 log "tokens         : $TOKENS (real autoregressive decode, anti-echo tells passed)"
 log "ttft           : ${TTFT_S:-?}s"

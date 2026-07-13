@@ -152,6 +152,42 @@ pub struct ShardSessionResultView {
     /// Worst frontier RTT measured at the readiness barrier, milliseconds.
     #[schemars(required)]
     pub rtt_frontier_ms: Option<u64>,
+    // --- Sprint 82 Phase B: standard benchmark metrics ------------------
+    // Additive on this inner NON-SIGNED view (mirror of `rtt_frontier_ms`
+    // S81-I: « Additive ... 0-bump »), so the `b3_shard` harness and the
+    // committed `sprint82_t2_benchmarks.json` artefact read the
+    // vLLM/MLPerf-vocabulary metrics WITHOUT a wire bump. These are the
+    // HONEST fine metrics measured host-side in `drive_decode_loop`; the
+    // signed `RunProof::RunMetrics` is untouched (adding to it would bump
+    // `RUN_PROOF_FORMAT_VERSION`). `null` until a drive completes.
+    /// Precise **TTFT** (time-to-first-token), milliseconds. The coarse
+    /// whole-second [`Self::ttft_s`] loses the sub-second resolution a
+    /// standard TTFT metric needs; this is the SAME measured value at
+    /// millisecond precision. `null` until a drive completes.
+    #[schemars(required)]
+    pub ttft_ms: Option<u64>,
+    /// **TPOT** (time-per-output-token), milliseconds: the mean inter-token
+    /// gap AFTER the first token — the vLLM/MLPerf decode-latency metric.
+    /// `0` when fewer than two tokens were generated (no inter-token gap
+    /// exists); `null` until a drive completes.
+    #[schemars(required)]
+    pub tpot_ms: Option<u64>,
+    /// **ITL p50** — median inter-token latency (ms), the REAL per-token
+    /// distribution measured host-side (nearest-rank), not the coarse mean
+    /// the signed `RunMetrics::p95_token_latency_ms` carries.
+    #[schemars(required)]
+    pub itl_p50_ms: Option<u64>,
+    /// **ITL p95** — 95th-percentile inter-token latency (ms), nearest-rank:
+    /// the honest tail-latency the p95 field-name on the signed proof
+    /// promises but never was (that field is a mean).
+    #[schemars(required)]
+    pub itl_p95_ms: Option<u64>,
+    /// Decode throughput in **milli-tokens per second** (2_300 = 2.3 tok/s):
+    /// the sub-integer resolution the whole-integer [`Self::toks_per_s`]
+    /// floor hides — the ~2 tok/s HUB baseline needs it to compare future
+    /// optimisations (F2 KV-reuse, quant, topology).
+    #[schemars(required)]
+    pub decode_milli_tokens_per_sec: Option<u64>,
     /// Churn drops observed (SI-9 deadline re-routes + explicit
     /// `drop-shard` cuts).
     pub worker_drop_count: u32,
@@ -391,6 +427,12 @@ mod tests {
             "toks_per_s",
             "run_proof",
             "rtt_frontier_ms",
+            // Sprint 82 Phase B benchmark metrics (additive, always serialized).
+            "ttft_ms",
+            "tpot_ms",
+            "itl_p50_ms",
+            "itl_p95_ms",
+            "decode_milli_tokens_per_sec",
             "worker_drop_count",
             "failure",
         ] {
@@ -416,17 +458,23 @@ mod tests {
         assert_eq!(
             keys,
             vec![
+                "decode_milli_tokens_per_sec",
                 "failure",
+                "itl_p50_ms",
+                "itl_p95_ms",
                 "result_text",
                 "rtt_frontier_ms",
                 "run_proof",
                 "session_id",
                 "tokens",
                 "toks_per_s",
+                "tpot_ms",
+                "ttft_ms",
                 "ttft_s",
                 "worker_drop_count",
             ],
-            "the result view must expose only measurements + proof hex"
+            "the result view must expose only measurements + proof hex \
+             (Sprint 82 Phase B added the fine benchmark metrics, all aggregate)"
         );
         for forbidden in ["worker_pubkey", "initiator", "members", "participants"] {
             assert!(

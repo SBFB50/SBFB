@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "status": "BLOCK",
+  "diagnosis": "rig: cold — standard-benchmark binaries (llama-bench + perplexity, built from the pinned upstream llama.cpp checkout) and/or the ~20 GB GGUF are not present in this session. Run scripts/acceptance/benchmarks_standards.sh on the hot rig (RTX 5080 + Mac M2) for the PASS artefact; BLOCK{rig}, never RIG-ABSENT (the rig is engaged for Phase A boot-SEED).",
+  "model": "codellama-34b.gguf",
+  "model_blake3": null,
+  "quant": "Q4_K_M",
+  "n_shards": 2,
+  "llamacpp_commit": "unknown",
+  "bench_params": {
+    "pp": 512,
+    "tg": 128,
+    "threads": 8,
+    "repetitions": 3
+  },
+  "single_machine": [],
+  "sharded": null,
+  "perplexity_parity": null
+}

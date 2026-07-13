@@ -2,9 +2,27 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "description": "Read-only result of one driven shard-session generation, as returned by\n`GET /api/daemon/shard-session/{id}/result` (Sprint 81 Phase I — the\nroute the `b3_shard_pipeline.sh` live harness polls).\n\nSame privacy whitelist as [`ShardSessionView`]: measurements and the\ndriver's signed proof, NEVER a `worker_pubkey` / `initiator` identity.\n`run_proof` is the lowercase hex of the driver's [`crate::shard_plan::\nRunProofEntry`] Ed25519 signature (the full signed entry stays in the\nnode-local registry); every measurement field is `null` until a drive\ncompletes, and `failure` carries the clean `BLOCK{diagnosis}`-style\ndiagnostic of a failed drive (anti-false-green: the harness never\nPASSes on an empty proof).",
   "properties": {
+    "decode_milli_tokens_per_sec": {
+      "description": "Decode throughput in **milli-tokens per second** (2_300 = 2.3 tok/s):\nthe sub-integer resolution the whole-integer [`Self::toks_per_s`]\nfloor hides — the ~2 tok/s HUB baseline needs it to compare future\noptimisations (F2 KV-reuse, quant, topology).",
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
     "failure": {
       "description": "Diagnostic of a failed drive (`null` while healthy) — the readable\ncause the harness surfaces instead of a silent hang. The text may\ncarry 8-byte TRUNCATED worker-key prefixes (the repo's log\nconvention, non-invertible to the 256-bit key); the property\nwhitelist above is about full identities, which never appear.",
       "type": "string"
+    },
+    "itl_p50_ms": {
+      "description": "**ITL p50** — median inter-token latency (ms), the REAL per-token\ndistribution measured host-side (nearest-rank), not the coarse mean\nthe signed `RunMetrics::p95_token_latency_ms` carries.",
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "itl_p95_ms": {
+      "description": "**ITL p95** — 95th-percentile inter-token latency (ms), nearest-rank:\nthe honest tail-latency the p95 field-name on the signed proof\npromises but never was (that field is a mean).",
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
     },
     "result_text": {
       "description": "Final generated text (`null` until a drive completes).",
@@ -36,6 +54,18 @@
       "minimum": 0,
       "type": "integer"
     },
+    "tpot_ms": {
+      "description": "**TPOT** (time-per-output-token), milliseconds: the mean inter-token\ngap AFTER the first token — the vLLM/MLPerf decode-latency metric.\n`0` when fewer than two tokens were generated (no inter-token gap\nexists); `null` until a drive completes.",
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "ttft_ms": {
+      "description": "Precise **TTFT** (time-to-first-token), milliseconds. The coarse\nwhole-second [`Self::ttft_s`] loses the sub-second resolution a\nstandard TTFT metric needs; this is the SAME measured value at\nmillisecond precision. `null` until a drive completes.",
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
     "ttft_s": {
       "description": "Time to first output frame from the last stage, whole seconds.",
       "format": "uint64",
@@ -57,6 +87,11 @@
     "tokens",
     "run_proof",
     "rtt_frontier_ms",
+    "ttft_ms",
+    "tpot_ms",
+    "itl_p50_ms",
+    "itl_p95_ms",
+    "decode_milli_tokens_per_sec",
     "worker_drop_count",
     "failure"
   ],

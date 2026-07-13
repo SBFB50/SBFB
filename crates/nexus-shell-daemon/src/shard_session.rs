@@ -280,6 +280,17 @@ pub struct ShardRunOutcome {
     pub tokens: u64,
     /// The signed run proof the driver emitted over this run.
     pub run_proof: RunProofEntry,
+    /// **TPOT** (time-per-output-token), ms — mean inter-token gap after
+    /// the first token (Sprint 82 Phase B). `0` for fewer than two tokens
+    /// (echo transport / single-token decode). Non-wire; surfaced
+    /// additively on [`nexus_core_rs::ShardSessionResultView`].
+    pub tpot_ms: u64,
+    /// **ITL p50** — median inter-token latency, ms (nearest-rank).
+    pub itl_p50_ms: u64,
+    /// **ITL p95** — 95th-percentile inter-token latency, ms (nearest-rank):
+    /// the honest tail-latency the signed `RunMetrics::p95_token_latency_ms`
+    /// (a mean) never carried.
+    pub itl_p95_ms: u64,
 }
 
 /// One mounted session: the signed authorisation record + live driving
@@ -338,6 +349,13 @@ pub struct SessionResultData {
     pub tokens: Option<u64>,
     pub run_proof: Option<String>,
     pub rtt_frontier_ms: Option<u64>,
+    /// Sprint 82 Phase B benchmark metrics (vLLM/MLPerf vocabulary),
+    /// measured host-side; `None` until a drive completes.
+    pub ttft_ms: Option<u64>,
+    pub tpot_ms: Option<u64>,
+    pub itl_p50_ms: Option<u64>,
+    pub itl_p95_ms: Option<u64>,
+    pub decode_milli_tokens_per_sec: Option<u64>,
     pub worker_drop_count: u32,
     pub failure: Option<String>,
 }
@@ -484,6 +502,16 @@ impl ShardSessionRegistry {
                 tokens: outcome.map(|o| o.tokens),
                 run_proof: outcome.map(|o| hex::encode(o.run_proof.signature)),
                 rtt_frontier_ms: r.rtt_frontier_ms,
+                // Sprint 82 Phase B: the honest fine metrics measured
+                // host-side (millisecond TTFT, TPOT, real ITL p50/p95, and
+                // the milli-tokens/sec throughput the whole-integer
+                // `toks_per_s` floor hides).
+                ttft_ms: outcome.map(|o| o.ttft_ms),
+                tpot_ms: outcome.map(|o| o.tpot_ms),
+                itl_p50_ms: outcome.map(|o| o.itl_p50_ms),
+                itl_p95_ms: outcome.map(|o| o.itl_p95_ms),
+                decode_milli_tokens_per_sec: outcome
+                    .map(|o| o.tokens.saturating_mul(1_000_000) / o.decode_ms.max(1)),
                 worker_drop_count: r.worker_drop_count,
                 failure: r.failure.clone(),
             }
@@ -1255,6 +1283,11 @@ async fn drive_pipeline(
         decode_ms,
         tokens,
         run_proof,
+        // Transport-only echo forwarder: one frame pass, no autoregressive
+        // decode, so there is no inter-token distribution (Sprint 82 Phase B).
+        tpot_ms: 0,
+        itl_p50_ms: 0,
+        itl_p95_ms: 0,
     })
 }
 
@@ -1272,6 +1305,47 @@ fn parse_toploc_hex(toploc_hex: &str) -> [u8; 32] {
         Ok(bytes) => <[u8; 32]>::try_from(bytes.as_slice()).unwrap_or([0u8; 32]),
         Err(_) => [0u8; 32],
     }
+}
+
+/// Nearest-rank percentile (ms) of a set of per-token inter-token
+/// latencies. Deterministic and integer-only: sorts a copy, picks the
+/// 1-based rank `ceil(pct/100 · n)` clamped to `[1, n]` (the standard
+/// nearest-rank estimator — no interpolation, so no float in the value).
+/// Empty input → 0 (fewer than two tokens = no inter-token gap).
+///
+/// This is the HONEST inter-token-latency (ITL) distribution the coarse
+/// signed [`nexus_core_rs::RunMetrics::p95_token_latency_ms`] (a mean,
+/// `decode_ms / tokens`) never was. Sprint 82 Phase B surfaces it
+/// additively on the non-signed [`nexus_core_rs::ShardSessionResultView`]
+/// and the local `sprint82_t2_benchmarks.json` artefact — NEVER on the
+/// signed proof (adding to it would bump `RUN_PROOF_FORMAT_VERSION`).
+fn token_latency_percentile_ms(deltas_ms: &[u64], pct: u8) -> u64 {
+    if deltas_ms.is_empty() {
+        return 0;
+    }
+    let mut sorted = deltas_ms.to_vec();
+    sorted.sort_unstable();
+    let n = sorted.len() as u64;
+    let pct = u64::from(pct.min(100));
+    // 1-based nearest rank, clamped so pct=0 still yields the minimum and
+    // pct=100 the maximum; index is rank-1.
+    let rank = (pct.saturating_mul(n)).div_ceil(100).clamp(1, n);
+    sorted[(rank - 1) as usize]
+}
+
+/// Mean inter-token latency (ms) — **TPOT** (time-per-output-token), the
+/// vLLM/MLPerf definition: the average of the post-first-token gaps.
+/// Empty input → 0. Saturating sum (a bounded decode cannot overflow, but
+/// stay defensive on the aggregate).
+fn mean_inter_token_ms(deltas_ms: &[u64]) -> u64 {
+    if deltas_ms.is_empty() {
+        return 0;
+    }
+    let sum = deltas_ms
+        .iter()
+        .copied()
+        .fold(0u64, |acc, d| acc.saturating_add(d));
+    sum / deltas_ms.len() as u64
 }
 
 /// Sprint 81 Phase J (PO arbitrage Option B) — the REAL autoregressive
@@ -1342,6 +1416,11 @@ async fn drive_decode_loop(
     let mut generated: Vec<i32> = Vec::with_capacity(max_new as usize);
     let mut text = String::new();
     let mut ttft_ms: Option<u64> = None;
+    // Host-side per-token arrival timestamps (ms since drive start), the raw
+    // material of the Sprint 82 Phase B ITL distribution: each step reply is
+    // one generated token, so the gaps between consecutive entries are the
+    // inter-token latencies (the first entry is TTFT/prefill).
+    let mut token_at_ms: Vec<u64> = Vec::with_capacity(max_new as usize);
     let mut fingerprint = [0u8; 32];
 
     'steps: for _step in 0..max_new {
@@ -1484,9 +1563,11 @@ async fn drive_decode_loop(
                 sanitize_diagnostic(&e.to_string())
             )
         })?;
+        let now_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
         if ttft_ms.is_none() {
-            ttft_ms = Some(started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64);
+            ttft_ms = Some(now_ms);
         }
+        token_at_ms.push(now_ms);
         generated.push(reply.token_id);
         // Bounded accumulation (review J D3-1): `piece` is
         // attacker-controlled by an admitted-but-byzantine tail (the SI-9
@@ -1540,6 +1621,21 @@ async fn drive_decode_loop(
         .min(u128::from(u64::MAX))
         .max(1) as u64;
 
+    // Host-side ITL distribution (Sprint 82 Phase B): the inter-token gaps
+    // are the deltas between consecutive step-reply arrivals; the first
+    // token's latency is TTFT (prefill), so it is NOT part of the decode
+    // gaps. TPOT = mean of the gaps; p50/p95 = nearest-rank percentiles.
+    // These feed the non-signed result view + artefact only — the signed
+    // `RunMetrics` below is unchanged (its `p95_token_latency_ms` stays the
+    // coarse mean it always was, kept byte-stable).
+    let inter_token_ms: Vec<u64> = token_at_ms
+        .windows(2)
+        .map(|w| w[1].saturating_sub(w[0]))
+        .collect();
+    let tpot_ms = mean_inter_token_ms(&inter_token_ms);
+    let itl_p50_ms = token_latency_percentile_ms(&inter_token_ms, 50);
+    let itl_p95_ms = token_latency_percentile_ms(&inter_token_ms, 95);
+
     let metrics = RunMetrics {
         ttft_ms,
         decode_milli_tokens_per_sec: tokens.saturating_mul(1_000_000) / decode_ms,
@@ -1573,6 +1669,9 @@ async fn drive_decode_loop(
         decode_ms,
         tokens,
         run_proof,
+        tpot_ms,
+        itl_p50_ms,
+        itl_p95_ms,
     })
 }
 
@@ -1604,6 +1703,59 @@ mod tests {
     use nexus_core_rs::{DiscoveryClient, SHARD_ALPN};
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// Sprint 82 Phase B — the ITL/TPOT math is a PURE function of the
+    /// per-token arrival deltas, so it is unit-testable without a network
+    /// boot. This pins the nearest-rank estimator, the empty/short-decode
+    /// edge cases, and the "first token is TTFT, not a decode gap" rule; the
+    /// end-to-end WIRING through the real `drive_decode_loop` is pinned
+    /// hermetically by `decode_loop_generates_until_eos` (paced tail →
+    /// non-zero gaps), and re-measured live by the b3 harness (T2).
+    #[test]
+    fn itl_percentile_and_tpot_are_deterministic() {
+        // Empty (fewer than two tokens → no inter-token gap): every metric 0.
+        assert_eq!(token_latency_percentile_ms(&[], 50), 0);
+        assert_eq!(token_latency_percentile_ms(&[], 95), 0);
+        assert_eq!(mean_inter_token_ms(&[]), 0);
+
+        // Single gap: p50 = p95 = that gap; TPOT = that gap.
+        assert_eq!(token_latency_percentile_ms(&[42], 50), 42);
+        assert_eq!(token_latency_percentile_ms(&[42], 95), 42);
+        assert_eq!(mean_inter_token_ms(&[42]), 42);
+
+        // Ten gaps 10..=100: nearest-rank p50 = rank ceil(0.5*10)=5 → 50;
+        // p95 = rank ceil(0.95*10)=10 → 100 (the max, the tail we want).
+        let gaps: Vec<u64> = (1..=10).map(|i| i * 10).collect();
+        assert_eq!(token_latency_percentile_ms(&gaps, 50), 50);
+        assert_eq!(token_latency_percentile_ms(&gaps, 95), 100);
+        assert_eq!(token_latency_percentile_ms(&gaps, 100), 100);
+        assert_eq!(token_latency_percentile_ms(&gaps, 0), 10, "pct 0 → minimum");
+        // TPOT = mean(10..100) = 550/10 = 55.
+        assert_eq!(mean_inter_token_ms(&gaps), 55);
+
+        // Order independence (the estimator sorts internally): a shuffled
+        // input yields the same percentile as the sorted one.
+        let shuffled = [30u64, 10, 100, 50, 20, 90, 40, 80, 60, 70];
+        assert_eq!(token_latency_percentile_ms(&shuffled, 50), 50);
+        assert_eq!(token_latency_percentile_ms(&shuffled, 95), 100);
+
+        // The real derivation: arrival timestamps → inter-token deltas.
+        // token_at_ms = [12, 60, 130, 175] (ms since drive start):
+        // TTFT = 12 (first token, NOT a decode gap); gaps = [48, 70, 45].
+        let token_at_ms = [12u64, 60, 130, 175];
+        let inter: Vec<u64> = token_at_ms
+            .windows(2)
+            .map(|w| w[1].saturating_sub(w[0]))
+            .collect();
+        assert_eq!(inter, vec![48, 70, 45], "gaps exclude the TTFT prefill");
+        assert_eq!(
+            mean_inter_token_ms(&inter),
+            54,
+            "TPOT = mean(48,70,45)=163/3"
+        );
+        assert_eq!(token_latency_percentile_ms(&inter, 50), 48);
+        assert_eq!(token_latency_percentile_ms(&inter, 95), 70);
+    }
 
     /// A forwarder that counts the frames it sees before echoing — proves
     /// the readiness barrier emits NO dispatch frame.
@@ -2095,6 +2247,23 @@ mod tests {
             result.toks_per_s.unwrap_or(0) >= 1,
             "the measured rate must satisfy the harness >=1 floor"
         );
+        // Sprint 82 Phase B benchmark surface is PRESENT once a drive
+        // completes. The echo transport is a single-frame pass (no
+        // autoregressive decode), so the inter-token distribution is empty
+        // → TPOT/ITL are `Some(0)`; a REAL decode (b3 harness, T2) reports
+        // the measured distribution.
+        assert!(result.ttft_ms.is_some(), "precise ms TTFT must be surfaced");
+        assert_eq!(
+            result.tpot_ms,
+            Some(0),
+            "echo transport has no inter-token gap"
+        );
+        assert_eq!(result.itl_p50_ms, Some(0));
+        assert_eq!(result.itl_p95_ms, Some(0));
+        assert!(
+            result.decode_milli_tokens_per_sec.is_some(),
+            "milli-tokens/sec throughput must be surfaced for the benchmark artefact"
+        );
         assert_eq!(result.worker_drop_count, 0);
         assert!(result.failure.is_none());
         let proof_hex = result.run_proof.expect("a run proof must be collected");
@@ -2369,6 +2538,25 @@ mod tests {
         }
     }
 
+    /// Fake tail that sleeps a small fixed delay before EACH reply, forcing
+    /// NON-ZERO inter-token gaps so the Sprint 82 Phase B ITL instrumentation
+    /// (the `token_at_ms` push + the `windows(2)` deltas + the percentile
+    /// helpers, all on the REAL `drive_decode_loop`) is observable
+    /// end-to-end: a dropped push or a broken projection would collapse the
+    /// distribution to 0 / `None` and fail the decode gate. The delay is far
+    /// below any hop deadline (mirror of `FlakyTailForwarder`'s pattern).
+    #[derive(Debug)]
+    struct PacedTailForwarder {
+        inner: FakeTailForwarder,
+        per_step: Duration,
+    }
+    impl ShardForwarder for PacedTailForwarder {
+        fn forward(&self, frame: &[u8]) -> nexus_core_rs::Result<Vec<u8>> {
+            std::thread::sleep(self.per_step);
+            self.inner.reply_for(frame)
+        }
+    }
+
     /// Fake tail whose EOS reply carries an EMPTY toploc_hex while its
     /// non-final replies carry a valid one — exercises the Codex P1
     /// regression (the last step's absent commitment must NOT let the
@@ -2468,7 +2656,13 @@ mod tests {
         // path is byte-identical through a conforming attestation.
         let rig = shard_rig(vec![
             attested_head(Arc::new(FakeHeadForwarder)),
-            attested_tail(Arc::new(FakeTailForwarder { eos_after: 3 })),
+            // Paced tail (Sprint 82 Phase B): a small per-step delay forces
+            // non-zero inter-token gaps so the fine-metric instrumentation is
+            // observed, not silently zero.
+            attested_tail(Arc::new(PacedTailForwarder {
+                inner: FakeTailForwarder { eos_after: 3 },
+                per_step: Duration::from_millis(6),
+            })),
         ])
         .await;
         let registry = ShardSessionRegistry::default();
@@ -2498,6 +2692,30 @@ mod tests {
         assert!(
             result.failure.is_none(),
             "a completed decode has no failure"
+        );
+        // Sprint 82 Phase B: the fine benchmark metrics are wired end-to-end
+        // through the REAL decode (3 tokens = 2 inter-token gaps), not merely
+        // the echo path. The paced tail (6 ms/step) guarantees non-zero gaps,
+        // so a dropped `token_at_ms` push, a wrong slice, or a projection
+        // omission surfaces as `0` / `None` and fails HERE — the unit test
+        // `itl_percentile_and_tpot_are_deterministic` pins the math, this pins
+        // the wiring.
+        assert!(result.ttft_ms.is_some(), "precise ms TTFT is surfaced");
+        let tpot = result.tpot_ms.expect("TPOT is surfaced");
+        let p50 = result.itl_p50_ms.expect("ITL p50 is surfaced");
+        let p95 = result.itl_p95_ms.expect("ITL p95 is surfaced");
+        assert!(
+            result.decode_milli_tokens_per_sec.is_some(),
+            "milli-tokens/sec throughput is surfaced"
+        );
+        assert!(
+            tpot >= 1 && p50 >= 1,
+            "a paced multi-token decode has non-zero TPOT/ITL (got tpot={tpot} p50={p50}) \
+             — a dropped instrumentation push would read 0"
+        );
+        assert!(
+            p95 >= p50,
+            "nearest-rank ordering: p95 ({p95}) >= p50 ({p50})"
         );
         {
             let sessions = registry.lock();

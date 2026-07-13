@@ -389,7 +389,15 @@ pub struct RunMetrics {
     /// tok/s). Avoids a float ratio in the signed bytes.
     pub decode_milli_tokens_per_sec: u64,
 
-    /// 95th-percentile per-token latency, milliseconds.
+    /// Coarse per-token latency, milliseconds. HONESTY NOTE (Sprint 82
+    /// Phase B): despite the field name, the driver fills this with the
+    /// arithmetic MEAN (`decode_ms / tokens`), not a true 95th percentile —
+    /// a signed all-integer aggregate kept byte-stable (renaming or
+    /// recomputing the signed value would bump `RUN_PROOF_FORMAT_VERSION`).
+    /// The HONEST inter-token-latency distribution (real p50/p95,
+    /// nearest-rank) is measured host-side and surfaced on the non-signed
+    /// `ShardSessionResultView` (`itl_p50_ms` / `itl_p95_ms`) plus the
+    /// `sprint82_t2_benchmarks.json` artefact.
     pub p95_token_latency_ms: u64,
 
     /// Bytes received over the shard data plane during the run.

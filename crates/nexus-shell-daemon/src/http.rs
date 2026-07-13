@@ -2416,6 +2416,12 @@ fn shard_session_result_response(
                 tokens: data.tokens,
                 run_proof: data.run_proof,
                 rtt_frontier_ms: data.rtt_frontier_ms,
+                // Sprint 82 Phase B benchmark metrics (additive, 0-bump).
+                ttft_ms: data.ttft_ms,
+                tpot_ms: data.tpot_ms,
+                itl_p50_ms: data.itl_p50_ms,
+                itl_p95_ms: data.itl_p95_ms,
+                decode_milli_tokens_per_sec: data.decode_milli_tokens_per_sec,
                 worker_drop_count: data.worker_drop_count,
                 failure: data.failure,
             }),
