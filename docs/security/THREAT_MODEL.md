@@ -1091,6 +1091,45 @@ borne par `min_rejoin_interval` (cooldown) pour eviter un storm de re-join sur d
 pour les docs injectes en test). Surface inchangee, residual nul au-dela du modele de
 confiance pkarr deja accepte.
 
+#### §15.3.1 Extension Sprint 82 Phase A — cold-boot catch-up (boot-SEED, S81-G-ESC-1)
+
+Deux ajouts sous l'invariant unifie « le broadcast gossip est un HINT non fiable ;
+l'etat durable synchronise est la VERITE ; tout consommateur cold-boot RECONCILIE ».
+**Aucune frontiere d'admission nouvelle, 0 bump wire, 0 dep.**
+
+- **WORKER — cadence de rejoin cold-boot** (`doc_sync.rs`, `KeepaliveConfig::
+  cold_boot_aggressive`) : jusqu'au 1er `NeighborUp` apres (re)boot **OU la deadline
+  wall-clock `DEFAULT_COLD_BOOT_WINDOW` (60s, filet si l'edge NeighborUp est manque)**,
+  le keepalive re-emet `start_sync` toutes les ~1s au lieu de 15s, puis relache vers le
+  backstop S77. Meme `start_sync`, memes `peers` (le coordinateur du ticket), meme chemin pkarr
+  — seule la FREQUENCE change pendant la fenetre cold-boot. Amplification bornee par
+  `cold_boot_min_rejoin_interval` (cooldown ~1s) : au plus 1 `start_sync`/s vers le
+  seul coordinateur deja detenu, jamais un fan-out. Surface identique a §15.3 ; residual
+  nul.
+- **ANCRE — re-drive-on-ingest** (`runtime.rs::maybe_redrive_seed_on_ingest`) : quand
+  un annuaire d'un ancre ABONNE est accepte (gate S75 Phase C : subscription + Ed25519
+  + attribution + anti-rollback), le boot seed driver est rejoue pour re-pin une app
+  `keep_online` dont l'annuaire arrive apres le boot (fermeture de la « first-boot dead
+  window »). Surface d'amplification/DoS **doublement gardee** : (a) le driver itere
+  UNIQUEMENT `configured = [seed] keep_online_projects` (accept-list operateur) — un
+  pid venu du reseau n'y entre JAMAIS ; (b) **single-flight + dirty** (`RedriveCoord`) :
+  au plus UNE chaine de re-drive tourne a la fois ; un ingest arrivant pendant une passe
+  positionne `dirty` et la chaine fait UNE passe trailing qui le re-couvre — vrai
+  COALESCING (aucun trigger perdu, pas d'empilement sur le lock), les passes trailing
+  espacees par `REDRIVE_MIN_INTERVAL` (30s) pour qu'un ancre bumpant vite ne spinne pas
+  le driver reseau-lourd `fetch_and_pin_multi` ; (c) **duress-gate en TETE de
+  `maybe_redrive_seed_on_ingest`** (retour avant meme le clone de `configured`) ET de
+  `run_boot_seed_driver` (defense-in-depth, retour 0 avant toute resolution/fetch/DB/log) —
+  aucune lecture OBSERVABLE (log / DB / resolution / fetch / emit) de donnees reelles
+  avant l'un des deux gates (classe DURESS-BOOT-LEAK ; le clone in-memory de la liste
+  configuree, comme celui du boot driver, n'est pas une exfiltration) ; (d) BLAKE3 = verite
+  joignabilite (guard `h == want_hash`, `delete_tag` sur mismatch) — une annonce forgee
+  ne fait jamais servir d'octets absents. Course double-annonce `SeedAnnounced` vs boot
+  driver en vol : serialisee par un `seed_driver_lock` (mutex partage). Invariant
+  cardinal `heberger != publier, seeder != auteur` tenu : le re-drive re-pin le hash du
+  1er ancre lexicographique advertising (residuel Sybil-sampling S76 inchange), pas une
+  provenance auteur.
+
 ### 15.4 Extension Sprint 81 — mode zero-n0 self-hosted + hot-join + stores migres (E2/E3/F)
 
 S81 prepare l'EOL des services n0 (relais + pkarr publics, 2026-09-30)

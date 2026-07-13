@@ -1,0 +1,9 @@
+{
+  "status": "RIG-ABSENT",
+  "stage": "preflight",
+  "delay_s": null,
+  "claim_s": null,
+  "task_id": "",
+  "diagnosis": "Sprint 82 Phase A boot-SEED live re-jeu (PO-1=B) NOT driven in this autonomous session: the cross-machine cold-boot scenario needs the operator rig (PC RTX 5080 + Ollama + release nexus-worker, Mac worker, live VPS anchor) orchestrated with cold-boot-relative-to-submit timing, an outward-facing operation not driveable without the operator. Per PO-1=B this is an EXPLICIT PO escalation, not a silent 4th dry report (S81-G-ESC-1 counter is at 3/3). Operator command to close, from the PC with scripts/acceptance/rig.local.env set (VPS_SSH/PROJECT_ID/MODEL/WORKER_BIN): BOOT_AFTER_SUBMIT=1 B3_ARTIFACT=.planning/active/sprint82_t2_bootseed.json bash scripts/acceptance/b3_live_pc_vps.sh -- expect status=PASS with delay_s < 30; the real run overwrites this artefact. The hermetic T1 gate is GREEN (ANCRE re-drive-on-ingest red->green + WORKER cadence structural revert-proof + keepalive 2-node rejoin); the cold-boot cadence's convergence benefit is transport-only and can only be proven by this live re-jeu.",
+  "last_response": ""
+}

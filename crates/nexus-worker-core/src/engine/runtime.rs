@@ -733,6 +733,13 @@ impl Engine {
         // neighborhood alive so the coordinator's incremental `task:`
         // writes keep reaching this worker after transport churn. Docs
         // injected via `register_task_doc` carry no peers and are skipped.
+        //
+        // Sprint 82 Phase A: opt into the aggressive cold-boot cadence
+        // (`cold_boot_aggressive`). A worker cold-booted seconds before an
+        // incremental `task:` write has no neighbor yet; the steady 15s
+        // backstop then took minutes to converge (S81-K live gap). The warmup
+        // re-dials every ~1s until the first neighbor forms, then relaxes to
+        // the steady backstop — 0 dep, 0 wire, a cadence choice only.
         let (keepalive_stop_tx, keepalive_stop_rx) = watch::channel(false);
         let mut keepalive_handles = Vec::new();
         for (project_id, doc) in &self.task_docs {
@@ -742,7 +749,7 @@ impl Engine {
                 keepalive_handles.push(spawn_doc_sync_keepalive(
                     doc.clone(),
                     peers.clone(),
-                    KeepaliveConfig::default(),
+                    KeepaliveConfig::cold_boot_aggressive(),
                     keepalive_stop_rx.clone(),
                 ));
             }

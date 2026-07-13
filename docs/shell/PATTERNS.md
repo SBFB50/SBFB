@@ -2356,3 +2356,48 @@ fmt/clippy/test/build/sharding-docs) has NO Playwright/E2E step. T1 is satisfied
 silently vanish with it. Fix: add a Playwright hermetic step (build daemon +
 `npm run test:e2e` with `SBFB_DAEMON_BIN`) to `.woodpecker/ci-linux.yml`. P2,
 carry S78. Not gate-blocking for S77.
+
+## Sprint 82 patterns
+
+### §P74 — Cold-boot reconciliation: broadcast is a HINT, durable state is TRUTH
+
+Sprint 82 Phase A (boot-SEED escalation S81-G-ESC-1) canonises the invariant behind
+every cold-boot catch-up: **a gossip broadcast is an unreliable HINT; the durably
+synchronised state is the TRUTH; every cold-boot consumer RECONCILES against that state
+once its neighbourhood has formed.** A one-shot boot action that fires before the
+network is ready silently loses work — it must be re-driven when the state that makes it
+resolvable arrives, not left until the next restart.
+
+Two applications, both `0 wire / 0 dep / 0 canonical bump` (the fix is a cadence/re-drive
+over EXISTING primitives, never a new admission surface):
+
+- **Re-drive-on-ingest (daemon, `runtime.rs::maybe_redrive_seed_on_ingest`).** The boot
+  seed driver is ONE-SHOT per invocation; re-drive it whenever a SUBSCRIBED anchor's
+  node directory is accepted (`handle_directory_announcement` now returns the
+  accepted-bool the gossip loop gates on). Design rules that make it safe on the hot
+  ingest path: (1) iterate ONLY the operator accept-list (`[seed] keep_online_projects`),
+  never a network-supplied pid; (2) **single-flight + dirty coalescing** (`RedriveCoord`),
+  NOT a leading-edge cooldown — Codex P1-1: a cooldown that stamps `last_redrive` before
+  the pass is THROTTLING, and drops the one relevant ingest that arrives while an unrelated
+  pass runs; instead, at most one chain runs and an ingest during a pass sets `dirty` so
+  the chain does one trailing pass that re-covers it (no trigger ever lost). Pace only the
+  TRAILING pass with `REDRIVE_MIN_INTERVAL`; (3) **duress-gate at the re-drive ENTRY**
+  (Codex P1-2) — check duress BEFORE cloning the real configured list, plus the callee's
+  own head-of-function gate (defense-in-depth); no OBSERVABLE pre-read (log/DB/resolve/
+  fetch/emit) before either gate — an in-memory config clone is not exfiltration; (4)
+  serialise against the in-flight boot driver via a shared mutex so a read-before-write
+  guard cannot double-emit (`try_lock`-skip was REJECTED — Codex — because a skipped pass
+  loses its ingest); (5) spawn (don't await) so a slow pull never stalls the receive loop —
+  return the chain `JoinHandle` so tests get determinism while prod fires and forgets.
+- **Cold-boot rejoin cadence (`nexus-core-rs/doc_sync.rs`, `KeepaliveConfig::
+  cold_boot_aggressive`).** Until the first `NeighborUp` after (re)boot, re-issue
+  `start_sync` aggressively (~1s), then relax to the steady backstop (15s). `Default`
+  keeps cold == steady (0 observable change for callers that don't opt in); the worker
+  opts in. TESTABILITY LESSON: this cadence's convergence BENEFIT is a real-transport
+  property (a failed pkarr/relay dial must be re-issued) and is **not** reproducible
+  in-process — a single `start_sync`'s pending dial resolves in the background the instant
+  the address appears in the memory lookup, so rejoin frequency is irrelevant hermetically
+  (a delayed-address convergence test goes GREEN for BOTH cadences). Prove the cadence
+  LOGIC with a pure unit test (`check_interval_for`/`min_rejoin_for`) and the convergence
+  with the T2 LIVE rig re-jeu (`b3_live_pc_vps.sh BOOT_AFTER_SUBMIT=1`). Do not fake a
+  hermetic red-before-green for a transport-only property.

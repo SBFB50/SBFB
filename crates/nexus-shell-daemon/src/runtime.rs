@@ -1122,6 +1122,11 @@ impl DaemonRuntime {
                 .map_err(|e| anyhow::anyhow!("outbox load failed: {e}"))?
         };
         let (boot_replay_done_tx, boot_replay_done_rx) = oneshot::channel::<()>();
+        // Sprint 82 Phase A: serialize the one-shot boot seed driver (spawned
+        // below) against the re-drive-on-ingest hook in the gossip task, so the
+        // `was_already_announced` read-before-write in `run_boot_seed_driver`
+        // cannot double-emit `SeedAnnounced` when both fire close together.
+        let seed_driver_lock = Arc::new(tokio::sync::Mutex::new(()));
         let gossip_handle = spawn_gossip_subscribe_task(GossipTaskConfig {
             node: Arc::clone(&node),
             curator_runtime: Arc::clone(&curator_runtime),
@@ -1138,6 +1143,10 @@ impl DaemonRuntime {
             coordinator_db: Arc::clone(&coordinator_db),
             initial_outbox,
             boot_replay_done: Some(boot_replay_done_tx),
+            boot_driver_state: Some(Arc::clone(&boot_driver_state)),
+            keep_online_projects: opts.seed.keep_online_projects.clone(),
+            seed_driver_lock: Arc::clone(&seed_driver_lock),
+            redrive_coord: Arc::new(tokio::sync::Mutex::new(RedriveCoord::default())),
         });
 
         // Sprint 75 Phase E (D3, PO-signed): the headless boot driver.
@@ -1161,6 +1170,7 @@ impl DaemonRuntime {
         // Arc reclamation.
         let boot_driver_handle = {
             let configured = opts.seed.keep_online_projects.clone();
+            let seed_driver_lock = Arc::clone(&seed_driver_lock);
             tokio::spawn(async move {
                 if tokio::time::timeout(
                     std::time::Duration::from_secs(BOOT_DRIVER_REPLAY_WAIT_SECS),
@@ -1180,8 +1190,12 @@ impl DaemonRuntime {
                 if crate::http::reannounce_directory_at_boot(&boot_driver_state).await {
                     info!("producer node directory re-announced at boot");
                 }
-                let pinned =
-                    crate::http::run_boot_seed_driver(&boot_driver_state, &configured).await;
+                // Sprint 82 Phase A: hold the shared lock across the driver so a
+                // concurrent re-drive-on-ingest cannot double-announce.
+                let pinned = {
+                    let _guard = seed_driver_lock.lock().await;
+                    crate::http::run_boot_seed_driver(&boot_driver_state, &configured).await
+                };
                 if pinned > 0 {
                     info!(
                         pinned,
@@ -1533,6 +1547,21 @@ struct GossipTaskConfig {
     /// it resolves configured apps against is populated. Best-effort: the
     /// driver proceeds on timeout if the gossip task never reaches it.
     boot_replay_done: Option<oneshot::Sender<()>>,
+    /// Sprint 82 Phase A: re-drive-on-ingest context. The full HTTP state the
+    /// boot seed driver resolves + pins against (a clone of the runtime's
+    /// `boot_driver_state`), the operator's `[seed] keep_online_projects`
+    /// accept-list, and the mutex serializing a re-drive against the in-flight
+    /// boot driver. When a subscribed anchor's directory is freshly accepted,
+    /// a configured `keep_online` app it now covers is pinned without a restart.
+    /// `boot_driver_state` is `Option` so unit tests of the gossip task can run
+    /// without constructing a full `DaemonHttpState` (a `None` never re-drives).
+    boot_driver_state: Option<Arc<DaemonHttpState>>,
+    keep_online_projects: Vec<String>,
+    seed_driver_lock: Arc<tokio::sync::Mutex<()>>,
+    /// Single-flight + dirty coordinator so a burst of accepted ingests
+    /// coalesces into one re-drive chain (+ one trailing pass), never losing a
+    /// trigger (Codex P1-1).
+    redrive_coord: Arc<tokio::sync::Mutex<RedriveCoord>>,
 }
 
 /// Spawn the background task that subscribes to the curator
@@ -1555,6 +1584,10 @@ fn spawn_gossip_subscribe_task(cfg: GossipTaskConfig) -> JoinHandle<()> {
         coordinator_db,
         initial_outbox,
         boot_replay_done,
+        boot_driver_state,
+        keep_online_projects,
+        seed_driver_lock,
+        redrive_coord,
     } = cfg;
     tokio::spawn(async move {
         let gossip = GossipClient::new(node.gossip());
@@ -1754,12 +1787,27 @@ fn spawn_gossip_subscribe_task(cfg: GossipTaskConfig) -> JoinHandle<()> {
                                 // persisted re-fetch locator for boot durability. The
                                 // receive-side sibling of the curator arm; replaces the
                                 // Phase B drop-at-debug.
-                                handle_directory_announcement(
+                                let accepted = handle_directory_announcement(
                                     &curator_runtime,
                                     &node,
                                     &payload,
                                 )
                                 .await;
+                                // Sprint 82 Phase A: a freshly-accepted directory may
+                                // make a configured keep_online app resolvable for the
+                                // first time — re-drive the boot seed driver
+                                // (cooldown-coalesced, duress-safe) so it is pinned
+                                // without a daemon restart. Closes S81-G-ESC-1.
+                                if accepted && let Some(ref bds) = boot_driver_state {
+                                    maybe_redrive_seed_on_ingest(
+                                        bds,
+                                        &keep_online_projects,
+                                        &seed_driver_lock,
+                                        &redrive_coord,
+                                        REDRIVE_MIN_INTERVAL,
+                                    )
+                                    .await;
+                                }
                             } else {
                                 handle_announcement(&curator_runtime, &node, &payload).await;
                             }
@@ -1990,17 +2038,153 @@ async fn handle_announcement(curator_runtime: &CuratorRuntimeHandle, node: &Node
     }
 }
 
+/// Sprint 82 Phase A: pace between two SEQUENTIAL re-drive passes. The re-drive
+/// is single-flight + dirty-coalesced (see [`RedriveCoord`]); this only spaces
+/// the TRAILING pass a burst of ingests coalesces into, so a rapidly-bumping
+/// subscribed anchor cannot spin the network-heavy driver.
+pub(crate) const REDRIVE_MIN_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Sprint 82 Phase A: single-flight + dirty coordinator for re-drive-on-ingest.
+/// `active` = a re-drive chain is running; `dirty` = an ingest arrived while a
+/// chain was running, so a trailing pass must re-cover it. This is true
+/// COALESCING, not throttling: an ingest during an active pass is NEVER dropped
+/// — it sets `dirty` and the running chain does one more pass after it finishes
+/// (Codex P1-1: a leading-edge cooldown loses the only useful ingest).
+#[derive(Default)]
+pub(crate) struct RedriveCoord {
+    active: bool,
+    dirty: bool,
+}
+
+/// Sprint 82 Phase A — re-drive-on-ingest. When a node directory is freshly
+/// ACCEPTED via gossip (subscription-gated + Ed25519 + anti-rollback), give the
+/// boot seed driver another pass so a `keep_online` app whose directory ingests
+/// AFTER the daemon booted gets pinned WITHOUT a restart — closing the S75
+/// "first-boot dead window" and the S81-G-ESC-1 boot-SEED escalation.
+///
+/// - Cooldown-coalesced ([`REDRIVE_MIN_INTERVAL`]): the driver is network-heavy
+///   (`fetch_and_pin_multi`), so an un-debounced re-drive on the hot ingest
+///   path would be a DoS vector; a burst of revision announcements costs at
+///   most one pass per window.
+/// - Config-only accept-list: the driver iterates ONLY the operator's
+///   `configured` apps, never a network-supplied pid, so an ingested directory
+///   can trigger a pass but never inject a target.
+/// - Duress-safe: `run_boot_seed_driver`'s duress gate is the FIRST statement
+///   of the primitive, so a decoy node re-drives nothing. No pre-read of
+///   `keep_online` / pid resolution / real `project_id` logging happens here
+///   (DURESS-BOOT-LEAK class).
+/// - Serialized against the in-flight boot driver via `seed_driver_lock` so the
+///   `was_already_announced` read-before-write cannot double-emit
+///   `SeedAnnounced`. LOCK SCOPE (review P3-5): the lock covers the boot driver
+///   and this re-drive ONLY. `seed_voluntary` (POST /api/daemon/seed) is a third
+///   `SeedAnnounced` emitter that does not take it — a concurrent manual seed
+///   can still double-emit, deduped best-effort downstream by the seed
+///   registry ingest, pre-existing and non-fatal.
+/// - Duress-gated FIRST (review P1-2): a decoy node re-drives nothing and does
+///   not even clone the real configured list here; `run_boot_seed_driver`
+///   re-checks duress defense-in-depth. No observable pre-read (log / DB /
+///   resolution / fetch / emit) of real data happens before either gate.
+/// - Config-only accept-list: the driver iterates ONLY the operator's
+///   `configured` apps, never a network-supplied pid, so an ingested directory
+///   can trigger a pass but never inject a target.
+/// - Single-flight + dirty-coalesced (Codex P1-1): at most one re-drive chain
+///   runs at a time ([`RedriveCoord`]); an ingest arriving during a pass sets
+///   `dirty` so the chain does one trailing pass that re-covers it — no ingest
+///   is ever lost, and passes never pile up on the lock.
+/// - Serialized against the in-flight boot driver via `seed_driver_lock` so the
+///   `was_already_announced` read-before-write cannot double-emit
+///   `SeedAnnounced`. LOCK SCOPE (review P3-5): the lock covers the boot driver
+///   and this re-drive ONLY. `seed_voluntary` (POST /api/daemon/seed) is a third
+///   `SeedAnnounced` emitter that does not take it — a concurrent manual seed
+///   can still double-emit, deduped best-effort downstream by the seed registry
+///   ingest, pre-existing and non-fatal.
+/// - **Rate-limited** (Codex round 2), not just single-flight: after each pass
+///   the chain STAYS `active` for a `pace` grace window and coalesces the
+///   window's ingests into one trailing pass — so a subscribed anchor bumping
+///   its revision faster than a pass takes cannot start a fresh unpaced chain
+///   per bump. The driver runs at most once per `pace` (prod: [`REDRIVE_MIN_INTERVAL`]).
+/// - Spawned (not awaited) so a slow pull never stalls the gossip receive loop.
+///
+/// Returns the spawned chain's [`JoinHandle`] when this call STARTS a chain, or
+/// `None` when it is coalesced into a running chain / empty accept-list /
+/// duress. The production caller fires and forgets; tests `await` the handle
+/// (with a short `pace` so the grace window does not slow the test).
+pub(crate) async fn maybe_redrive_seed_on_ingest(
+    boot_driver_state: &Arc<DaemonHttpState>,
+    configured: &[String],
+    seed_driver_lock: &Arc<tokio::sync::Mutex<()>>,
+    coord: &Arc<tokio::sync::Mutex<RedriveCoord>>,
+    pace: std::time::Duration,
+) -> Option<tokio::task::JoinHandle<()>> {
+    if configured.is_empty() {
+        return None;
+    }
+    // Duress gate FIRST (review P1-2): before cloning/using the real configured
+    // list. A decoy re-drives nothing.
+    if crate::noop_identity::gossip_publish_in_duress(boot_driver_state.identity_mode)
+        == crate::noop_identity::PublishOutcome::Noop
+    {
+        return None;
+    }
+    {
+        let mut c = coord.lock().await;
+        if c.active {
+            // A chain is already running — guarantee it re-covers this ingest
+            // with a trailing pass instead of dropping it.
+            c.dirty = true;
+            return None;
+        }
+        c.active = true;
+    }
+    let state = Arc::clone(boot_driver_state);
+    let configured = configured.to_vec();
+    let lock = Arc::clone(seed_driver_lock);
+    let coord = Arc::clone(coord);
+    Some(tokio::spawn(async move {
+        loop {
+            {
+                // Serialize against the boot driver / a prior pass so the
+                // `was_already_announced` read-before-write cannot double-emit.
+                let _guard = lock.lock().await;
+                let pinned = crate::http::run_boot_seed_driver(&state, &configured).await;
+                if pinned > 0 {
+                    info!(pinned, "boot seed driver re-driven on directory ingest");
+                }
+            }
+            // Grace window: STAY `active` so ingests arriving now coalesce into
+            // `dirty` (one trailing pass) instead of each starting a fresh
+            // UNPACED chain — this rate-limits the driver to at most one pass per
+            // `pace`, not just single-flight concurrency (Codex round 2).
+            tokio::time::sleep(pace).await;
+            {
+                let mut c = coord.lock().await;
+                if !c.dirty {
+                    c.active = false;
+                    break;
+                }
+                // An ingest arrived during the pass or the grace window: consume
+                // the flag and run a trailing pass that re-covers it.
+                c.dirty = false;
+            }
+        }
+    }))
+}
+
 /// Handle a gossip message identified as a node directory announcement
 /// (Sprint 75 Phase C). The receive-side sibling of [`handle_announcement`]:
 /// fetch + verify + store the referenced `NodeDirectoryEntry` through the shared
 /// `SignedList` ingest gate, subscription-gated. Mirrors the curator arm's error
 /// logging (non-subscribed/rollback at `debug!`, attribution mismatch at `warn!`)
 /// so a flood of routine drops never masks a real spoof attempt.
+/// Returns `true` iff the announcement was ACCEPTED (subscription-gated +
+/// Ed25519 attribution + anti-rollback all passed and the entry was stored) —
+/// the caller uses this to trigger the Sprint 82 Phase A re-drive-on-ingest of
+/// the boot seed driver. Every reject path returns `false`.
 async fn handle_directory_announcement(
     curator_runtime: &CuratorRuntimeHandle,
     node: &Node,
     content: &[u8],
-) {
+) -> bool {
     match curator_runtime
         .process_directory_announcement_bytes_throttled(content, node)
         .await
@@ -2011,9 +2195,11 @@ async fn handle_directory_announcement(
                 revision = entry.directory.revision,
                 "node directory accepted via gossip"
             );
+            true
         }
         Err(CuratorRuntimeError::NotSubscribed { curator }) => {
             debug!(node = %curator, "dropped node directory from non-subscribed anchor");
+            false
         }
         Err(CuratorRuntimeError::EnvelopeMismatch {
             announcement,
@@ -2024,12 +2210,15 @@ async fn handle_directory_announcement(
                 entry = %entry,
                 "node directory attribution mismatch — a peer is stapling a signed directory to a different pubkey"
             );
+            false
         }
         Err(CuratorRuntimeError::RevisionRollback { new, stored }) => {
             debug!(new, stored, "ignored node directory revision rollback");
+            false
         }
         Err(e) => {
             warn!(error = %e, "failed to process node directory announcement");
+            false
         }
     }
 }
@@ -3185,6 +3374,12 @@ mod tests {
             coordinator_db: Arc::clone(&coordinator_db),
             initial_outbox: vec![],
             boot_replay_done: Some(boot_done_tx),
+            // Sprint 82 Phase A: this test drives the Outbox command, not the
+            // re-drive-on-ingest path — no boot driver state needed.
+            boot_driver_state: None,
+            keep_online_projects: vec![],
+            seed_driver_lock: Arc::new(tokio::sync::Mutex::new(())),
+            redrive_coord: Arc::new(tokio::sync::Mutex::new(RedriveCoord::default())),
         });
 
         // Wait for the boot replay to finish so the select loop is consuming cmds

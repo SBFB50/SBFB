@@ -1816,15 +1816,15 @@ fn directory_pull_providers(
 /// Sequential on purpose (one bounded network budget per app — the Phase
 /// C re-pull pattern): a long list cannot fan out unbounded dials at
 /// boot, and a fully-dead provider set costs at most one timeout per app.
-/// Best-effort, ONE-SHOT: a failed app is logged and skipped, the rest
-/// proceed; nothing re-drives until the next daemon restart. Known
-/// first-boot dead window: on a FRESH anchor (no persisted `anchors.json`
-/// yet) the boot re-pull has nothing to restore, so a configured app that
-/// only exists in a not-yet-ingested directory is skipped this boot —
-/// the operator remedy is `POST /api/daemon/seed {project_id}` once the
-/// directory ingests live, or a daemon restart (re-drive-on-ingest is a
-/// tracked S76 carry). Returns the number of apps pinned (newly acquired
-/// or re-pinned).
+/// Best-effort, ONE-SHOT per invocation: a failed app is logged and skipped,
+/// the rest proceed. At boot this runs once; Sprint 82 Phase A additionally
+/// re-drives it whenever a subscribed anchor's node directory is accepted via
+/// gossip (`crate::runtime::maybe_redrive_seed_on_ingest`, cooldown-coalesced),
+/// so the former "first-boot dead window" — a FRESH anchor (no persisted
+/// `anchors.json` yet) whose configured app only exists in a not-yet-ingested
+/// directory — now closes without a daemon restart or a manual
+/// `POST /api/daemon/seed {project_id}`. Returns the number of apps pinned
+/// (newly acquired or re-pinned).
 pub(crate) async fn run_boot_seed_driver(
     state: &Arc<DaemonHttpState>,
     configured: &[String],
@@ -6175,6 +6175,151 @@ mod tests {
                 Some((true, Some(archive_hash.clone())))
             );
         }
+
+        seeder_node.shutdown().await.ok();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn redrive_on_ingest_pins_configured_app_without_restart() {
+        // Sprint 82 Phase A — ANCRE red→green. The one-shot boot driver runs
+        // during the S75 "first-boot dead window" (directory not yet ingested)
+        // and pins nothing; when a subscribed anchor's directory later ingests
+        // and covers a configured keep_online app, the re-drive-on-ingest hook
+        // pins it WITHOUT a daemon restart — closing the S81-G-ESC-1 boot-SEED
+        // escalation. The re-drive is single-flight + dirty-coalesced (Codex
+        // P1-1) and duress-gated (Codex P1-2); the chain handle is awaited for
+        // determinism (prod fires and forgets).
+        let state = mk_state().await;
+        let seeder_node = create_node().await.expect("boot seeder node");
+
+        let payload = b"redrive-on-ingest-seed-bytes".to_vec();
+        let blobs_seeder = nexus_core_rs::BlobsClient::new(seeder_node.blobs_store());
+        let archive_hash_bytes = blobs_seeder.add_bytes(&payload).await.unwrap();
+        let archive_hash = hex::encode(archive_hash_bytes);
+        let pid = "e".repeat(64);
+        let tag = crate::deploy::keep_online_tag(&pid);
+
+        // A live seeder announced this exact version; pre-seed its address +
+        // registry so the eventual pull resolves without live pkarr timing
+        // (same trick as `boot_seed_driver_pins_configured_projects`).
+        let now = SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        state
+            .seed_registry
+            .record(&pid, &archive_hash, &seeder_node.node_id(), now, now);
+        let seeder_addr = nexus_core_rs::DiscoveryClient::new(seeder_node.endpoint())
+            .my_endpoint_addr()
+            .await
+            .expect("seeder must expose an address");
+        state.node.memory_lookup().add_endpoint_info(seeder_addr);
+
+        let configured = vec![pid.clone()];
+        let lock = std::sync::Arc::new(tokio::sync::Mutex::new(()));
+        let coord = std::sync::Arc::new(tokio::sync::Mutex::new(
+            crate::runtime::RedriveCoord::default(),
+        ));
+        // Short grace window so awaiting a chain does not wait out the prod
+        // REDRIVE_MIN_INTERVAL (the pace is a param precisely so tests stay fast).
+        let pace = std::time::Duration::from_millis(50);
+
+        // CONTROL (red): no directory ingested yet — the re-drive chain runs one
+        // pass that pins nothing (the dead window reproduced). Awaiting the chain
+        // is deterministic: with nothing dirty it does one pass and exits.
+        let control =
+            crate::runtime::maybe_redrive_seed_on_ingest(&state, &configured, &lock, &coord, pace)
+                .await
+                .expect("non-empty config + non-duress starts a chain");
+        control.await.expect("control chain joins");
+        assert!(
+            !has_tag(&state, &tag).await,
+            "control: the app must NOT be pinned before its directory ingests"
+        );
+
+        // Ingest the subscribed anchor's directory covering the configured pid
+        // (the effect the live gossip receive path has on the directory store).
+        let kp_anchor = KeyPair::generate();
+        ingest_remote_directory(
+            &state,
+            &seeder_node,
+            &kp_anchor,
+            vec![catalog_app(&pid, &archive_hash, "Configured App")],
+            1,
+        )
+        .await;
+
+        // FIX (green): re-drive after ingest -> the app is now resolvable and is
+        // pinned WITHOUT a daemon restart.
+        let fixed =
+            crate::runtime::maybe_redrive_seed_on_ingest(&state, &configured, &lock, &coord, pace)
+                .await
+                .expect("a fresh chain starts (the previous one converged)");
+        fixed.await.expect("fix chain joins");
+
+        // The anchor now HOLDS the author's exact bytes, pinned skip-GC, with
+        // the keep_online row recorded — all without a daemon restart.
+        let blobs_local = nexus_core_rs::BlobsClient::new(state.node.blobs_store());
+        assert!(blobs_local.has(archive_hash_bytes).await.unwrap());
+        assert!(
+            has_tag(&state, &tag).await,
+            "the re-drive must leave the keep-online pin tag behind"
+        );
+        {
+            let db = state
+                .coordinator_db
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            assert_eq!(
+                db.get_keep_online(&pid).expect("keep_online read"),
+                Some((true, Some(archive_hash.clone())))
+            );
+        }
+
+        // EMPTY-config revert-proof: no operator accept-list -> never a chain.
+        assert!(
+            crate::runtime::maybe_redrive_seed_on_ingest(&state, &[], &lock, &coord, pace)
+                .await
+                .is_none(),
+            "empty accept-list must never re-drive"
+        );
+
+        // DURESS revert-proof (Codex P1-2): a decoy node re-drives nothing, even
+        // with a resolvable configured app — gated BEFORE cloning the real list.
+        let duress = mk_state_with_mode(nexus_core_rs::IdentityMode::Duress).await;
+        assert!(
+            crate::runtime::maybe_redrive_seed_on_ingest(&duress, &configured, &lock, &coord, pace)
+                .await
+                .is_none(),
+            "a decoy (duress) node must never re-drive"
+        );
+
+        // COALESCING (Codex P1-1): while a chain is active (blocked on the held
+        // lock), a second ingest COALESCES (returns None) and marks the chain
+        // dirty; releasing the lock lets the chain run to completion (first pass
+        // + one trailing pass over the coalesced ingest) — the trigger is NEVER
+        // dropped (vs the old leading-edge cooldown that discarded it). The short
+        // `pace` keeps the grace window fast enough to await here.
+        let hold = lock.lock().await;
+        let chain =
+            crate::runtime::maybe_redrive_seed_on_ingest(&state, &configured, &lock, &coord, pace)
+                .await
+                .expect("first ingest starts a chain (blocked on the held lock)");
+        let coalesced =
+            crate::runtime::maybe_redrive_seed_on_ingest(&state, &configured, &lock, &coord, pace)
+                .await;
+        assert!(
+            coalesced.is_none(),
+            "a second ingest during an active chain must coalesce, not spawn a second chain"
+        );
+        drop(hold);
+        chain
+            .await
+            .expect("the coalesced chain joins after its trailing pass");
+        assert!(
+            has_tag(&state, &tag).await,
+            "the coalesced chain must leave the app pinned — the trigger was covered, not dropped"
+        );
 
         seeder_node.shutdown().await.ok();
     }

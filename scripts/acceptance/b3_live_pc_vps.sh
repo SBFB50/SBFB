@@ -97,6 +97,12 @@
 #                worker (the PC); enroll the 2nd homogeneous worker
 #                yourself on its host first.
 #   REDUNDANCY   redundancy_factor of the submitted task (default 1).
+#   BOOT_AFTER_SUBMIT  Sprint 82 Phase A boot-SEED re-jeu. 1 = submit the task
+#                BEFORE booting the worker, so the cold-booting worker must
+#                catch up a `task:` already pending in the doc (the
+#                S81-G-ESC-1 escalation scenario); the measured submit->visible
+#                delay then includes the worker's cold boot. Default 0 = boot
+#                the cold worker first, then submit an incremental `task:`.
 #   GATE_TIMEOUT_SECS  convergence budget in seconds (default 30).
 #   POLL_SECS    result poll interval (default 2).
 #   B3_ARTIFACT  JSON artefact path (default scripts/acceptance/.b3_last_result.json).
@@ -128,6 +134,13 @@ MODEL="${MODEL:-llama3.1:8b}"
 PROMPT="${PROMPT:-In one word, what is the capital of France?}"
 WORKER_BIN="${WORKER_BIN:-}"
 REDUNDANCY="${REDUNDANCY:-1}"
+# Sprint 82 Phase A (boot-SEED re-jeu): when 1, submit the task BEFORE the
+# worker boots, so the cold-booting worker must catch up a `task:` that was
+# already pending in the doc (the S81-G-ESC-1 escalation scenario). Default 0
+# keeps the audit re-jeu: cold-boot the worker, then submit an incremental
+# `task:` ~3s later (worker up + subscribed but its gossip neighbor not yet
+# formed — the exact S81-K observation).
+BOOT_AFTER_SUBMIT="${BOOT_AFTER_SUBMIT:-0}"
 GATE_TIMEOUT_SECS="${GATE_TIMEOUT_SECS:-30}"
 POLL_SECS="${POLL_SECS:-2}"
 OLLAMA_URL="${OLLAMA_URL:-http://127.0.0.1:11434}"
@@ -316,47 +329,73 @@ INVITE="$(printf '%s' "$INVITE_JSON" | sed -n 's/.*\"wire\":\"\([^\"]*\)\".*/\1/
 log "worker invite minted: ${INVITE:0:16}…"
 
 # --- Enroll + start the local nexus-worker (capture log) ------------------
+# Extracted into a function (Sprint 82 Phase A) so BOOT_AFTER_SUBMIT can run it
+# AFTER the submit. Variables are the enclosing script's globals (bash
+# functions share scope) — WORKER_PID / HAVE_WORKER_LOG / the EXIT trap all
+# take effect globally.
 WORKER_PID=""
 HAVE_WORKER_LOG=0
-if [ -n "$WORKER_BIN" ]; then
-  log "step 2: enrolling local worker via 'nexus-worker join'"
-  if ! "$WORKER_BIN" join "$INVITE"; then
-    rig_absent "nexus-worker join failed (invite rejected or worker misconfigured)"
+enroll_and_start_worker() {
+  if [ -n "$WORKER_BIN" ]; then
+    log "step (worker): enrolling local worker via 'nexus-worker join'"
+    if ! "$WORKER_BIN" join "$INVITE"; then
+      rig_absent "nexus-worker join failed (invite rejected or worker misconfigured)"
+    fi
+    log "step (worker): starting local nexus-worker (real Ollama, GPU); log -> $WORKER_LOG"
+    : >"$WORKER_LOG" 2>/dev/null || true
+    # RUST_LOG raises the engine to debug so the worker logs the task_id at
+    # SCAN/CLAIM (not only at completion) — the BLOCK auto-diagnostic and the
+    # claim timer both grep this log for the task_id, so without it an
+    # in-flight inference would be mis-diagnosed as "never reached worker".
+    RUST_LOG="${RUST_LOG:-info,nexus_worker_core::engine=debug}" \
+      "$WORKER_BIN" start --headless >"$WORKER_LOG" 2>&1 &
+    WORKER_PID=$!
+    HAVE_WORKER_LOG=1
+    trap '[ -n "$WORKER_PID" ] && kill "$WORKER_PID" 2>/dev/null || true' EXIT
+    sleep 3
+    # A worker that died on start (bad config, port taken) must be RIG-ABSENT,
+    # not a downstream BLOCK misattributed to WAN convergence.
+    if ! kill -0 "$WORKER_PID" 2>/dev/null; then
+      rig_absent "local nexus-worker died on start (see $WORKER_LOG)"
+    fi
+  else
+    log "step (worker): WORKER_BIN unset — enroll the PC worker yourself, then press Enter:"
+    log "        nexus-worker join $INVITE && nexus-worker start --headless"
+    log "        (no worker log captured → BLOCK auto-diagnostic is degraded)"
+    read -r _
   fi
-  log "step 2: starting local nexus-worker (real Ollama, GPU); log -> $WORKER_LOG"
-  : >"$WORKER_LOG" 2>/dev/null || true
-  # RUST_LOG raises the engine to debug so the worker logs the task_id at
-  # SCAN/CLAIM (not only at completion) — the BLOCK auto-diagnostic and the
-  # claim timer both grep this log for the task_id, so without it an
-  # in-flight inference would be mis-diagnosed as "never reached worker".
-  RUST_LOG="${RUST_LOG:-info,nexus_worker_core::engine=debug}" \
-    "$WORKER_BIN" start --headless >"$WORKER_LOG" 2>&1 &
-  WORKER_PID=$!
-  HAVE_WORKER_LOG=1
-  trap '[ -n "$WORKER_PID" ] && kill "$WORKER_PID" 2>/dev/null || true' EXIT
-  sleep 3
-  # A worker that died on start (bad config, port taken) must be RIG-ABSENT,
-  # not a downstream BLOCK misattributed to WAN convergence.
-  if ! kill -0 "$WORKER_PID" 2>/dev/null; then
-    rig_absent "local nexus-worker died on start (see $WORKER_LOG)"
-  fi
-else
-  log "step 2: WORKER_BIN unset — enroll the PC worker yourself, then press Enter:"
-  log "        nexus-worker join $INVITE && nexus-worker start --headless"
-  log "        (no worker log captured → BLOCK auto-diagnostic is degraded)"
-  read -r _
-fi
+}
 
 # --- Submit a task to the VPS coordinator ---------------------------------
-log "step 3: submitting a task to the VPS (redundancy=$REDUNDANCY, verifiable=$VERIFIABLE)"
-SUBMIT_JSON="$(vps "curl -fsS -X POST $AUTH -H 'Content-Type: application/json' -d '$(
-  printf '{\"project_id\":\"%s\",\"task_type\":\"analysis\",\"prompt\":\"%s\",\"model\":\"%s\",\"redundancy_factor\":%s,\"verifiable\":%s}' \
-    "$PROJECT_ID" "$PROMPT" "$MODEL" "$REDUNDANCY" "$VERIFIABLE"
-)' '$VPS_DAEMON/api/v1/tasks/submit'" 2>/dev/null || true)"
-TASK_ID="$(printf '%s' "$SUBMIT_JSON" | sed -n 's/.*\"task_id\":\"\([^\"]*\)\".*/\1/p')"
-[ -n "$TASK_ID" ] || rig_absent "tasks/submit returned no task_id: ${SUBMIT_JSON:-<none>}"
-SUBMIT_AT="$(date +%s)"
-log "task submitted: $TASK_ID at epoch ${SUBMIT_AT}s"
+submit_task() {
+  log "step (submit): submitting a task to the VPS (redundancy=$REDUNDANCY, verifiable=$VERIFIABLE)"
+  SUBMIT_JSON="$(vps "curl -fsS -X POST $AUTH -H 'Content-Type: application/json' -d '$(
+    printf '{\"project_id\":\"%s\",\"task_type\":\"analysis\",\"prompt\":\"%s\",\"model\":\"%s\",\"redundancy_factor\":%s,\"verifiable\":%s}' \
+      "$PROJECT_ID" "$PROMPT" "$MODEL" "$REDUNDANCY" "$VERIFIABLE"
+  )' '$VPS_DAEMON/api/v1/tasks/submit'" 2>/dev/null || true)"
+  TASK_ID="$(printf '%s' "$SUBMIT_JSON" | sed -n 's/.*\"task_id\":\"\([^\"]*\)\".*/\1/p')"
+  [ -n "$TASK_ID" ] || rig_absent "tasks/submit returned no task_id: ${SUBMIT_JSON:-<none>}"
+  SUBMIT_AT="$(date +%s)"
+  log "task submitted: $TASK_ID at epoch ${SUBMIT_AT}s"
+}
+
+# Order the two steps. Sprint 82 Phase A boot-SEED re-jeu (BOOT_AFTER_SUBMIT=1):
+# submit FIRST so the `task:` is already pending in the doc, THEN cold-boot the
+# worker — it must reconcile the pending entry once its gossip neighbor forms
+# (the cold-boot catch-up the WORKER deliverable targets). Default: boot the
+# cold worker first, then submit an incremental `task:` (the S81-K observation
+# — worker up + subscribed but neighbor not yet formed).
+if [ "$BOOT_AFTER_SUBMIT" = "1" ]; then
+  # Codex P1-3: attributing PASS to the cold target worker needs its captured
+  # log — fail fast before submitting if we cannot capture one.
+  [ -n "$WORKER_BIN" ] || rig_absent "BOOT_AFTER_SUBMIT needs WORKER_BIN so the cold target worker's log can attribute the result (a competing worker would otherwise false-green the run)"
+  log "BOOT_AFTER_SUBMIT=1: submit first, then cold-boot the worker (pending-task catch-up)"
+  submit_task
+  enroll_and_start_worker
+else
+  enroll_and_start_worker
+  submit_task
+fi
 
 # --- Poll the VPS for the WAN-replicated result + measure timers ----------
 log "step 4: polling $VPS_DAEMON/api/v1/tasks/$TASK_ID/result for the WAN result"
@@ -412,6 +451,27 @@ if [ "$REDUNDANCY" -ge 2 ]; then
   log "                 after the validator agreed $REDUNDANCY byte-identical"
   log "                 results from the homogeneous cohort (a diverging or"
   log "                 non-homogeneous worker would never have reached quorum)."
+fi
+# Sprint 82 Phase A (Codex P1-3): in BOOT_AFTER_SUBMIT mode the whole point is
+# that the COLD target worker caught up the already-pending task. A visible
+# result is NOT proof of that — a warm Mac or another enrolled worker could have
+# produced it first. Require the target worker's OWN log to show it claimed
+# task:$TASK_ID before attributing PASS; without a captured log (no WORKER_BIN)
+# the result cannot be attributed, so the run is RIG-ABSENT.
+if [ "$BOOT_AFTER_SUBMIT" = "1" ]; then
+  if [ "$HAVE_WORKER_LOG" -ne 1 ]; then
+    rig_absent "BOOT_AFTER_SUBMIT needs WORKER_BIN so the cold target worker's log can attribute the result (a competing worker would otherwise false-green the run)"
+  fi
+  # Attribution marker (Codex round 2): the worker logs "task completed and
+  # result written" with the task_id ONLY after it signed + wrote the result
+  # (nexus-worker-core engine/runtime.rs). A "saw task" SCAN/CLAIM log is NOT
+  # enough — the cold target can see the task, log its id, then LOSE the claim
+  # to a warm competing worker that actually produces the result.
+  if ! grep "$TASK_ID" "$WORKER_LOG" 2>/dev/null | grep -qi "result written"; then
+    block "attribution" \
+      "result visible at the VPS but the cold target worker never logged 'task completed and result written' for task:$TASK_ID ($WORKER_LOG) — it may have SEEN the task but lost the claim to a competing worker (e.g. a warm Mac), so this does NOT prove the cold-boot catch-up. Run ONLY the cold target worker, or attribute the producing key. Last VPS response: ${RESP:-<none>}"
+  fi
+  log "attribution    : the cold target worker WROTE the result for task:$TASK_ID (claim seen at ${CLAIM_S:-?}s) — result is attributable to it"
 fi
 log "The PC executed a task submitted to the VPS; the signed result was"
 log "rendered back over the WAN. Paste this trace into sprint{N}_verification.md."

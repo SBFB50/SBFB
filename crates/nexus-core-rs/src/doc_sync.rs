@@ -88,6 +88,31 @@ pub const DEFAULT_CHECK_INTERVAL: Duration = Duration::from_secs(15);
 /// `start_sync` calls when `NeighborDown` events arrive in a burst.
 pub const DEFAULT_MIN_REJOIN_INTERVAL: Duration = Duration::from_secs(5);
 
+/// Cold-boot warmup cadence: until the FIRST `NeighborUp` forms after a
+/// (re)start, a doc with no live neighbor re-issues `start_sync` this often
+/// instead of at `check_interval`. Sprint 82 Phase A: the S81-K live gap was
+/// a worker cold-booted a few seconds before an incremental `task:` write
+/// whose gossip neighbor had not yet formed — with only the 15s backstop the
+/// namespace took minutes to converge (neighbor-formation latency, not a
+/// missing `start_sync`). A ~1s warmup re-dials aggressively while the
+/// neighborhood is still forming (pkarr/relay resolution retries), then
+/// relaxes to the steady backstop once the first neighbor is up.
+pub const DEFAULT_COLD_BOOT_CHECK_INTERVAL: Duration = Duration::from_secs(1);
+
+/// Re-join cooldown during the cold-boot warmup (bounds the aggressive
+/// cadence above so it cannot spin `start_sync`). Paired with
+/// [`DEFAULT_COLD_BOOT_CHECK_INTERVAL`].
+pub const DEFAULT_COLD_BOOT_MIN_REJOIN_INTERVAL: Duration = Duration::from_secs(1);
+
+/// Wall-clock cap on the cold-boot warmup: relax to the steady backstop after
+/// this long even if the first `NeighborUp` edge is never observed (Sprint 82
+/// Phase A review P2). The subscription is edge-triggered, so an initial
+/// `NeighborUp` fired before we subscribed — or a coordinator that never
+/// becomes reachable — could otherwise pin the aggressive ~1s cadence forever.
+/// Comfortably longer than a healthy cold-boot neighbor formation, short enough
+/// that a stuck doc stops re-dialing aggressively within a minute.
+pub const DEFAULT_COLD_BOOT_WINDOW: Duration = Duration::from_secs(60);
+
 /// Tunables for [`spawn_doc_sync_keepalive`].
 #[derive(Debug, Clone)]
 pub struct KeepaliveConfig {
@@ -101,6 +126,16 @@ pub struct KeepaliveConfig {
     /// Cooldown between re-join attempts (rate-limits the `NeighborDown`
     /// fast path and the periodic backstop together).
     pub min_rejoin_interval: Duration,
+    /// Backstop cadence used ONLY during the cold-boot warmup — before the
+    /// first `NeighborUp` since (re)start. Once a neighbor forms the task
+    /// relaxes to `check_interval`. Defaults to `check_interval` (no
+    /// acceleration) so a caller that does not opt in keeps the exact Sprint
+    /// 77 behavior; the worker opts into acceleration via
+    /// [`KeepaliveConfig::cold_boot_aggressive`]. (Sprint 82 Phase A.)
+    pub cold_boot_check_interval: Duration,
+    /// Re-join cooldown during the cold-boot warmup. Defaults to
+    /// `min_rejoin_interval`. (Sprint 82 Phase A.)
+    pub cold_boot_min_rejoin_interval: Duration,
 }
 
 impl Default for KeepaliveConfig {
@@ -108,6 +143,51 @@ impl Default for KeepaliveConfig {
         Self {
             check_interval: DEFAULT_CHECK_INTERVAL,
             min_rejoin_interval: DEFAULT_MIN_REJOIN_INTERVAL,
+            // No warmup acceleration by default: the cold-boot cadence equals
+            // the steady cadence, so an unaware caller keeps the exact Sprint
+            // 77 behavior (0 observable change).
+            cold_boot_check_interval: DEFAULT_CHECK_INTERVAL,
+            cold_boot_min_rejoin_interval: DEFAULT_MIN_REJOIN_INTERVAL,
+        }
+    }
+}
+
+impl KeepaliveConfig {
+    /// Steady backstop plus an aggressive cold-boot warmup: until the first
+    /// `NeighborUp` since (re)start, re-issue `start_sync` every
+    /// [`DEFAULT_COLD_BOOT_CHECK_INTERVAL`] instead of every
+    /// [`DEFAULT_CHECK_INTERVAL`], then relax to the steady backstop. Closes
+    /// the S81-K cold-boot convergence gap (Sprint 82 Phase A): a worker that
+    /// boots seconds before an incremental `task:` write re-forms its gossip
+    /// neighbor in seconds instead of minutes, without changing steady-state
+    /// behavior. 0 dep, 0 wire — a cadence choice over the existing
+    /// `start_sync` primitive.
+    pub fn cold_boot_aggressive() -> Self {
+        Self {
+            cold_boot_check_interval: DEFAULT_COLD_BOOT_CHECK_INTERVAL,
+            cold_boot_min_rejoin_interval: DEFAULT_COLD_BOOT_MIN_REJOIN_INTERVAL,
+            ..Self::default()
+        }
+    }
+
+    /// The backstop cadence for the current warmth: the aggressive cold-boot
+    /// interval until the first neighbor forms (`warm == false`), then the
+    /// steady interval. Used by [`spawn_doc_sync_keepalive`]'s ticker.
+    fn check_interval_for(&self, warm: bool) -> Duration {
+        if warm {
+            self.check_interval
+        } else {
+            self.cold_boot_check_interval
+        }
+    }
+
+    /// The re-join cooldown for the current warmth (aggressive while cold,
+    /// steady once a neighbor has formed).
+    fn min_rejoin_for(&self, warm: bool) -> Duration {
+        if warm {
+            self.min_rejoin_interval
+        } else {
+            self.cold_boot_min_rejoin_interval
         }
     }
 }
@@ -142,10 +222,10 @@ where
 async fn rejoin(
     doc: &DocHandle,
     peers: &[EndpointAddr],
-    config: &KeepaliveConfig,
+    min_rejoin: Duration,
     last_rejoin: &mut Instant,
 ) {
-    if last_rejoin.elapsed() < config.min_rejoin_interval {
+    if last_rejoin.elapsed() < min_rejoin {
         return;
     }
     match doc.inner().start_sync(peers.to_vec()).await {
@@ -190,6 +270,17 @@ pub fn spawn_doc_sync_keepalive(
         let mut last_rejoin = Instant::now()
             .checked_sub(config.min_rejoin_interval)
             .unwrap_or_else(Instant::now);
+        // Sprint 82 Phase A: `false` until the cold-boot warmup is over —
+        // whichever comes first, the FIRST `NeighborUp` since this task started
+        // OR the `DEFAULT_COLD_BOOT_WINDOW` wall-clock deadline (review P2: the
+        // edge-triggered subscription can miss the initial NeighborUp, which
+        // must not pin the aggressive ~1s cadence forever). While cold, the
+        // ticker + re-join cooldown use the aggressive `cold_boot_*` cadence so
+        // a cold-booted replica forms its neighbor in seconds; once warm we
+        // relax to the steady backstop. Persisted across subscription
+        // reconnects so a reconnect before warmup completes stays aggressive.
+        let mut warm = false;
+        let started_at = Instant::now();
 
         loop {
             // (Re)subscribe for observability. Best-effort: if it fails
@@ -218,8 +309,10 @@ pub fn spawn_doc_sync_keepalive(
 
             // A fresh interval per (re)subscribe. `interval` fires its
             // first tick immediately, so re-entering the loop triggers an
-            // (idempotent, cooldown-gated) re-join.
-            let mut ticker = tokio::time::interval(config.check_interval);
+            // (idempotent, cooldown-gated) re-join. Sprint 82 Phase A: use the
+            // aggressive cadence until the first neighbor forms (`!warm`),
+            // then the steady backstop.
+            let mut ticker = tokio::time::interval(config.check_interval_for(warm));
             ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             // Currently-up neighbors, keyed by their endpoint id string.
             let mut neighbors: HashSet<String> = HashSet::new();
@@ -237,6 +330,19 @@ pub fn spawn_doc_sync_keepalive(
                         match pulled {
                             Pulled::Event(DocsLiveEvent::NeighborUp(pk)) => {
                                 neighbors.insert(pk.to_string());
+                                // Sprint 82 Phase A: the cold-boot neighborhood
+                                // has formed — relax from the aggressive warmup
+                                // cadence to the steady backstop. Rebuilding the
+                                // ticker fires an immediate first tick, but a
+                                // neighbor is now up so the `is_empty()` guard
+                                // skips the re-join.
+                                if !warm {
+                                    warm = true;
+                                    ticker = tokio::time::interval(config.check_interval);
+                                    ticker.set_missed_tick_behavior(
+                                        tokio::time::MissedTickBehavior::Skip,
+                                    );
+                                }
                             }
                             Pulled::Event(DocsLiveEvent::NeighborDown(pk)) => {
                                 neighbors.remove(&pk.to_string());
@@ -245,7 +351,8 @@ pub fn spawn_doc_sync_keepalive(
                                 // (cooldown-gated) rather than waiting for
                                 // the next periodic tick.
                                 if neighbors.is_empty() {
-                                    rejoin(&doc, &peers, &config, &mut last_rejoin).await;
+                                    rejoin(&doc, &peers, config.min_rejoin_for(warm), &mut last_rejoin)
+                                        .await;
                                 }
                             }
                             // Drain every other live event best-effort so the
@@ -256,11 +363,24 @@ pub fn spawn_doc_sync_keepalive(
                     }
 
                     _ = ticker.tick() => {
+                        // Sprint 82 Phase A (review P2): close the cold-boot
+                        // warmup on the wall-clock deadline even if no
+                        // NeighborUp edge was ever observed, so a stuck doc
+                        // relaxes to the steady backstop instead of re-dialing
+                        // at ~1s forever. The rebuilt ticker's immediate first
+                        // tick is harmless (cooldown-gated, and warm is now set).
+                        if !warm && started_at.elapsed() >= DEFAULT_COLD_BOOT_WINDOW {
+                            warm = true;
+                            ticker = tokio::time::interval(config.check_interval);
+                            ticker.set_missed_tick_behavior(
+                                tokio::time::MissedTickBehavior::Skip,
+                            );
+                        }
                         // Periodic backstop: re-join when no neighbor is
                         // currently tracked. Covers the case where the
                         // initial NeighborUp fired before we subscribed.
                         if neighbors.is_empty() {
-                            rejoin(&doc, &peers, &config, &mut last_rejoin).await;
+                            rejoin(&doc, &peers, config.min_rejoin_for(warm), &mut last_rejoin).await;
                         }
                     }
                 }
@@ -369,9 +489,14 @@ mod tests {
         // FIX: spawn the keepalive → it re-joins the gossip neighborhood
         // and B converges on k2.
         let (stop_tx, stop_rx) = watch::channel(false);
+        // cold_boot_* == steady here: this test exercises the NeighborDown
+        // fast path (post-warm), not the cold-boot warmup, so the two
+        // cadences are kept equal to preserve the original timing.
         let cfg = KeepaliveConfig {
             check_interval: Duration::from_millis(500),
             min_rejoin_interval: Duration::from_millis(200),
+            cold_boot_check_interval: Duration::from_millis(500),
+            cold_boot_min_rejoin_interval: Duration::from_millis(200),
         };
         let handle = spawn_doc_sync_keepalive(doc_b.clone(), vec![a_addr], cfg, stop_rx);
 
@@ -385,6 +510,48 @@ mod tests {
         handle.await.expect("keepalive task joins");
         node_a.shutdown().await.ok();
         node_b.shutdown().await.ok();
+    }
+
+    /// Sprint 82 Phase A — the cold-boot cadence, deterministic revert-proof.
+    ///
+    /// The convergence BENEFIT of the aggressive cold-boot cadence is a
+    /// real-transport property (a failed pkarr/relay dial must be re-issued,
+    /// and 1s re-issues form the neighbor minutes faster than 15s ones); it is
+    /// NOT reproducible in-process, where a single `start_sync`'s pending dial
+    /// resolves in the background the instant the address appears in the memory
+    /// lookup — the rejoin frequency is then irrelevant. So the live proof is
+    /// the T2 rig re-jeu (`b3_live_pc_vps.sh`, PASS<30s); here we lock the
+    /// cadence-selection LOGIC that the keepalive loop uses via
+    /// `check_interval_for` / `min_rejoin_for`. SCOPE (review P2-4): this
+    /// revert-proofs the CONSTRUCTOR contract — replace `cold_boot_aggressive()`
+    /// with `default()` on line one and the strict inequalities below fail. It
+    /// does NOT guard the worker's opt-in call-site
+    /// (`nexus-worker-core/engine/runtime.rs`); that one behavioral line closing
+    /// S81-K is proven only by the T2 live re-jeu.
+    #[test]
+    fn cold_boot_config_accelerates_only_the_cold_window() {
+        let cold = KeepaliveConfig::cold_boot_aggressive();
+        // Cold window (before the first NeighborUp) is strictly more aggressive
+        // than the steady backstop, on both the ticker cadence and the cooldown.
+        assert_eq!(
+            cold.check_interval_for(false),
+            DEFAULT_COLD_BOOT_CHECK_INTERVAL
+        );
+        assert!(
+            cold.check_interval_for(false) < cold.check_interval_for(true),
+            "cold-boot must re-dial faster than the steady backstop"
+        );
+        assert!(cold.min_rejoin_for(false) <= cold.min_rejoin_for(true));
+        // Once warm it relaxes to the EXACT Sprint 77 steady backstop.
+        assert_eq!(cold.check_interval_for(true), DEFAULT_CHECK_INTERVAL);
+        assert_eq!(cold.min_rejoin_for(true), DEFAULT_MIN_REJOIN_INTERVAL);
+
+        // The default keeps the Sprint 77 behavior verbatim: cold == steady (no
+        // acceleration), so any caller that does not opt in is unaffected — 0
+        // observable change (the constructor contract, not the worker call-site).
+        let d = KeepaliveConfig::default();
+        assert_eq!(d.check_interval_for(false), d.check_interval_for(true));
+        assert_eq!(d.min_rejoin_for(false), d.min_rejoin_for(true));
     }
 
     /// With no peers there is nothing to re-dial, so the keepalive must
