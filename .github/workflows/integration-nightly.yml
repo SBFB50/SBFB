@@ -45,6 +45,11 @@ jobs:
         with:
           prefix-key: "v1-rust"
           shared-key: "integration-ubuntu-latest"
+          # K-R-14: only write the shared cache from master so a
+          # branch/dispatch run can't poison it. Mirrors rust-ci.yml.
+          # Near-vacant here (cron + workflow_dispatch only, both from
+          # master), but closes the carry mechanically at zero cost.
+          save-if: ${{ github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' }}
           cache-on-failure: "true"
 
       - name: Install cargo-nextest

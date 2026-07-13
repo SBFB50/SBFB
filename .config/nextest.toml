@@ -74,6 +74,18 @@ slow-timeout = { period = "30s", terminate-after = 3 }
 failure-output = "immediate-final"
 status-level = "retry"
 
+# K-R-13: the relay-gated multi_daemon class (integration-nightly.yml,
+# SBFB_INTEGRATION=1) boots real iroh nodes over the network; a
+# slow-but-correct run must not be hard-killed by the global 90s ci cap.
+# 60s × 3 = 180s hard-kill (warns at 60s and 120s), mirroring the
+# two-node-convergence override in profile.default. `binary(multi_daemon)`
+# matches nexus-test-harness/tests/multi_daemon.rs and
+# nexus-coordinator-rs/tests/multi_daemon.rs — the exact `-E` set the
+# nightly job runs.
+[[profile.ci.overrides]]
+filter = 'binary(multi_daemon)'
+slow-timeout = { period = "60s", terminate-after = 3 }
+
 # Emit a JUnit XML report at `target/nextest/ci/junit.xml` so the
 # workflow can upload it as an artifact and (later) feed it to
 # result dashboards.

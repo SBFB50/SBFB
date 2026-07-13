@@ -15,6 +15,13 @@ env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
 
+# Least-privilege token: this workflow only reads the repository. Bounds
+# the blast-radius of the unpinned @v4 actions on pull_request runs.
+# upload-artifact@v4 uses ACTIONS_RUNTIME_TOKEN (not the GITHUB_TOKEN
+# contents scope), so restricting to read does not break the report uploads.
+permissions:
+  contents: read
+
 jobs:
   test:
     name: Full verification
@@ -42,6 +49,13 @@ jobs:
 
       - name: "[1] cargo fmt"
         run: cargo fmt --all --check
+
+      # nexus-launcher (workspace member) links GTK on Linux via the
+      # tray-icon/muda `gtk` feature, so any --workspace / --all-targets
+      # build needs libgtk-3-dev. Mirrors docker/ci/Dockerfile. sudo:
+      # the ubuntu-latest runner is a non-root `runner` user.
+      - name: Install GTK (nexus-launcher links gtk on Linux)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libgtk-3-dev
 
       - name: "[2] cargo clippy"
         run: cargo clippy --workspace --all-targets --locked -- -D warnings

@@ -22,17 +22,27 @@ steps:
   - name: rust-clippy
     image: rust:1.94@sha256:b644cc33aee7a2b32ff3e1198711f8ad3a69ae29a58e1a674e97f75776b88186
     commands:
+      # nexus-launcher links GTK on Linux (tray-icon/muda gtk feature);
+      # --workspace --all-targets needs libgtk-3-dev. No sudo: root in-image.
+      # Mirrors docker/ci/Dockerfile.
+      - apt-get update && apt-get install -y --no-install-recommends libgtk-3-dev
       - rustup component add clippy
       - cargo clippy --workspace --all-targets --locked -- -D warnings
 
   - name: rust-test
     image: rust:1.94@sha256:b644cc33aee7a2b32ff3e1198711f8ad3a69ae29a58e1a674e97f75776b88186
     commands:
+      # nexus-launcher links GTK on Linux; --workspace needs libgtk-3-dev.
+      # No sudo: root in-image. Mirrors docker/ci/Dockerfile.
+      - apt-get update && apt-get install -y --no-install-recommends libgtk-3-dev
       - cargo test --workspace --locked
 
   - name: rust-doctest
     image: rust:1.94@sha256:b644cc33aee7a2b32ff3e1198711f8ad3a69ae29a58e1a674e97f75776b88186
     commands:
+      # nexus-launcher links GTK on Linux; --workspace needs libgtk-3-dev.
+      # No sudo: root in-image. Mirrors docker/ci/Dockerfile.
+      - apt-get update && apt-get install -y --no-install-recommends libgtk-3-dev
       - cargo test --workspace --locked --doc
 
   # ── Frontend ──────────────────────────────────────────────

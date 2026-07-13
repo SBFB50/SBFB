@@ -97,6 +97,12 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' }}
           cache-on-failure: "true"
 
+      # nexus-launcher (workspace member) links GTK on Linux via the
+      # tray-icon/muda `gtk` feature; --workspace --all-targets needs
+      # libgtk-3-dev. Mirrors docker/ci/Dockerfile. This job is ubuntu-only.
+      - name: Install GTK (nexus-launcher links gtk on Linux)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libgtk-3-dev
+
       - name: cargo clippy --workspace --all-targets
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
@@ -137,6 +143,14 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: nextest
+
+      # nexus-launcher (workspace member) links GTK on Linux via the
+      # tray-icon/muda `gtk` feature; the Linux leg of the matrix needs
+      # libgtk-3-dev to build --workspace. Guarded: windows/macos legs
+      # do not link GTK. Mirrors docker/ci/Dockerfile.
+      - name: Install GTK (nexus-launcher links gtk on Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libgtk-3-dev
 
       - name: cargo nextest run (workspace)
         run: cargo nextest run --workspace --profile ci --locked
