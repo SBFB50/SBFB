@@ -1043,6 +1043,13 @@ pinning_design.md` §5.1 Option A vs B ; sprint kickoff
 
 ### T21 — TLS bootstrap pins for n0 relays not yet embedded in daemon binary
 
+> **Status update (S82 Phase E, 2026-07-14).** Crosses the standing
+> zero-n0 topology decision: Topology B (own relays, no n0) is deployed
+> since S81 E2/H and PO-5 keeps it, with a calendar re-decision due
+> before 2026-08-25 (n0 relay EOL 2026-09-30). If zero-n0 is confirmed
+> at that checkpoint, embedding n0 pins becomes moot and this ticket is
+> a SUPERSEDED candidate. Until then: OPEN, external/trigger-driven.
+
 Sprint 19 Phase C delivered `PinValidator` + `~/.sbfb/relay-pins.
 json` loader + `RELAY_PIN_BOOTSTRAP.md` with `openssl s_client`
 extraction procedure, but **did not** embed the three known n0
@@ -1089,6 +1096,11 @@ Cross-ref : audit finding S19 P2-B1 (`.planning/active/sprint19_
 audit_findings.md §Track B`).
 
 ### T23 — Docker base image `FROM rust:1.94-slim-bookworm` not pinned to `@sha256:<digest>`
+
+> **Status update (S82 Phase E, 2026-07-14).** Re-anchored: the `FROM`
+> line now lives at `docker/pkarr-relay/Dockerfile:19` (was `:14`);
+> still no `@sha256` digest → genuinely OPEN. Out-of-theme for S82
+> (D10) — statused, not coded.
 
 `docker/pkarr-relay/Dockerfile:14` pins `FROM rust:1.94-slim-
 bookworm` by version tag but **not** by content digest. The

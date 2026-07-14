@@ -1,5 +1,16 @@
 # Sprint « moteur de workflows IA » — vérification ultracode + blueprint (staging S82)
 
+> **SUPERSEDED (S82 Phase E, 2026-07-14 — PO-9).** Le slot S82 a été
+> arbitré « dette docs-contrat + refactorisation » (C9, re-confirmé au
+> wrap-up S81) : le sprint workflow-engine ET la fondation Viewer sont
+> DÉCALÉS vers de futurs slots tracés (l'amendement roadmap correspondant
+> est un livrable du plan S82 Phase T). La supersede doctrinale D6 (§4.6 ci-dessous, « à ratifier PAR LE
+> PO ») est RATIFIÉE par PO-9 (2026-07-11). Ce dossier ENTIER (ce
+> blueprint + `raw_workflow_verification_wf_23e03df4.json`, donnée brute
+> non modifiée) reste la base de travail du futur kickoff — les faits
+> vérifiés (xyflow, flow-JSON, task_submit, 8 nœuds) devront être
+> re-validés à l'activation (delta de code depuis 2026-07-02).
+
 > Statut : note de recherche / STAGING hors sprint (2026-07-02). Aucun code, wire, ni gate
 > engagé par ce document. Produit par le Workflow ultracode `wf_23e03df4-eff`
 > (11 agents, ~1,02M tokens, 149 outils : 7 vérifications parallèles ancrées code+web,

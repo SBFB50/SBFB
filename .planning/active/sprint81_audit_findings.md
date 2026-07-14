@@ -300,9 +300,13 @@ travail de S82. Recommandation de l'auditeur (a arbitrer) :
 - **S81-G-ESC-1** (boot-SEED cold-boot catch-up) : owner S82, phase dediee ;
   trigger = kickoff S82 ; exit = 3 conditions machine-checkables ci-dessus OU
   re-conception PO fermante.
-- **8 P2 / 11 P3 docs-contract S80 + S81 doc-dette (C-1/C-2/C-3, H-1/H-2, K-1/K-2,
+- **Dette docs-contrat S79/S80 + S81 doc-dette (C-1/C-2/C-3, H-1/H-2, K-1/K-2,
   J-3/J-4, I-1/I-2, G-2, F-*)** : owner S82 (sprint dette nomme, jamais bundle) ;
-  exit = chaque item corrige ou requalifie.
+  exit = chaque item corrige ou requalifie. *(Correction S82 Phase E, 2026-07-14 : la ligne
+  d'origine disait « 8 P2 / 11 P3 docs-contract S80 » — mislabel, 8/11 = tally
+  de l'audit S79 (joue en Phase 0 de S80) ; l'audit S80 = 4 P2/10 P3, dont
+  13/14 deja resolus avant S82. Re-audit par item :
+  `sprint82_phase_e_ledger_reconciliation.md`.)*
 - **S81-G-1** migration stores worker redb2 : owner S82 ; exit = migration verifiee
   3 noeuds (sibling backup OU store recree + worker fonctionnel 1.0.1).
 - **Reparation relay-gated multi_daemon 4/10 + integration-nightly run reel** :

@@ -169,7 +169,11 @@ PASS / FAIL (P0 ou P1) ; 0 P0/P1 ET 0 P2+ = CONCERN (rigor signal G4).
 - Viewer fondation + Aperçu scellé/Proof Card — candidats S82 (arbitrage
   C9 BLOQUANT : slot S82 = workflow-engine vs Viewer vs dette docs-contract,
   **à RE-CONFIRMER PO au wrap-up S81 — pas encore tranché**).
-- 8 P2 / 11 P3 docs-contract S80 → sprint dette nommé (jamais bundlé).
+- Dette docs-contrat : audit S79 = 8 P2/11 P3, audit S80 = 4 P2/10 P3 →
+  sprint dette nommé (jamais bundlé). *(Correction S82 Phase E, 2026-07-14 :
+  la ligne d'origine « 8 P2/11 P3 docs-contract S80 » était un mislabel — 8/11 est
+  le tally de l'audit S79, joué en Phase 0 de S80. Re-audit par item :
+  `sprint82_phase_e_ledger_reconciliation.md`.)*
 - Arc front parqué `wip/factory-front-arc-post-s82` (review + Codex
   groupés DUS à la reprise ; rebase conflit attendu provider_router.rs).
 - S79-P2-1 ancres task_response.rs → sprint dette.
@@ -197,6 +201,11 @@ CLOSED / re-routé-avec-rationale / escaladé. Baseline tests re-mesurée
 
 ## 6. Note
 
-L'audit gate S81 est la Phase 0 de S82 — il BLOQUE toute Phase A de S82
-(kickoff staging : `.planning/research/sprint82_workflow_engine/` +
-verification_blueprint, décisions D6-supersede à ratifier PO).
+L'audit gate S81 est la Phase 0 de S82 — il BLOQUE toute Phase A de S82.
+*(Corrigé S82 Phase E, 2026-07-14, PO-9 : la note d'origine présentait le staging
+workflow-engine comme kickoff bloquant de S82 avec la supersede D6
+pendante. Réel : S82 = sprint dette docs-contrat + refactorisation
+(kickoff = `sprint82_kickoff.md` en `active/`) ; workflow-engine + Viewer
+sont DÉCALÉS vers de futurs slots tracés ; la supersede D6 est RATIFIÉE ;
+le staging `.planning/research/sprint82_workflow_engine/` est marqué
+SUPERSEDED.)*

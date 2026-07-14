@@ -843,6 +843,12 @@ Audit history: `.planning/sprint6_audit_findings.md` §G-2,
 
 ### T6 — Renderer fuzz + chart edge-case tests
 
+> **Status update (S82 Phase E, 2026-07-14).** Re-scoped: the "before
+> Sprint 8 Phase C" framing below is pre-pivot planning (moot since the
+> S51 Python removal). The advisory itself — edge-case fixtures for the
+> React TabView renderer (all-negative charts, RTL labels, deep section
+> recursion) — stays OPEN against the current renderer.
+
 Sprint 6 audit findings A-2 + B-2. The Vitest TabViewRenderer suite
 covers each of the 11 block kinds on happy-path inputs (2-row tables,
 3-point charts, ASCII labels). It does not exercise:
@@ -866,6 +872,11 @@ fixtures before Sprint 8 Phase C (when chart-heavy tabs land).
 Audit reference: `.planning/sprint6_audit_findings.md` §A-2, §B-2.
 
 ### T7 — Playwright anchors + caplog assertion
+
+> **Status update (S82 Phase E, 2026-07-14).** Split: the caplog half
+> (`test_legacy_descriptor_falls_back`, Python coordinator) is N/A —
+> Python path removed S50-S51. The Playwright structural-locator half
+> stays OPEN against the current specs (`web/e2e/`).
 
 Sprint 6 audit findings C-3 + D-2. The Playwright specs use pure
 `getByText` assertions — if a regression rendered content inside a
@@ -1067,6 +1078,12 @@ Audit reference: `.planning/sprint8_audit_findings.md` §C-FX-2.
 
 ### T13 — Size-limit headroom fragile on 3 vendor chunks
 
+> **Status update (S82 Phase E, 2026-07-14).** Re-dated: the figures
+> below are S9-era; budgets have since moved (size-limit 6/6 green
+> through S81). Kept OPEN as the permanent advisory: run
+> `ANALYZE_MODE=true npm run build` before adding a dep that lands in a
+> vendor chunk.
+
 Sprint 9 audit gate finding H1-A/B/C. Three size-limit budgets
 have less than 10% headroom after Sprint 9:
 
@@ -1083,7 +1100,15 @@ budget with explicit justification in the commit body.
 
 Audit reference: `.planning/sprint9_audit_findings.md` §H1-A/B/C.
 
-### T14 — `FileUploadBlock.tsx` Vitest coverage below thresholds
+### T14 — `FileUploadBlock.tsx` Vitest coverage below thresholds — CLOSED Sprint 74 Phase G
+
+> **Status update (S82 Phase E, 2026-07-14).** Ledger reconciliation:
+> the work was DONE at S74 Phase G (`sprint74_verification.md:18/:24`,
+> archive v2.1 — FileUploadBlock +11 dedicated Vitest tests,
+> `test:coverage` GREEN with every enforced threshold met: lines
+> 86.91 ≥ 85, branches 78.63 ≥ 78, functions 85.82 ≥ 85, statements
+> 88.23 ≥ 85 — the functions 90→85 relaxation documented honestly)
+> but this header was never suffixed. Closed.
 
 Sprint 9 audit gate finding A3-COV / G2-A. The Sprint 9
 `verify.sh` step 12 (`npm run test:coverage`) passes only
@@ -1100,116 +1125,22 @@ thresholds remain as a documented exception.
 Audit reference: `.planning/sprint9_audit_findings.md` §A3-COV,
 §G2-A.
 
-### T15 — SVG BOM UTF-8 false negative in magic bytes check
-
-Sprint 9 audit gate finding E3-A. The file upload magic bytes
-validation in `packages/nexus-coordinator/src/nexus_coordinator/
-api/files.py:234` uses `lstrip()` to strip whitespace before
-checking for `<svg`. However, `lstrip()` does not strip the
-UTF-8 BOM bytes `\xef\xbb\xbf`. An SVG file exported by
-Illustrator or Inkscape with a BOM prefix is rejected as
-"unsupported content type" — a false negative.
-
-Fix: strip BOM explicitly (`content.lstrip(b'\xef\xbb\xbf')`
-or decode + re-encode) before the `lstrip()` call.
-
-Audit reference: `.planning/sprint9_audit_findings.md` §E3-A.
-
-### T16 — CAS manifest `content_type` is client-controlled
-
-Sprint 9 audit gate finding E3-B. The `content_type` stored
-in the CAS file manifest is taken from
-`file.content_type` (the multipart `Content-Type` header),
-which is client-controlled. The real defense is the magic
-bytes validation on the written content, which works correctly.
-But the manifest stores whatever the client claims, not the
-canonicalized type from magic bytes.
-
-Fix: after magic bytes detection succeeds, overwrite
-`content_type` in the manifest with the detected type before
-writing. This closes the gap between "what we validated" and
-"what we stored".
-
-Audit reference: `.planning/sprint9_audit_findings.md` §E3-B.
-
-### T17 — `AppFileStore.open()` reads entire file into memory
-
-Sprint 9 audit gate finding E6-A.
-`packages/nexus-coordinator/src/nexus_coordinator/api/files.py`
-`AppFileStore.open()` calls `cas.read_bytes()` which reads the
-entire file content into memory before chunking it for the HTTP
-response. For a 50 MB file (the max_size_bytes limit), this
-means 50 MB of RAM per concurrent download.
-
-Risk is bounded by the E6-B fix (max_size_bytes is now enforced
-at upload time), so the worst case is 50 MB, not unlimited.
-For the loopback-only use case this is acceptable. A streaming
-`AsyncIterator[bytes]` read path is a nice-to-have for
-Sprint 11+ if large file handling becomes a real use case.
-
-Audit reference: `.planning/sprint9_audit_findings.md` §E6-A.
-
-### T18 — `test_concurrent_store_same_sha256_dedup_safe` flaky on Windows
-
-Sprint 9 audit gate finding E-FLAKY. The test spawns two
-concurrent uploads of the same SHA256 content. On Windows,
-`os.replace()` on the manifest file occasionally raises
-`PermissionError [WinError 5]` because the other task has the
-file open for writing. This is a Windows-specific race on
-`os.replace` that does not occur on Linux/macOS (where
-`rename(2)` is atomic even if the target is open).
-
-Fix: wrap the `os.replace` call in a retry loop with
-exponential backoff (3 attempts, 50ms base delay). The
-deduplication logic is correct — the race only affects the
-manifest write, not the blob content.
-
-Audit reference: `.planning/sprint9_audit_findings.md` §E-FLAKY.
-
-### T20 — `asyncio.wait_for()` in anyio-based SSE generator
-
-Sprint 9 audit gate finding C3-1. The SSE event streaming
-generator in `packages/nexus-coordinator/src/nexus_coordinator/
-api/events.py:86-89` uses `asyncio.wait_for()` for the receive
-timeout. This is an asyncio-specific API that would break if
-the coordinator ever ran on a Trio backend.
-
-Risk is nil in practice (FastAPI = uvicorn = asyncio), but it
-is an impurity in code that otherwise uses anyio primitives.
-
-Fix: replace with `anyio.fail_after()` or `anyio.move_on_after()`
-which work on both asyncio and Trio backends.
-
-Audit reference: `.planning/sprint9_audit_findings.md` §C3-1.
-
-### T21 — `useAppEvents` creates one EventSource per component mount
-
-Sprint 9 audit gate finding C4-1. The React hook
-`web/src/hooks/useAppEvents.ts` creates a new `EventSource`
-connection every time the `AppTabPage` component mounts. In
-the current SPA (one `AppTabPage` at a time), this is fine.
-But if multiple tab pages coexist in the future (e.g., split
-view), N simultaneous SSE connections will open.
-
-Fix: extract the EventSource into a singleton at the store
-level (similar to how `projectStore` works), shared across
-all mounted tab pages. Sprint 11+ if the use case materializes.
-
-Audit reference: `.planning/sprint9_audit_findings.md` §C4-1.
-
-### T22 — `test_gov_documents.py` schema diverges from `001_documents.sql`
-
-Sprint 9 audit gate finding D4-A. The test file
-`packages/nexus-app-gov/tests/test_gov_documents.py:37-45`
-defines a `_DOCUMENTS_SCHEMA` with column names `original_name`
-and `size` that do not match the real migration
-`001_documents.sql:8-18` which uses `filename` and `size_bytes`.
-The test assertions verify a phantom schema.
-
-Fix: align the test schema with the real migration column names
-and re-run assertions.
-
-Audit reference: `.planning/sprint9_audit_findings.md` §D4-A.
+> **Ledger reconciliation (S82 Phase E, 2026-07-14).** The Python-era
+> tickets **T15(a), T16(a), T17, T18, T20, T21, T22** (Sprint 9, this
+> zone) and **T23** (Sprint 10, formerly after P23 below) were purged as
+> zombies —
+> their anchors (`packages/**.py`, `web/src/hooks/useAppEvents.ts`,
+> `nexus/`) no longer exist since the Python removal at S50-S51
+> (`49782a9`). Concerns are **N/A — Python path removed**, not
+> "resolved"; T16(a)'s concern migrated to Rust — the served content type
+> is derived server-side (`blob_serve.rs:215` `detect_content_type`,
+> extension-first + magic-bytes fallback), nothing client-controlled is
+> stored. Full original text:
+> `git show c7b6790:docs/shell/PATTERNS.md`; per-ticket tombstones with
+> rationale: `docs/DEPRECATED.md`. The freed IDs are never reused (nor is
+> the T19 gap); **T15/T16 now uniquely refer to the Sprint 77 tickets**
+> further down. shell-T20 (asyncio SSE) is a namespace distinct from
+> rust-T20 (relay cert-pinning, a LIVE security carry — preserved).
 
 ### P18 — Self-publish via gossip: coordinator → daemon → BrowseAggregator
 
@@ -1318,17 +1249,6 @@ BlobTicket est base32-opaque.
 Files: `daemon.ts` (archive_hash, blobServeUrl, daemonBaseUrlFromInfo),
 `BrowsedProject.tsx` (RemoteProjectFrame), `browse.rs` (archive_hash),
 `http.rs` (archive_hash in BrowseEntry), `nginx-nexus.conf` (/blob-serve/).
-
-### T23 — SPDX scope excludes `nexus/` legacy Python files
-
-Sprint 10 audit gate finding A-1. The `scripts/check-spdx.sh` guard
-covers `crates/`, `packages/`, `web/src/` (204 files) but does not
-include `nexus/` (~30+ legacy .py files). D6 decision said "every
-source file" but the plan scoped it to active modules only. Since
-the project is AGPL-3.0, all distributed source should carry the
-header. Low priority — treat when `nexus/` code is next touched.
-
-Audit reference: `.planning/sprint10_audit_findings.md` §A-1.
 
 ### T24 — `provision.sh` UDP firewall rule too broad
 
@@ -1535,83 +1455,35 @@ were 16px wider than React charts. Fixed in Sprint 14 Phase C:
 Logged in Sprint 15 Phase E from `sprint14_audit_findings.md`.
 The Sprint 14 audit verdict was CONDITIONAL PASS — the single
 P1 (A-1, commit_sha passed to `git clone --branch`) was fixed
-in `542479f` before Sprint 15 Phase A. The eight P2 items
-below are non-blocking but tracked here so they surface in
-future sprints or reviews.
+in `542479f` before Sprint 15 Phase A. Of the eight P2 items
+originally logged here, seven were purged as Python-era zombies at
+S82 Phase E (tombstones: `docs/DEPRECATED.md`); only T49 remains,
+re-anchored.
 
-### T44 — `_dir_size` check is post-clone, not streaming
-
-Sprint 14 audit A-P2. `_clone_repo` runs `git clone` to
-completion, then `_dir_size` checks if the clone exceeded
-500 MB. A malicious repository hosting 499 MB of content would
-still use 499 MB of tmpfs during the clone. The 30s
-`CLONE_TIMEOUT_SECS` is the only real defense against large
-repos — attackers on slow links can't exceed the limit in
-time, but fast-link attackers can fill the tmpdir before the
-check fires.
-
-Mitigation (future sprint): stream `git clone --progress` and
-tee stderr to a byte counter, aborting when the 500 MB mark
-is passed. Or use `GIT_HTTP_MAX_REQUEST_BUFFER` env var.
-
-Ref: `packages/nexus-coordinator/src/nexus_coordinator/api/deploy.py:_dir_size`.
-
-### T45 — `_git_rev_parse` has no timeout
-
-Sprint 14 audit A-P2. `_git_rev_parse(clone_dir)` is a
-subprocess without a `asyncio.wait_for` wrapper. Post-clone
-on a shallow `--depth 1` repo, this is fast (reads
-`.git/HEAD`), so the risk is low. But a corrupt clone or a
-git binary hang would block the deploy indefinitely.
-
-Mitigation: add `timeout=5` and HTTPException on timeout.
-
-Ref: `deploy.py:_git_rev_parse`.
-
-### T46 — `startswith("http")` accepts `http://`
-
-Sprint 14 audit A-P2. The guard `if not repo_url.startswith(
-"http")` accepts both `http://` and `https://`. A MITM on a
-plain-text git clone could swap the SBFB.json or insert
-additional commits. For public forges (GitHub, GitLab,
-Codeberg), `http://` redirects to `https://` but the redirect
-itself is not cryptographically verified.
-
-Mitigation: tighten to `startswith("https://")` or use a
-regex `^https://`.
-
-Ref: `deploy.py:deploy_from_repo`.
-
-### T47 — `provenance.py` uses `json.dumps` instead of `jcs`
-
-Sprint 14 audit B-P2. The provenance canonical bytes are
-built with `json.dumps(sort_keys=True, separators=(',',':'))`
-which is equivalent to JCS only for flat string/int schemas
-with ASCII content. The convention across the project is
-`serde_jcs` (Rust) and `jcs` PyPI (Python). Today's schema
-is fine; a future field with non-ASCII Unicode would diverge.
-
-Mitigation: switch to `jcs.canonicalize(payload)` for
-forward-compat.
-
-Ref: `packages/nexus-coordinator/src/nexus_coordinator/provenance.py:_canonical_bytes`.
-
-### T48 — `verify_provenance` ignores `schema_version`
-
-Sprint 14 audit B-P2. `verify_provenance(record_json, pk)`
-pulls `data["schema_version"]` into the signable payload but
-doesn't assert it matches `PROVENANCE_SCHEMA_VERSION`. If a
-v2 schema is introduced later with different field semantics,
-a v1 verifier would still validate v2 payloads whose common
-fields look right — a cross-version replay trap.
-
-Mitigation: add `if data.get("schema_version") !=
-PROVENANCE_SCHEMA_VERSION: return False` at the top of
-`verify_provenance`.
-
-Ref: `provenance.py:verify_provenance`.
+> **Ledger reconciliation (S82 Phase E, 2026-07-14).** **T44, T45, T46,
+> T47, T48** (and **T50, T51** formerly below) were purged as Python-era
+> zombies — anchors `packages/nexus-coordinator/**` (`deploy.py`,
+> `provenance.py`, `test_deploy.py`) removed at S50-S51 (`49782a9`).
+> Concerns are **N/A — Python path removed**; the Rust deploy/fork path
+> (S74 Phase B) and the Rust provenance canonical (see
+> `docs/rust/PATTERNS.md`, serde_json-vs-JCS note) carry their own
+> protections and tests. Full original text:
+> `git show c7b6790:docs/shell/PATTERNS.md`; per-ticket tombstones:
+> `docs/DEPRECATED.md`. Freed IDs never reused. **T49 below is EXCLUDED
+> from the purge** (live Rust anchor), re-anchored instead.
 
 ### T49 — PA v4 bump breaks forward compat for additive field
+
+> **Status update (S82 Phase E, 2026-07-14).** Re-anchored — the body
+> below is the S14-era record: it references a `v4` constant and
+> `publish.rs:131`. Today `PROJECT_ANNOUNCEMENT_VERSION = 1`
+> (`publish.rs:24`, pre-launch policy: announcement versions stay at 1,
+> the current canonical is edited freely until go-live) and the version
+> reject lives at `publish.rs:183` (`from_gossip_bytes`). The design
+> concern (additive fields should prefer `#[serde(default)]` over a
+> version bump) became CANON via the pre-launch protocol policy — kept
+> OPEN as the post-launch reminder. Excluded from the S82 Python-zombie
+> purge: the anchor is Rust and alive.
 
 Sprint 14 audit D-P2. `publish.rs:from_gossip_bytes` rejects
 announcements with `v > PROJECT_ANNOUNCEMENT_VERSION` (v4).
@@ -1625,36 +1497,6 @@ not a bug, but future additive fields should consider
 `#[serde(default)]` for graceful unknowns.
 
 Ref: `crates/nexus-shell-daemon-core/src/publish.rs:131`.
-
-### T50 — D4 clone protections lack dedicated tests
-
-Sprint 14 audit G-P2. Of the seven D4 kickoff protections
-(depth 1, single-branch, size 500 MB, timeout 30s, no .git/,
-path traversal rejection, no submodules), only two have
-dedicated tests: `.git/` exclusion is asserted in
-`test_deploy_from_repo_provenance_in_zip`, and depth is
-implicit in the happy path. The remaining five lack
-end-to-end tests — a regression that removes a protection
-(e.g. deleting the `".."` check in `_zip_directory`) would
-not be caught.
-
-Mitigation: add integration tests with synthetic malicious
-repos (symlinks, `../` paths, oversized content).
-
-Ref: `packages/nexus-coordinator/tests/test_deploy.py`.
-
-### T51 — `_clone_repo` never exercised against a real subprocess
-
-Sprint 14 audit G-P2 (related to T50). Every test of the
-deploy-from-repo endpoint mocks `_clone_repo` via
-`_make_mock_clone` which does a `shutil.copytree`. The real
-`git clone` subprocess is never run in unit tests. Sprint 15
-Phase 0 gate fix (A-1 commit_sha SHA pinning) added three
-integration tests that DO exercise real `git clone` against
-a local `file://` repo — these tests are the blueprint for
-expanding coverage to the D4 protections listed in T50.
-
-Ref: `packages/nexus-coordinator/tests/test_deploy.py::test_clone_repo_*`.
 
 ## Sprint 16 patterns
 
@@ -2336,7 +2178,7 @@ Cross-ref: rust §P67 (shard data-plane), THREAT_MODEL §16 + §5.9 (route phras
 Logged by `sprint77_audit_findings.md` (Cas A audit gate, 11-track Workflow).
 0 P0 / 0 P1 ; shell-side P2 carries into the S78 ledger.
 
-### T15 — `scripts/verify.sh` is stale (removed Python `packages/` toolchain)
+### T15 — `scripts/verify.sh` is stale (removed Python `packages/` toolchain) — CLOSED Sprint 82 Phase E
 `scripts/verify.sh` steps 4-8 invoke `uv run ruff format/check packages/ examples/`
 and three `uv run pytest packages/nexus-{sdk,coordinator,app-gov}/tests/` — a
 toolchain removed when the project went Rust+Frontend pure at S50-S51. `git ls-files
@@ -2347,7 +2189,21 @@ inaccurate). S77 Phase M (`91be0e4`) touched the script (added step 19
 check-sharding-docs) without cleaning the dead Python steps. Fix: remove steps 4-8
 + the `--quick` venv/packages preamble so the script matches reality. P2, carry S78.
 
+**Closed S82 Phase E**: steps 4-8 + the `.venv`/packages header assumptions
+removed, remaining steps renumbered 1-16; `scripts/setup.sh` (Python-era in
+full — uv venv + maturin wheel) purged alongside. Tombstones:
+`docs/DEPRECATED.md`. This also resolved the T15 ID collision (the S9
+Python zombie T15(a) was purged), leaving this ticket the unique T15.
+
 ### T16 — Hermetic compute-shard E2E runs only in GHA, not in the Woodpecker mirror
+
+> **Status update (S82 Phase E, 2026-07-14).** Still OPEN. S82 Phase C
+> (`2931b82`) restored the GHA surface (GTK deps wired) rather than
+> de-wiring it — the canonical E2E gate is functional again — but
+> `.woodpecker/ci-linux.yml` still has no Playwright step, so the
+> GHA-decommission risk below stands. Unique T16 since the S9 zombie
+> T16(a) was purged (collision resolved).
+
 `web/e2e/compute-shard.spec.ts` (T1 testability gate) is wired BLOCKING in
 `.github/workflows/ci.yml:91-92 [10c]` (`npm run test:e2e`) on every push/PR — but
 `.woodpecker/ci-linux.yml` (the GHA-independence Linux mirror, which carries
