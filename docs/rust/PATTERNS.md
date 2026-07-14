@@ -3888,7 +3888,7 @@ tests suffice. The 5 layers of a frontier contract:
 2. **ÉTIQUETTE** (generated schema, drift-gated) — the contract shape. Cadence:
    **PER PHASE**, in the commit of the primitive. FREE (the schema is generated)
    and un-rottable (drift → red build). Incarnated by `schema_for!` snapshots
-   (8 sharding types + `TaskResponse`), `BRIDGE_METHOD_ALLOWLIST` Rust↔TS parity,
+   (12 sharding types + `TaskResponse`), `BRIDGE_METHOD_ALLOWLIST` Rust↔TS parity,
    Zod `.strict()`, the knowledge-pack `MANIFEST.json` per-file hash manifest
    (it records a blake3 per layer and excludes itself from the hash set; S79 A; F to come).
 3. **COMMIT** — why/when/delta (attributable, 9-section body, signed).
@@ -3938,10 +3938,53 @@ today — present-true, not a stale promise; they stay reviewable, not gated.
 requires its domain + version consts to resolve AND a generated schema
 (`schema_for!(<name>)`) OR an explicit `// FRONTIER-NO-SCHEMA: <name> <reason>`.
 UNannotated types are NOT violations — the registry grows one primitive at a time
-(S79 annotates `ShardPlan` as the first dogfood entry; 22 of the 25 `DOMAIN_*_V1`
-families have no generated schema and stay unannotated, a tracked carry routed to
-the S80 audit-plan (created at sprint closure)). This is
+(S79 annotates `ShardPlan` as the first dogfood entry). This is
 the doctrine §7 Q2 "explicit registry, opt-in" arbitration (PO-tranché).
+
+**The `DOMAIN_*_V1` family census (FROZEN, S82 Phase G, D8).** The committed
+deterministic metric that ended the 21/22/23 drift — BusyBox-safe, reproducible
+as-is:
+
+```
+find crates -type f -name '*.rs' ! -path '*/llama.cpp/*' ! -path '*/target/*' \
+  -exec grep -hoE 'const DOMAIN_[A-Z0-9_]+_V[0-9]+' {} + | sort -u | wc -l
+```
+
+= **25** distinct const families across all crates (23 in `canonical.rs` +
+`DOMAIN_KEYSTORE_V1` in `keystore.rs` + `DOMAIN_TRACE_EVENT_V1` in
+`nexus-trace-core`), of which **3** carry a generated schema (COMPUTE_GROUP,
+SHARD_PLAN — `ShardPlan` + `ShardedSessionManifest` —, RUN_PROOF) → **22**
+unschematised, **accept-and-closed** (no exhaustive tagging of the backlog,
+D8). The prior 23 was the `canonical.rs`-only scope; 21 was never derivable
+(WI-10 S79). `TASK_RESPONSE_V1` (the schematised `TaskResponse` tag) is not a
+`DOMAIN_*_V1` const — outside the census by construction.
+`scripts/check-frontier-contracts.sh` check (2b) freezes the count
+(`DOMAIN_CENSUS_FROZEN=25`): the census cannot GROW silently — a net-new
+family that raises the count fails the gate until it makes its own conscious
+schema/no-schema decision and refreshes the frozen count. Honest bound: a
+count tripwire does not see a net-zero add+remove or a rename in the same
+commit — that class stays with the per-sprint adversarial review of
+`canonical.rs`, not this gate.
+
+**Loopback request/response DTOs carry NO `// FRONTIER:` tag.** The registry is
+for signed `DOMAIN_*_V1` families (the gate resolves the domain/version consts
+— a tag on a const-less loopback DTO fails it). An unsigned loopback frontier's
+machine contract is its drift-gated schema snapshot (precedent
+`ShardSessionResultView` S81 I; joined S82 G by `ShardGroupMintRequest` +
+`ShardGenerateRequest`, both moved to `nexus-core-rs/src/schemas/shard.rs`
+per the S77-L rule "the type lives where the schema is generated") or, when
+the shape structurally resists schematisation, a motivated Request-body table
+in the protocol SPEC (`MountSessionRequest`: embeds the signed
+`ComputeGroupEntry` envelope + `iroh::EndpointAddr`, an upstream type whose
+JSON shape iroh owns — `SHARD_PROTOCOL_SPEC.md` §6.1, gate-anchored by
+`scripts/check-sharding-docs.sh`).
+
+**Doc-lint stays existence-only by design (S80-G-1, CLOSED).** The
+accept-and-close was acted at the S81 kickoff ("exit condition remplie, l'item
+sort des carries") and is formalised here (S82 Phase G ledger entry — 3rd and
+FINAL mention, never a 4th report): semantic claim verification is the
+per-sprint adversarial LLM review's job, not automatable in shell; the shell
+gates guard existence, anchors, and drift only.
 
 **The prompt-kind provenance edge (volet 4, S79 forward-reinforcement).** A
 knowledge-backed prompt-kind fiche (`prompts/agent/*.md` referencing

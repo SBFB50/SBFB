@@ -98,12 +98,24 @@ so the canonical bytes the Ed25519 signature covers are unchanged.
 | `RunProof` | `run_proof.schema.json` | yes (`nexus-run-proof-v1`) |
 | `ShardSessionView` | `shard_session_view.schema.json` | no (observed DTO) |
 | `ShardSessionStatusResponse` | `shard_session_status_response.schema.json` | no (observed DTO) |
+| `ShardSessionResultView` | `shard_session_result_view.schema.json` | no (observed DTO, S81 I) |
+| `ShardSessionResultResponse` | `shard_session_result_response.schema.json` | no (observed DTO, S81 I) |
+| `ShardGroupMintRequest` | `shard_group_mint_request.schema.json` | no (request body, S82 G) |
+| `ShardGenerateRequest` | `shard_generate_request.schema.json` | no (request body, S82 G) |
 
 The signed **envelopes** (`ComputeGroupEntry`,
 `ShardedSessionManifestEntry`, `RunProofEntry`) are intentionally NOT
 schematised: they wrap the payload with a redundant signer identity and
 a `[u8; 64]` Ed25519 `signature` (`serde_big_array`), neither of which
 is part of the canonical bytes.
+
+`MountSessionRequest` (the third control-plane request body, §6.1) is
+also NOT schematised, for the same envelope reason plus one more: it
+embeds the signed `ComputeGroupEntry` verbatim, and its
+`ShardWorkerSpec.addr` field is `iroh::EndpointAddr` — an upstream type
+with no `JsonSchema` impl whose JSON shape iroh owns (a hand-written
+proxy schema would drift silently at an iroh bump). Its machine
+contract is the Request-body table in §6.1.
 
 ### No floats in signed payloads
 
@@ -275,7 +287,7 @@ orchestrator surface, consumed verbatim by the b3_shard harness:
 | `POST /api/daemon/shard-session/group` | mint + sign the private `ComputeGroupEntry` (admission allowlist) |
 | `POST /api/daemon/shard-session/mount` | placement → signed `ShardedSessionManifestEntry` → readiness barrier → gated registry insert |
 | `POST .../{id}/generate` | drive one generation (echo pass or real decode loop per `model_digest`) |
-| `GET .../{id}/result` | measured outcome (`ShardSessionResultView`, 9 fields): `session_id`, `result_text` (bounded), `ttft_s`, `toks_per_s`, `tokens`, `run_proof` (driver signature hex), `rtt_frontier_ms`, `worker_drop_count`, `failure` |
+| `GET .../{id}/result` | measured outcome (`ShardSessionResultView`, 14 fields): `session_id`, `result_text` (bounded), `ttft_s`, `toks_per_s`, `tokens`, `run_proof` (driver signature hex), `rtt_frontier_ms`, `worker_drop_count`, `failure` + the S82 B benchmark metrics `ttft_ms`, `tpot_ms`, `itl_p50_ms`, `itl_p95_ms`, `decode_milli_tokens_per_sec` |
 | `POST .../{id}/drop-shard` | explicit counted churn of the tail shard (SI-9 acceptance lever) |
 | `GET .../{session_id}` | read-only status (`ShardSessionStatusResponse`, §4.7) |
 
@@ -287,6 +299,51 @@ privacy-whitelisted (aggregate `member_count`, never a
 method**: an app cannot start/join a session from inside a sandboxed
 iframe; entry is the shell `/compute` panel + the operator CLI
 (`shard-session serve|plan|identity`, a local operator tool).
+
+### 6.1 Request bodies (Sprint 82 Phase G)
+
+The three POST bodies are loopback-API frontiers (doctrine §7). The two
+primitive-only bodies are schematised (drift-gated snapshots, §3); the
+mount body is table-documented here (see §3 for why).
+
+**`POST /api/daemon/shard-session/group`** — `ShardGroupMintRequest`
+(`crates/nexus-core-rs/src/schemas/shard.rs`, snapshot
+`shard_group_mint_request.schema.json`):
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `group_id` | string | yes | stable group handle |
+| `members` | string[] | yes | worker Ed25519 pubkeys, lowercase hex (the head/dialer is added automatically) |
+| `revision` | u64 | no (default 1) | monotonic group revision |
+
+**`POST /api/daemon/shard-session/mount`** — `MountSessionRequest`
+(`crates/nexus-shell-daemon/src/shard_session.rs`, NOT schematised — §3):
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `session_id` | string | yes | bounded by `SESSION_ID_MAX` at the signed layer |
+| `group` | `ComputeGroupEntry` | yes | the signed envelope minted by `group`, shared VERBATIM with every worker |
+| `workers` | `ShardWorkerSpec[]` | yes | candidates: `{addr: iroh::EndpointAddr, vram_free_bytes: u64, shard_hashes?: [u8;32][], launch_profile_hash?: [u8;32]}` |
+| `model` | `ShardModelSpec` | yes | `{total_layers: u32, quantized_vram_bytes: u64, model_digest?: [u8;32], tokenizer_hash?: [u8;32], chat_template_hash?: [u8;32]}` |
+| `readiness_deadline_ms` | u64 | no | readiness-probe deadline override |
+| `hop_deadline_ms` | u64 | no | per-hop dispatch deadline override (SI-9) |
+
+**`POST /api/daemon/shard-session/{id}/generate`** —
+`ShardGenerateRequest` (`crates/nexus-core-rs/src/schemas/shard.rs`,
+snapshot `shard_generate_request.schema.json`):
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `session_id` | string | no | redundant echo of the path id — see below |
+| `prompt` | string | yes | the prompt to drive |
+| `max_tokens` | u32 | no | REAL decode budget, clamped to `MAX_NEW_TOKENS_CAP`; ignored by a transport-only echo session |
+
+**The PATH is authoritative** (a runtime contract no JSON Schema can
+express): the generate route addresses the session by its path `{id}`;
+a body `session_id` that disagrees with the path is rejected with `400`
+— the daemon never silently drives another session. The optional
+`session_id` body field is a redundant echo, not an alternative
+addressing channel.
 
 ---
 

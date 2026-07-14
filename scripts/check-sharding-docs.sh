@@ -89,6 +89,12 @@ anchor_present "docs/rust/PATTERNS.md" "§P39"
 anchor_present "docs/protocol/SHARD_PROTOCOL_SPEC.md" "sbfb/shard/1"
 anchor_present "crates/nexus-shell-daemon/src/http.rs" "shard-session"
 anchor_present "web/src/api/daemon.ts" "getShardSession"
+# S82 Phase G — the 3 control-plane request bodies are documented frontiers:
+# the SPEC must cite each by name (§3 schema table for the two schematised
+# ones, §6.1 Request-body tables for all three).
+anchor_present "docs/protocol/SHARD_PROTOCOL_SPEC.md" "ShardGroupMintRequest"
+anchor_present "docs/protocol/SHARD_PROTOCOL_SPEC.md" "MountSessionRequest"
+anchor_present "docs/protocol/SHARD_PROTOCOL_SPEC.md" "ShardGenerateRequest"
 
 # ── (2) honesty-gate ─────────────────────────────────────────────────
 require_marker() { # file marker label
@@ -207,7 +213,8 @@ done
 # source-ref token in WIRING_SPEC.md.
 REQUIRED_ANCHORS="is_pipeline_contiguous covers_full_model verify_signature \
 DOMAIN_SHARD_PLAN_V1 DOMAIN_RUN_PROOF_V1 is_member authorize_claim accept_bi \
-shard_session_response auth_required SHARD_PLAN_FORMAT_VERSION"
+shard_session_response auth_required SHARD_PLAN_FORMAT_VERSION \
+ShardGroupMintRequest MountSessionRequest ShardGenerateRequest"
 wiring_symbols="$(grep -oE "${bt}(crates|docs|web|scripts)/[^${bt}]+${bt}" "$WIRING_SPEC" \
   | sed "s/.*://; s/${bt}//g")"
 for req in $REQUIRED_ANCHORS; do

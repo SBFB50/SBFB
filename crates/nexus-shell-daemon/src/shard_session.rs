@@ -211,6 +211,19 @@ pub struct ShardModelSpec {
 /// model. `group` is minted once (`POST /api/daemon/shard-session/group`)
 /// and shared verbatim with every `shard-session serve` worker, so the
 /// admission allowlist and the mount gate check the SAME signed bytes.
+// Loopback-API frontier (Sprint 82 Phase G, doctrine §7): the
+// `POST /api/daemon/shard-session/mount` body + the `shard-session mount`
+// CLI config file. Deliberately UNschematised, unlike its two sibling
+// request bodies (`ShardGroupMintRequest` / `ShardGenerateRequest`, moved
+// to `nexus-core-rs/src/schemas/shard.rs` with drift-gated snapshots): it
+// embeds the signed `ComputeGroupEntry` ENVELOPE — the exact class the
+// schema doctrine excludes (`[u8; 64]` signature via `serde_big_array`) —
+// and `ShardWorkerSpec.addr` is `iroh::EndpointAddr`, an upstream type with
+// no `JsonSchema` impl whose JSON shape iroh owns (a hand-written proxy
+// schema would drift silently at an iroh bump). Its machine contract is the
+// Request-body table in `docs/protocol/SHARD_PROTOCOL_SPEC.md` §6.1,
+// gate-anchored by `scripts/check-sharding-docs.sh`. No `// FRONTIER:` tag:
+// that opt-in registry is for `DOMAIN_*_V1` families.
 #[derive(Debug, Clone, Deserialize)]
 pub struct MountSessionRequest {
     /// Stable session handle (bounded by

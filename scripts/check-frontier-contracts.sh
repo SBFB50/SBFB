@@ -40,8 +40,11 @@
 #       schema (schema_for!(<name>)) OR an explicit
 #       "// FRONTIER-NO-SCHEMA: <name> <reason>" exemption. UNannotated
 #       wire types are NOT violations — the registry is opt-in and grows
-#       incrementally (the remaining DOMAIN_*_V1 families are a tracked carry,
-#       routed to the next sprint's audit-plan, created at sprint closure).
+#       incrementally. The backlog is accept-and-closed (S82 Phase G, D8):
+#       the DOMAIN_*_V1 family census is FROZEN by check (2b) below — 25
+#       families, 22 without a generated schema — and a NEW family must
+#       make its own conscious schema/no-schema decision instead of the
+#       count drifting silently (no exhaustive tagging of the backlog).
 #   (3) BLOB_SERVE_CSP non-regression — the canonical sandbox CSP
 #       constant must keep every 'none' exfiltration directive. The two
 #       existing Rust tests only assert a "connect-src 'none'" substring,
@@ -174,6 +177,27 @@ if ! grep -rqF "// FRONTIER: ShardPlan " crates; then
   fail=1
 fi
 
+# ── (2b) DOMAIN_*_V1 frozen family census (S82 Phase G, D8) ───────
+# The deterministic, BusyBox-safe grep below IS the committed metric that
+# ends the 21/22/23 drift (docs/rust/PATTERNS.md §P70): 25 distinct
+# `const DOMAIN_*_V<n>` families across crates/ (23 in canonical.rs +
+# DOMAIN_KEYSTORE_V1 + DOMAIN_TRACE_EVENT_V1), of which 3 carry a
+# generated schema (COMPUTE_GROUP, SHARD_PLAN, RUN_PROOF) -> 22
+# unschematised, accept-and-closed. A NEW family must make a conscious
+# D8 decision (schema_for! + snapshot, or a motivated no-schema
+# rationale) and refresh this frozen count — silent census growth is
+# exactly the drift this tripwire exists to catch.
+DOMAIN_CENSUS_FROZEN=25
+domain_census="$({ find crates -type f -name '*.rs' ! -path '*/llama.cpp/*' ! -path '*/target/*' \
+  -exec grep -hoE 'const DOMAIN_[A-Z0-9_]+_V[0-9]+' {} + 2>/dev/null || true; } | sort -u | wc -l | tr -d ' ')"
+if [ "$domain_census" -ne "$DOMAIN_CENSUS_FROZEN" ]; then
+  echo "DOMAIN_*_V1 census drift: found $domain_census distinct const families, frozen count is $DOMAIN_CENSUS_FROZEN"
+  echo "  -> a new DOMAIN family needs its own D8 decision (generated schema or motivated no-schema),"
+  echo "     then refresh DOMAIN_CENSUS_FROZEN + the census prose in this file (header (2), comment (2b))"
+  echo "     + docs/rust/PATTERNS.md §P70."
+  fail=1
+fi
+
 # ── (3) BLOB_SERVE_CSP non-regression ────────────────────────────
 CSP_FILE="crates/nexus-core-rs/src/csp.rs"
 if [ ! -f "$CSP_FILE" ]; then
@@ -250,5 +274,5 @@ if [ "$fail" -ne 0 ]; then
   exit 1
 fi
 
-echo "check-frontier-contracts: clean (anti-promise + frontier-tag coverage [$frontier_count tagged] + BLOB_SERVE_CSP non-regression + prompt-kind provenance)"
+echo "check-frontier-contracts: clean (anti-promise + frontier-tag coverage [$frontier_count tagged] + DOMAIN census [$domain_census frozen] + BLOB_SERVE_CSP non-regression + prompt-kind provenance)"
 exit 0

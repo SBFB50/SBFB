@@ -176,6 +176,14 @@ GET /api/daemon/shard-session/{id}
   aggregate `rtt_frontier_ms`, never a `worker_pubkey` / `initiator`. The orchestrator's write/drive routes
   (`group`, `mount`, `generate`, `result`, `drop-shard`) are specified in
   `docs/protocol/SHARD_PROTOCOL_SPEC.md` §6.
+- **Request bodies (S82 G)** — the three POST bodies are documented
+  loopback frontiers. Schematised (drift-gated snapshots, SPEC §3):
+  `crates/nexus-core-rs/src/schemas/shard.rs:ShardGroupMintRequest` (group
+  mint) and `crates/nexus-core-rs/src/schemas/shard.rs:ShardGenerateRequest`
+  (drive; the PATH id is authoritative, a disagreeing body `session_id` is
+  rejected with 400). Table-documented only (embeds the signed
+  `ComputeGroupEntry` envelope + `iroh::EndpointAddr`, SPEC §3/§6.1):
+  `crates/nexus-shell-daemon/src/shard_session.rs:MountSessionRequest`.
 - Front wrapper: `web/src/api/daemon.ts:getShardSession` (Zod `.strict()`).
 - Runnable example: [`examples/observe.curl.md`](./examples/observe.curl.md).
 

@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Body of `POST /api/daemon/shard-session/group` — mint + sign the private\ncompute group for a session (operator flow step 1, Sprint 81 Phase I).",
+  "properties": {
+    "group_id": {
+      "description": "Stable group handle.",
+      "type": "string"
+    },
+    "members": {
+      "description": "Worker Ed25519 pubkeys, lowercase hex (the head is added\nautomatically — it is the dialer the workers must admit).",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "revision": {
+      "default": null,
+      "description": "Monotonic group revision (defaults to 1 for a fresh group).",
+      "format": "uint64",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "group_id",
+    "members"
+  ],
+  "title": "ShardGroupMintRequest",
+  "type": "object"
+}

@@ -2,8 +2,10 @@
 //! Sprint 77 Phase L — machine-readable JSON Schemas for the sharded-inference
 //! wire primitives.
 //!
-//! The signed shard wire types ([`crate::shard_plan`], [`crate::compute_group`])
-//! and the read-only control-plane DTO are the source of truth; this module
+//! The signed shard wire types ([`crate::shard_plan`], [`crate::compute_group`]),
+//! the read-only control-plane DTOs and the schematisable control-plane
+//! request bodies (Sprint 82 Phase G: [`ShardGroupMintRequest`],
+//! [`ShardGenerateRequest`]) are the source of truth; this module
 //! generates their JSON Schemas (draft 2020-12) via `schemars::schema_for!` so
 //! a machine / LLM / agent can ingest the contract without guessing. Each
 //! schema has a `*.schema.json` snapshot next to this module, gated by
@@ -11,6 +13,13 @@
 //! snapshot is not regenerated, the test fails loudly with a diff. The snapshot
 //! is _not_ the source of truth — it is a canary against silent struct drift,
 //! the same mechanism as [`super::task_response`].
+//!
+//! The third control-plane request body (`MountSessionRequest`, the
+//! `POST /api/daemon/shard-session/mount` body) stays daemon-side and
+//! deliberately UNschematised: it embeds the signed `ComputeGroupEntry`
+//! envelope (excluded below) and `iroh::EndpointAddr`, an upstream type
+//! whose JSON shape iroh owns — its machine contract is the Request-body
+//! table in `docs/protocol/SHARD_PROTOCOL_SPEC.md` §6.1.
 //!
 //! ## Why generated, not hand-written
 //!
@@ -43,7 +52,7 @@
 //! updated `*.schema.json` alongside the struct change.
 
 use schemars::{JsonSchema, schema_for};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::compute_group::ComputeGroup;
 use crate::shard_plan::{RunMetrics, RunProof, ShardAssignment, ShardPlan, ShardedSessionManifest};
@@ -213,6 +222,55 @@ pub struct ShardSessionResultResponse {
     pub result: Option<ShardSessionResultView>,
 }
 
+/// Body of `POST /api/daemon/shard-session/group` — mint + sign the private
+/// compute group for a session (operator flow step 1, Sprint 81 Phase I).
+// Loopback-API frontier (Sprint 82 Phase G, doctrine §7): consumed by a
+// distinct runtime (the b3_shard harness / operator tooling POSTs this body).
+// Not a signed wire type, so it carries no `// FRONTIER:` domain/version tag
+// (that opt-in registry is for `DOMAIN_*_V1` families); its machine contract
+// is the generated schema snapshot (`shard_group_mint_request.schema.json`,
+// drift-gated) + the Request-body table in SHARD_PROTOCOL_SPEC §6.1. Defined in
+// `nexus-core-rs` (not the daemon) for the same reason as the response DTOs
+// above (S77 Phase L): the type lives where the schema is generated, and the
+// daemon consumes it. Unlike the always-serialized responses, `Option` fields
+// here carry NO `#[schemars(required)]`: a request field with
+// `#[serde(default)]` is genuinely omittable by the caller.
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ShardGroupMintRequest {
+    /// Stable group handle.
+    pub group_id: String,
+    /// Worker Ed25519 pubkeys, lowercase hex (the head is added
+    /// automatically — it is the dialer the workers must admit).
+    pub members: Vec<String>,
+    /// Monotonic group revision (defaults to 1 for a fresh group).
+    #[serde(default)]
+    pub revision: Option<u64>,
+}
+
+/// Body of `POST /api/daemon/shard-session/{id}/generate`. The harness
+/// also sends `session_id` in the body; the PATH is authoritative and a
+/// disagreeing body id is rejected (never silently drive another session) —
+/// a runtime contract a JSON Schema cannot express, restated in
+/// SHARD_PROTOCOL_SPEC §6.1 so the optional `session_id` below is never
+/// misread as an alternative addressing channel.
+// Loopback-API frontier (Sprint 82 Phase G, doctrine §7): same class and
+// same machine contract as [`ShardGroupMintRequest`] above
+// (`shard_generate_request.schema.json`, drift-gated + SPEC §6.1).
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ShardGenerateRequest {
+    /// Redundant echo of the path id (the harness sends it); the PATH id
+    /// is authoritative — a disagreeing body id is rejected with 400.
+    #[serde(default)]
+    pub session_id: Option<String>,
+    /// The prompt to drive through the mounted pipeline.
+    pub prompt: String,
+    /// Maximum new tokens for a REAL inference session (Sprint 81
+    /// Phase J; clamped to `MAX_NEW_TOKENS_CAP`). A transport-only echo
+    /// session ignores it (one frame pass by construction).
+    #[serde(default)]
+    pub max_tokens: Option<u32>,
+}
+
 /// JSON Schema (draft 2020-12) of the signed [`ComputeGroup`] allowlist
 /// payload (domain `nexus-compute-group-v1`).
 pub fn compute_group_schema() -> serde_json::Value {
@@ -269,6 +327,18 @@ pub fn shard_session_result_response_schema() -> serde_json::Value {
     to_value(schema_for!(ShardSessionResultResponse))
 }
 
+/// JSON Schema of the `POST /api/daemon/shard-session/group` request body
+/// [`ShardGroupMintRequest`].
+pub fn shard_group_mint_request_schema() -> serde_json::Value {
+    to_value(schema_for!(ShardGroupMintRequest))
+}
+
+/// JSON Schema of the `POST /api/daemon/shard-session/{id}/generate` request
+/// body [`ShardGenerateRequest`].
+pub fn shard_generate_request_schema() -> serde_json::Value {
+    to_value(schema_for!(ShardGenerateRequest))
+}
+
 /// `schema_for!` returns a `schemars::Schema`; serialize it to a
 /// `serde_json::Value` (mirrors [`super::task_response::task_response_schema`]).
 fn to_value(schema: schemars::Schema) -> serde_json::Value {
@@ -305,6 +375,14 @@ fn schema_snapshots() -> Vec<(&'static str, serde_json::Value)> {
             "shard_session_result_response.schema.json",
             shard_session_result_response_schema(),
         ),
+        (
+            "shard_group_mint_request.schema.json",
+            shard_group_mint_request_schema(),
+        ),
+        (
+            "shard_generate_request.schema.json",
+            shard_generate_request_schema(),
+        ),
     ]
 }
 
@@ -326,8 +404,10 @@ mod tests {
     }
 
     /// Required-field spot checks on representative types: the signed payloads
-    /// publish their mandatory keys, so a consumer can reject a malformed
-    /// payload structurally.
+    /// and the always-serialized response envelopes publish their mandatory
+    /// keys, so a consumer can reject a malformed payload structurally — and
+    /// the loopback request bodies assert the INVERSE contract too (their
+    /// `#[serde(default)]` fields must stay omittable, S82 Phase G).
     #[test]
     fn schemas_publish_required_fields() {
         let required = |schema: &serde_json::Value| -> Vec<String> {
@@ -439,6 +519,35 @@ mod tests {
             assert!(
                 result_view.contains(&key.to_string()),
                 "result view must require `{key}` (always serialized, null until measured)"
+            );
+        }
+
+        // Request bodies (Sprint 82 Phase G) — the INVERSE contract of the
+        // always-serialized responses: `required` = what the handler cannot
+        // default, and every `#[serde(default)]` field must stay OMITTABLE
+        // (no `#[schemars(required)]`), so a minimal caller payload survives
+        // into the schema as a valid document.
+        let mint = required(&shard_group_mint_request_schema());
+        for key in ["group_id", "members"] {
+            assert!(
+                mint.contains(&key.to_string()),
+                "group-mint request schema must require `{key}`"
+            );
+        }
+        assert!(
+            !mint.contains(&"revision".to_string()),
+            "ShardGroupMintRequest.revision is #[serde(default)] → must be optional"
+        );
+        let generate = required(&shard_generate_request_schema());
+        assert!(
+            generate.contains(&"prompt".to_string()),
+            "generate request schema must require `prompt`"
+        );
+        for optional in ["session_id", "max_tokens"] {
+            assert!(
+                !generate.contains(&optional.to_string()),
+                "ShardGenerateRequest.{optional} is #[serde(default)] → must be optional \
+                 (the PATH id is authoritative, the body id is a redundant echo)"
             );
         }
     }

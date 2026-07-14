@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Body of `POST /api/daemon/shard-session/{id}/generate`. The harness\nalso sends `session_id` in the body; the PATH is authoritative and a\ndisagreeing body id is rejected (never silently drive another session) —\na runtime contract a JSON Schema cannot express, restated in\nSHARD_PROTOCOL_SPEC §6.1 so the optional `session_id` below is never\nmisread as an alternative addressing channel.",
+  "properties": {
+    "max_tokens": {
+      "default": null,
+      "description": "Maximum new tokens for a REAL inference session (Sprint 81\nPhase J; clamped to `MAX_NEW_TOKENS_CAP`). A transport-only echo\nsession ignores it (one frame pass by construction).",
+      "format": "uint32",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "prompt": {
+      "description": "The prompt to drive through the mounted pipeline.",
+      "type": "string"
+    },
+    "session_id": {
+      "default": null,
+      "description": "Redundant echo of the path id (the harness sends it); the PATH id\nis authoritative — a disagreeing body id is rejected with 400.",
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "prompt"
+  ],
+  "title": "ShardGenerateRequest",
+  "type": "object"
+}

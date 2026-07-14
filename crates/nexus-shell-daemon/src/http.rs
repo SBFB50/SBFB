@@ -2141,9 +2141,13 @@ async fn list_nodes(State(state): State<Arc<DaemonHttpState>>) -> impl IntoRespo
 // now reads the in-memory `ShardSessionRegistry` populated by the mount
 // orchestrator (`crate::shard_session`), whose insert is gated on the
 // `DOMAIN_SHARD_PLAN_V1` signature + `is_member` checks the stub mandated.
+// Sprint 82 Phase G: the two primitive-only request bodies
+// (`ShardGroupMintRequest`, `ShardGenerateRequest`) moved to core for the
+// same S77-L reason — the type lives where its `schema_for!` snapshot is
+// generated; the handlers below consume them unchanged.
 use nexus_core_rs::{
-    ShardSessionResultResponse, ShardSessionResultView, ShardSessionStatusResponse,
-    ShardSessionView,
+    ShardGenerateRequest, ShardGroupMintRequest, ShardSessionResultResponse,
+    ShardSessionResultView, ShardSessionStatusResponse, ShardSessionView,
 };
 
 /// Pure projection for `GET /api/daemon/shard-session/{id}` — pinned by a unit
@@ -2188,19 +2192,6 @@ async fn shard_session(
         Json(shard_session_response(&state.shard_sessions, &session_id)),
     )
         .into_response()
-}
-
-/// Body of `POST /api/daemon/shard-session/group`.
-#[derive(Debug, serde::Deserialize)]
-struct ShardGroupMintRequest {
-    /// Stable group handle.
-    group_id: String,
-    /// Worker Ed25519 pubkeys, lowercase hex (the head is added
-    /// automatically — it is the dialer the workers must admit).
-    members: Vec<String>,
-    /// Monotonic group revision (defaults to 1 for a fresh group).
-    #[serde(default)]
-    revision: Option<u64>,
 }
 
 /// `POST /api/daemon/shard-session/group` — Sprint 81 Phase I — mint the
@@ -2299,21 +2290,6 @@ async fn shard_session_mount(
         )
             .into_response(),
     }
-}
-
-/// Body of `POST /api/daemon/shard-session/{id}/generate`. The harness
-/// also sends `session_id` in the body; the PATH is authoritative and a
-/// disagreeing body id is rejected (never silently drive another session).
-#[derive(Debug, serde::Deserialize)]
-struct ShardGenerateRequest {
-    #[serde(default)]
-    session_id: Option<String>,
-    prompt: String,
-    /// Maximum new tokens for a REAL inference session (Sprint 81
-    /// Phase J; clamped to `MAX_NEW_TOKENS_CAP`). A transport-only echo
-    /// session ignores it (one frame pass by construction).
-    #[serde(default)]
-    max_tokens: Option<u32>,
 }
 
 /// `POST /api/daemon/shard-session/{id}/generate` — Sprint 81 Phase I —
