@@ -100,6 +100,26 @@ completude (credits Fable 5 epuises) — cf. §Track A et §Completude.
 - Findings : S81-C-1 (P2), S81-C-2 (P2), S81-C-3 (P2), S81-C-4 (P3), S81-C-5 (P3).
 - Tech debt : T20 pose (relay-cert-pinning) mais avec pointeur faux (S81-C-3).
 
+> **Note (S82 Phase H, 2026-07-14).** La prose de S81-C-1/C-2/C-4/C-5 n'a
+> jamais ete persistee : seuls les IDs ci-dessus existent (Track C
+> anti-anchoring — la sortie brute de l'auditeur n'a pas ete archivee), et
+> grep `S81-C-` sur les 17 phase-reviews S81 = 0 hit. La consigne
+> « re-extraire des phase-reviews » etait donc inexecutable. Disposition
+> Phase H : passe de fidelite PATTERNS<->code RE-DERIVEE (methode Track C,
+> Workflow 13 agents : 8 tranches rust+shell + verification adversariale
+> par tranche) -> 21 findings verifies (14 P2 + 7 P3 apres re-cotation
+> adversariale), TOUS corriges in-phase — corrections et presente note
+> voyagent dans le meme commit atomique Phase H ; le round Codex de la
+> phase a durci 6 de ces corrections (quorum accept/reject, plain-fetch
+> residuel FileUploadBlock, safeParse 2xx-only, kudos ledger non signe,
+> zip 8.6.0 au lock, present-vrai "routed"). **S81-C-1/C-2
+> SOLDES par re-derivation ; S81-C-4/C-5 subsumes par la meme passe
+> (routes Phase H, ledger E :116) ; S81-C-3 re-ancre** (annotation datee
+> dans le corps T20 `docs/rust/PATTERNS.md` + harmonisation namespace
+> `iroh::tls` du blockquote). §P73 re-verifie FIDELE (2 passes
+> independantes). Detail : `sprint82_phase_h_preflight.md` §Passe de
+> fidelite.
+
 ---
 
 ## Track D — Scope

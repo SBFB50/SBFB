@@ -2745,10 +2745,16 @@ fn restore_browse_from_outbox(
 /// not found", which the A2 fail-loud does NOT catch (it only catches
 /// non-NotFound errors). The recreate guard below turns that silent
 /// data loss into a diagnosable refusal while the backup still holds
-/// the data. Filename mirrored (with upstream provenance) by
-/// `nexus-core-rs/tests/store_migration.rs`.
+/// the data. The suffix is the shared
+/// `nexus_core_rs::MIGRATION_BACKUP_SUFFIX` (upstream provenance
+/// documented there; S82 Phase H, F-D5-01 — this fn previously
+/// inlined its own copy of the literal). The upstream-drift tripwire
+/// lives in `nexus-core-rs/tests/store_migration.rs`; the `docs.redb`
+/// base name is the daemon's own choice, appended here.
 pub(crate) fn docs_migration_backup_path(iroh_data_dir: &std::path::Path) -> std::path::PathBuf {
-    iroh_data_dir.join("docs.redb.backup-redb-v2-tuples")
+    let mut p = iroh_data_dir.join("docs.redb").into_os_string();
+    p.push(nexus_core_rs::MIGRATION_BACKUP_SUFFIX);
+    p.into()
 }
 
 /// Shared recreate guard for the two boot fns (Sprint 81 Phase F).

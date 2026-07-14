@@ -23,11 +23,20 @@ mismatch. This guarantees:
 - manual JSON parsing (`as any`, `!` assertions on untyped
   objects) cannot creep in.
 
-The single narrow exception is `AppsTab.tsx`'s "Invoquer"
-button, which hits `/app/{name}/tabs/{tab}/descriptor` with a
-plain `fetch` because the descriptor shape is app-defined and
-Zod would require a discriminated union per app. This is
-documented inline on the call site.
+The historical "single narrow exception" (`AppsTab.tsx`'s
+"Invoquer" button doing a plain `fetch` on the app-defined
+descriptor shape) has since been CLOSED: the call goes through the
+typed helper `getAppTabDescriptor` in `web/src/api/coordinator.ts`
+(Sprint 8 D4, result discriminated into two states). One
+plain-`fetch` DOES remain in the shell today:
+`FileUploadBlock.tsx` posts its multipart upload with a raw
+`fetch` to `http://127.0.0.1:18765/app/{name}/files/upload` and
+casts the response without a Zod schema (TabView-era block —
+multipart bodies never fit the JSON-helper mold; the auth
+bootstrap `auth.ts` `fetch` is likewise pre-token by nature).
+*(Re-anchored S82 Phase H — the paragraph previously described the
+AppsTab exception in the present tense, then a first rewrite
+overclaimed "no plain-fetch remains"; caught by the Codex round.)*
 
 Reference: commit for the Phase A frontend shell.
 
@@ -153,61 +162,49 @@ snapshot explicitly.
 
 Reference: sprint6_plan.md §2 D1/D2/D3.
 
-### P9 — nexus-shell-daemon reached exclusively through the coordinator proxy
+### P9 — daemon reached directly, same-origin, behind the `DaemonResult<T>` envelope (ex-coordinator proxy)
 
-Sprint 7 D1 (frozen in `sprint7_kickoff.md` §4): the React shell
-NEVER fetches the `nexus-shell-daemon` HTTP surface directly.
-Every `/browse`, `/curators`, `/info` call goes
+Historical S7-era shape (D1, `sprint7_kickoff.md` §4): the React
+shell reached the daemon exclusively through the Python
+coordinator's `/daemon/*` proxy, which owned the CORS policy, the
+singleton port discovery (`running.json`), the offline envelope and
+the proxy-side input validation. That proxy died with the Python
+coordinator at the S50-S51 Rust+Frontend pivot.
 
-```
-shell → coordinator /daemon/* → nexus-shell-daemon 127.0.0.1:<ephemeral>
-```
+Current shape: the shell calls the Rust daemon DIRECTLY,
+same-origin, under `/api/daemon/*` via the typed client
+`web/src/api/daemon.ts` (`callDaemon` + `authFetch` — the file
+header states "Calls the daemon directly (same-origin) without any
+proxy envelope"). The proxy's four rationales did not disappear,
+they moved:
 
-Rationale (four independent reasons that reinforce each other):
+1. **Trust boundary** — the daemon owns its loopback CORS layer
+   (`crates/nexus-shell-daemon/src/http.rs::cors_layer`, defaults
+   to loopback origins, extensible via `--cors-origin`) plus the
+   bearer + Host + Origin loopback hardening.
 
-1. **Single trust boundary.** The coordinator already runs a
-   CORS regex that only accepts `http://(127.0.0.1|localhost):*`
-   origins. Routing daemon calls through the same process means
-   we never have to double-maintain that policy on the daemon
-   side. The daemon DOES ship its own loopback CORS layer
-   (`crates/nexus-shell-daemon/src/http.rs::loopback_cors_layer`)
-   as defense-in-depth, but the shell never triggers it.
+2. **Port discovery** — the daemon serves the bundled web shell
+   (S60 frontend bundling), so daemon calls are same-origin; no
+   cross-process `running.json` read is needed shell-side.
 
-2. **Ephemeral port.** The daemon binds `127.0.0.1:0` and writes
-   the resolved port into `<root>/shell-daemon/running.json`. If
-   the shell talked to the daemon directly it would need to read
-   that file too — duplicating the singleton discovery across two
-   codebases. The coordinator does it once and forwards.
+3. **Daemon-offline UX** — the `DaemonResult<T>` discriminated
+   union (`{kind:"data" | "unavailable" | "error"}`) is built
+   CLIENT-side by `callDaemon`: a transport failure returns
+   `{kind:"unavailable"}`, still rendered as a first-class state
+   (`DaemonOfflineBanner`), never an error-boundary trip.
 
-3. **Daemon-offline UX.** When no daemon is running the coordinator
-   returns `{"kind": "unavailable", "reason": "..."}` at 503. The
-   shell's `DaemonResult<T>` union surfaces that as a first-class
-   render path (`DaemonOfflineBanner`), NOT as an error boundary
-   trip. Direct shell-to-daemon would have to re-invent this
-   envelope in TypeScript.
+4. **Input validation** — Zod `safeParse` on every SUCCESS payload
+   shell-side (schemas mirror the Rust wire types; non-2xx
+   responses short-circuit to `{kind:"error"}` with the daemon's
+   `{"error": ...}` detail BEFORE any schema parse), and the
+   daemon's own request validation (422) server-side.
 
-4. **Proxy-side input validation.** `api/daemon.py::daemon_subscribe_curator`
-   rejects non-object POST bodies at 400 before even forwarding,
-   so a whole class of shell bugs lands in the test suite instead
-   of on the daemon logs.
+*(Rewritten S82 Phase H — the section previously described the
+Python proxy architecture in the present tense, inverse of the
+code since S50-S51.)*
 
-Contract shape — the discriminated envelope every `/daemon/*`
-route returns, mirrored in `web/src/api/daemon.ts::DaemonResult<T>`:
-
-```
-{"kind": "data",        "status": int, "body": <daemon body>}    (200)
-{"kind": "unavailable", "reason": "<transport / not-running>"}   (503)
-{"kind": "error",       "reason": "<proxy-level 400>"}           (400)
-```
-
-The `status` field carries the upstream HTTP status code (200,
-422, 500, …) so the shell can distinguish "daemon said no" from
-"daemon offline". The reference test suite is
-`packages/nexus-coordinator/tests/test_daemon_proxy.py` (10 tests,
-including the ones that swap the fake daemon for a closed
-ephemeral port to force a `httpx.ConnectError → 503`).
-
-Reference: sprint7_kickoff.md §4 D1, sprint7_plan.md §8.
+Reference: sprint7_kickoff.md §4 D1 (historical),
+`web/src/api/daemon.ts` (current).
 
 ### P10 — Command palette extends with app-contributed entries via `@nexus_command`
 
@@ -1202,7 +1199,8 @@ LOC), `Browse.tsx` (clickable cards), `App.tsx` (lazy route),
 
 Sprint 12 Phase A (`32a1dca`). Archives zip stockees comme blobs
 iroh sont servies via `GET /blob-serve/{hash}/{path}`. Le daemon
-decompresse le zip en memoire (crate `zip` 2.6), cache les
+decompresse le zip en memoire (crate `zip`, 8.6.0 au lock,
+contrainte declaree 8.5 — 2.6 a l'origine S12), cache les
 fichiers dans un `BlobServeCache` LRU (32 entries par defaut),
 et sert chaque fichier avec :
 - `Content-Security-Policy: connect-src 'none'` (bloque les
@@ -2138,7 +2136,7 @@ metric to make the panel look richer. Kudos remain non-monetary, non-transferabl
 
 ---
 
-### P39 — Sprint 77 Phase J : front `/compute` shard-session + daemon read-only stub (privacy-whitelist + intentions FR)
+### P39 — Sprint 77 Phase J : front `/compute` shard-session + daemon read-only route (privacy-whitelist + intentions FR)
 
 The shell exposes a sharded compute session WITHOUT leaking the private group's
 membership and WITHOUT inventing a wire surface. Load-bearing:
@@ -2149,9 +2147,11 @@ membership and WITHOUT inventing a wire surface. Load-bearing:
    `initiator` (SI-3/SI-4). The leak is PHYSICALLY impossible by construction: the
    serialize chain only carries the count. The route is additive under
    `authed_routes` (auth inherited); `/browse` stays byte-identical.
-2. **Empty state is `{found:false, session:null}` 200, never 404.** `live_shard_session`
-   is a STUB returning `None` (the HTTP-readable session store is an S78 seam, NOT
-   Phase K). The Zod envelope is `.strict()`, `session` is `.nullable()`, the row
+2. **Empty state is `{found:false, session:null}` 200, never 404.** Since S81
+   Phase I the lookup reads the in-memory `ShardSessionRegistry` populated by the
+   mount orchestrator (the S77 `live_shard_session` stub is GONE — an empty
+   envelope now means "no live session in the registry", not a hardcoded `None`;
+   re-anchored S82 Phase H). The Zod envelope is `.strict()`, `session` is `.nullable()`, the row
    tolerant — a future field is additive, no bump. Mirrors the `seed_count`
    precedent (S74), never a 404-on-absent. NB: the `http.rs` Phase J source
    comments that said the live store "lands in Phase K" were STALE (Phase K

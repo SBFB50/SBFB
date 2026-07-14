@@ -48,6 +48,21 @@ use iroh_docs::{AuthorId, DocTicket, NamespaceId};
 
 use crate::error::{NexusError, Result};
 
+/// Filename suffix the iroh-docs redb 2->4 tuple migration appends to
+/// the original `docs.redb` path when it keeps the pre-migration
+/// backup sibling (`migrate_redb_v2_tuples.rs` pushes this literal
+/// onto the source path, then renames the source to it — iroh-docs
+/// 0.101.0, private literal in a private fn, exported as NO constant
+/// upstream). SBFB can therefore only MIRROR the string; this const is
+/// the single SBFB-side source of truth (S82 Phase H, F-D5-01 —
+/// previously duplicated across the daemon recreate guard and the
+/// migration test). The upstream-drift tripwire lives in
+/// `tests/store_migration.rs`: it runs the real migration and asserts
+/// the produced sibling carries exactly this suffix, so an upstream
+/// rename surfaces as a test failure instead of silently disarming the
+/// daemon guard (`runtime::docs_migration_backup_path`).
+pub const MIGRATION_BACKUP_SUFFIX: &str = ".backup-redb-v2-tuples";
+
 /// Thin client around an [`iroh_docs::protocol::Docs`] handle.
 ///
 /// Owns a cheaply-cloned `Docs` handle (iroh-docs 0.101 derives

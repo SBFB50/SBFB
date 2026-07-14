@@ -121,7 +121,7 @@ pub use dns_fallback::{
     concat_txt_strings, load_dns_fallback_from_env,
 };
 pub use doc_sync::{KeepaliveConfig, spawn_doc_sync_keepalive};
-pub use docs::{DocHandle, DocsClient};
+pub use docs::{DocHandle, DocsClient, MIGRATION_BACKUP_SUFFIX};
 pub use error::{NexusError, Result};
 pub use gossip::{
     AgeAdmissionOutcome, AgeAdmissionPolicy, DifficultyTarget, GossipClient, GossipEvent,

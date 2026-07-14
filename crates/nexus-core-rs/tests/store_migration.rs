@@ -31,6 +31,7 @@ use std::path::{Path, PathBuf};
 
 use iroh_blobs::store::fs::FsStore;
 use iroh_docs::store::Store as DocsStore;
+use nexus_core_rs::MIGRATION_BACKUP_SUFFIX;
 use redb::ReadableDatabase as _;
 use redb::ReadableTable as _;
 
@@ -71,9 +72,13 @@ const NEW_BY_KEY: redb::TableDefinition<RecordsByKeyKey, ()> =
 const NEW_NAMESPACES: redb::TableDefinition<&[u8; 32], NamespacesValue> =
     redb::TableDefinition::new("namespaces-2");
 
-/// Suffix appended by the upstream migration to the original docs.redb
-/// path (mirrors `runtime::docs_migration_backup_path` in the daemon).
-const MIGRATION_BACKUP_SUFFIX: &str = ".backup-redb-v2-tuples";
+// The backup suffix is the shared `nexus_core_rs::MIGRATION_BACKUP_SUFFIX`
+// (S82 Phase H, F-D5-01 — this file previously held its own copy of the
+// literal): the daemon recreate guard (`runtime::docs_migration_backup_path`)
+// derives from the SAME const, so the two crates cannot drift apart
+// internally. The remaining risk is UPSTREAM drift (iroh-docs renaming its
+// private literal at a future bump) — guarded by
+// `upstream_migration_backup_suffix_matches_shared_const` below.
 
 fn backup_path(docs_redb: &Path) -> PathBuf {
     let mut p = docs_redb.to_owned().into_os_string();
@@ -99,47 +104,54 @@ fn orphan_migrate_temps(dir: &Path) -> Vec<PathBuf> {
         .unwrap_or_default()
 }
 
+// Fixture values shared by the forge helper and the row assertions.
+const FX_NS: [u8; 32] = [1u8; 32];
+const FX_AUTHOR: [u8; 32] = [2u8; 32];
+const FX_KEY: &[u8] = b"kv:phase-f";
+const FX_NS_SIG: [u8; 64] = [3u8; 64];
+const FX_AUTH_SIG: [u8; 64] = [4u8; 64];
+const FX_HASH: [u8; 32] = [5u8; 32];
+const FX_NS_SECRET: [u8; 32] = [9u8; 32];
+const FX_NS_KIND: u8 = 1;
+const FX_TIMESTAMP: u64 = 42;
+const FX_LEN: u64 = 7;
+
+/// Forge a legacy store exactly as redb 2.x left it on disk: file
+/// format v3, tuple tables stamped with the OLD type tag. Shared by the
+/// migration proof and the F-D5-01 suffix tripwire.
+fn forge_legacy_store(path: &Path) {
+    let db = redb_v3::Database::create(path).expect("forge legacy store");
+    let tx = db.begin_write().expect("write tx");
+    {
+        let mut records = tx.open_table(OLD_RECORDS).expect("records-1 legacy");
+        let mut latest = tx.open_table(OLD_LATEST).expect("latest legacy");
+        let mut by_key = tx.open_table(OLD_BY_KEY).expect("by-key legacy");
+        let mut namespaces = tx.open_table(OLD_NAMESPACES).expect("namespaces-2");
+        records
+            .insert(
+                (&FX_NS, &FX_AUTHOR, FX_KEY),
+                (FX_TIMESTAMP, &FX_NS_SIG, &FX_AUTH_SIG, FX_LEN, &FX_HASH),
+            )
+            .expect("insert record");
+        latest
+            .insert((&FX_NS, &FX_AUTHOR), (FX_TIMESTAMP, FX_KEY))
+            .expect("insert latest");
+        by_key
+            .insert((&FX_NS, FX_KEY, &FX_AUTHOR), ())
+            .expect("insert by-key");
+        namespaces
+            .insert(&FX_NS, (FX_NS_KIND, &FX_NS_SECRET))
+            .expect("insert namespace");
+    }
+    tx.commit().expect("commit forge");
+}
+
 #[test]
 fn docs_store_with_legacy_tuple_tags_migrates_on_open() {
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("docs.redb");
 
-    let ns = [1u8; 32];
-    let author = [2u8; 32];
-    let key: &[u8] = b"kv:phase-f";
-    let ns_sig = [3u8; 64];
-    let auth_sig = [4u8; 64];
-    let hash = [5u8; 32];
-    let ns_secret = [9u8; 32];
-
-    // Forge the legacy store exactly as redb 2.x left it on disk: file
-    // format v3, tuple tables stamped with the OLD type tag.
-    {
-        let db = redb_v3::Database::create(&path).expect("forge legacy store");
-        let tx = db.begin_write().expect("write tx");
-        {
-            let mut records = tx.open_table(OLD_RECORDS).expect("records-1 legacy");
-            let mut latest = tx.open_table(OLD_LATEST).expect("latest legacy");
-            let mut by_key = tx.open_table(OLD_BY_KEY).expect("by-key legacy");
-            let mut namespaces = tx.open_table(OLD_NAMESPACES).expect("namespaces-2");
-            records
-                .insert(
-                    (&ns, &author, key),
-                    (42u64, &ns_sig, &auth_sig, 7u64, &hash),
-                )
-                .expect("insert record");
-            latest
-                .insert((&ns, &author), (42u64, key))
-                .expect("insert latest");
-            by_key
-                .insert((&ns, key, &author), ())
-                .expect("insert by-key");
-            namespaces
-                .insert(&ns, (1u8, &ns_secret))
-                .expect("insert namespace");
-        }
-        tx.commit().expect("commit forge");
-    }
+    forge_legacy_store(&path);
 
     // Pre-migration control: redb 4 must REJECT the tuple tables with
     // TableTypeMismatch — this is the exact failure the migration exists
@@ -183,8 +195,11 @@ fn docs_store_with_legacy_tuple_tags_migrates_on_open() {
             .collect::<Result<_, _>>()
             .expect("read records");
         assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].0.value(), (&ns, &author, key));
-        assert_eq!(rows[0].1.value(), (42u64, &ns_sig, &auth_sig, 7u64, &hash));
+        assert_eq!(rows[0].0.value(), (&FX_NS, &FX_AUTHOR, FX_KEY));
+        assert_eq!(
+            rows[0].1.value(),
+            (FX_TIMESTAMP, &FX_NS_SIG, &FX_AUTH_SIG, FX_LEN, &FX_HASH)
+        );
 
         let latest = tx.open_table(NEW_LATEST).expect("latest migrated");
         let rows: Vec<_> = latest
@@ -193,8 +208,8 @@ fn docs_store_with_legacy_tuple_tags_migrates_on_open() {
             .collect::<Result<_, _>>()
             .expect("read latest");
         assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].0.value(), (&ns, &author));
-        assert_eq!(rows[0].1.value(), (42u64, key));
+        assert_eq!(rows[0].0.value(), (&FX_NS, &FX_AUTHOR));
+        assert_eq!(rows[0].1.value(), (FX_TIMESTAMP, FX_KEY));
 
         let by_key = tx.open_table(NEW_BY_KEY).expect("by-key migrated");
         let rows: Vec<_> = by_key
@@ -203,7 +218,7 @@ fn docs_store_with_legacy_tuple_tags_migrates_on_open() {
             .collect::<Result<_, _>>()
             .expect("read by-key");
         assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].0.value(), (&ns, key, &author));
+        assert_eq!(rows[0].0.value(), (&FX_NS, FX_KEY, &FX_AUTHOR));
 
         let namespaces = tx
             .open_table(NEW_NAMESPACES)
@@ -218,8 +233,8 @@ fn docs_store_with_legacy_tuple_tags_migrates_on_open() {
             1,
             "the namespace row must survive the migration"
         );
-        assert_eq!(rows[0].0.value(), &ns);
-        assert_eq!(rows[0].1.value(), (1u8, &ns_secret));
+        assert_eq!(rows[0].0.value(), &FX_NS);
+        assert_eq!(rows[0].1.value(), (FX_NS_KIND, &FX_NS_SECRET));
     }
 
     // Idempotence: a second open is a plain open, not a second migration.
@@ -228,6 +243,47 @@ fn docs_store_with_legacy_tuple_tags_migrates_on_open() {
     assert!(
         orphan_migrate_temps(dir.path()).is_empty(),
         "re-open must not re-run the migration"
+    );
+}
+
+/// F-D5-01 tripwire (S82 Phase H): the backup sibling PRODUCED by the
+/// real upstream migration must carry exactly the shared
+/// `nexus_core_rs::MIGRATION_BACKUP_SUFFIX` — the same const the daemon
+/// recreate guard (`runtime::docs_migration_backup_path`) derives its
+/// path from. If a future iroh-docs bump renames its private literal,
+/// this test fails loudly while the guard would still be probing the
+/// old name — the drift surfaces here instead of silently disarming
+/// the guard (the "backup exists + replica absent" refusal).
+///
+/// The assertion pins the EXACT directory listing on purpose — stricter
+/// than the neighbour test's `backup.exists()` (which already fails on
+/// an upstream rename, since `backup_path` derives from the same
+/// const): the added value here is pinning the produced NAME and
+/// refusing any unexpected sibling, at the accepted cost of also
+/// failing if a future upstream leaves an unrelated artefact behind.
+#[test]
+fn upstream_migration_backup_suffix_matches_shared_const() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("docs.redb");
+    forge_legacy_store(&path);
+
+    let store = DocsStore::persistent(&path).expect("Store::persistent migrates the legacy store");
+    drop(store);
+
+    let mut entries: Vec<String> = std::fs::read_dir(dir.path())
+        .expect("read scratch dir")
+        .filter_map(|e| e.ok())
+        .filter_map(|e| e.file_name().to_str().map(str::to_owned))
+        .collect();
+    entries.sort();
+    assert_eq!(
+        entries,
+        vec![
+            "docs.redb".to_owned(),
+            format!("docs.redb{MIGRATION_BACKUP_SUFFIX}"),
+        ],
+        "the migration must produce exactly one sibling, named with the shared \
+         MIGRATION_BACKUP_SUFFIX (an upstream rename must fail loudly here)"
     );
 }
 

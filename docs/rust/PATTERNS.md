@@ -847,7 +847,10 @@ items after Sprint 8 Phase A (commit `d321021`).
    `iroh_runtime::tests::subscribe_persist_first_rollback_on_disk_failure`.
 
 4. **`nexus_core` wheel editable install drift** —
-   **CLOSED Sprint 9 Phase A (H-3)**. The Sprint 7 Phase E test
+   **CLOSED Sprint 9 Phase A (H-3)** *(this "H-3" is the Sprint 7/9
+   audit finding about the Python wheel — a NAME COLLISION with
+   S81-H-3, the S81 audit Track H hardening finding routed to S82
+   Phase I; the two are unrelated)*. The Sprint 7 Phase E test
    run showed that the editable install of `nexus-core-py` can
    get wiped by a `uv sync` somewhere in the workflow — Sprint 8
    did NOT add `scripts/setup.sh` nor pin the wheel via
@@ -859,16 +862,23 @@ items after Sprint 8 Phase A (commit `d321021`).
    failures — structurally blocked on a fresh checkout, not
    merely inconvenient.
 
-   Sprint 9 Phase A ships `scripts/setup.sh` + `scripts/verify.sh`
+   Sprint 9 Phase A shipped `scripts/setup.sh` + `scripts/verify.sh`
    + `.githooks/post-merge` (opt-in via
-   `git config core.hooksPath .githooks`) documented in the
-   README and `docs/claude/README.md` §4.3. `setup.sh` hashes
+   `git config core.hooksPath .githooks`), documented in the README
+   of the time. `setup.sh` hashed
    `Cargo.lock` + `crates/nexus-core-rs/src` +
    `crates/nexus-core-py/src` into `.venv/.nexus-core-hash` and
-   skips the maturin rebuild when the hash is unchanged, so
-   running it twice is a no-op. The post-merge hook fires a
+   skipped the maturin rebuild when the hash was unchanged, so
+   running it twice was a no-op; the post-merge hook fired a
    reminder only when a pull actually touched the Rust core
-   sources.
+   sources. The Python toolchain left the repo with the S50-S51
+   Rust+Frontend pivot: `setup.sh` and `.githooks/post-merge`
+   survived as Python-era zombies until S82 Phase E purged them
+   (`f727f8c`); `scripts/verify.sh` lives on, rebuilt 0-Python in
+   the same phase. *(Rewritten to immutable past S82 Phase H — the
+   entry previously described the purged scripts in the present
+   tense and pointed at `docs/claude/README.md` §4.3, which covers
+   pre-commit verification, not these scripts.)*
    Audit reference: `.planning/sprint7_audit_findings.md` §H-3
    + `.planning/sprint8_audit_findings.md` §H-FX-2.
 
@@ -975,8 +985,11 @@ Audit reference: `.planning/sprint9_audit_findings.md` §I3-F2.
 
 > **Status update (S81 Phase E re-cert, 2026-07-05).** The upstream
 > blocker documented below is **gone**: iroh 1.0.1 exposes
-> `iroh_relay::tls::CaTlsConfig::custom_server_cert_verifier`
-> (`iroh-relay-1.0.1/src/tls.rs:141`, mode `CustomServerCertVerifier`
+> `iroh::tls::CaTlsConfig::custom_server_cert_verifier`
+> (defined `iroh-relay-1.0.1/src/tls.rs:141`, re-exported
+> `iroh-1.0.1/src/tls.rs:23` — the `iroh::tls` path is the one SBFB
+> actually imports in `node.rs`/`pkarr_resolver.rs`; mode
+> `CustomServerCertVerifier`
 > taking a `ServerCertVerifierBuilder` callback), reachable from the
 > endpoint via `iroh::endpoint::Builder::ca_tls_config`
 > (`iroh-1.0.1/src/endpoint.rs:713`). The endpoint hook that
@@ -1024,6 +1037,14 @@ Fix path : two-track approach decided in Phase C design doc §5.1 :
    PinningServerVerifier::new(pin_validator, webpki_fallback)))`
    at the relay builder site (likely in
    `crates/nexus-shell-daemon-core/src/iroh_runtime.rs`).
+   *[Re-anchored S82 Phase H (S81-C-3): the endpoint/relay assembly
+   has since consolidated into `crates/nexus-core-rs/src/node.rs` —
+   the single `Endpoint::builder` chokepoint, whose test-only path
+   already demonstrates `.ca_tls_config(...)`; `iroh_runtime.rs` no
+   longer builds the endpoint. The status-update blockquote above is
+   the authoritative current pointer. Doc re-anchor only — the T20
+   security carry itself stays OPEN, routed to a dedicated hardening
+   slot.]*
 2. **Forked connect path** as a fallback if upstream merge
    stalls > 2 sprints. Copy ~150 LOC from `magicsock::transports::
    relay::actor::create_relay_builder` and inject a rustls
@@ -1699,7 +1720,8 @@ Two implementations ship in S20 :
   to the S18 E2 baseline behaviour (the trait migration is a pure
   refactor — same wire output, swappable callsite).
 - **`FrostCanarySigner`** (E.2) — wraps a `K-of-N` FROST trusted-dealer
-  setup via the `frost-ed25519` v2.x crate (RFC 9591 jan 2025, ZF
+  setup via the `frost-ed25519` v3.x crate (3.0.0 at the lock, upgraded
+  S34 Phase A; RFC 9591 jan 2025, ZF
   reference impl, Trail of Bits 2023 audit). The aggregated
   signature is **byte-identical** to a standalone Ed25519 signature
   by RFC 8032 spec (FROST is a Schnorr-flavoured threshold scheme
@@ -1733,7 +1755,7 @@ The trait is deliberately minimal :
 A common mistake is to assume `K=1/N=1` "FROST" exists as a way
 to express the baseline single-key case via the trait. RFC 9591
 §6.1 explicitly requires `K >= 2` (a "K=1 threshold" is
-degenerate ; `frost-ed25519` v2.x rejects it at construct time).
+degenerate ; `frost-ed25519` v3.x rejects it at construct time).
 The minimum legitimate FROST configuration is therefore **K=2/N=2**
 (both shares cooperate, no redundancy). For the K=1-equivalent,
 use `Ed25519CanarySigner` directly — the trait abstraction makes
@@ -2091,20 +2113,26 @@ runtime, not the model.
 
 ## §P35 — Sprint 23 Phase B : ephemeral worker lifecycle (restart + VRAM wipe)
 
-Workers restart after `max_tasks_before_restart` tasks (default 50)
-via `EphemeralState` state machine in `crates/nexus-worker-core/src/
+Workers restart after `max_tasks` tasks (default 50)
+via the `LifecycleState` state machine (held by the
+`EphemeralLifecycle` struct) in `crates/nexus-worker-core/src/
 ephemeral.rs`. Between each task, `cudaMemset` zeroes visible VRAM
 (mitigation: model weight extraction by task N+1).
 
-**State machine** : `Idle -> Running -> RestartPending -> Idle`.
+**State machine** : `Ready -> Running -> WipePending ->
+(RestartPending | Ready)`, terminal `-> Exiting`.
 `completed_count` tracks tasks since last restart. When
 `completed_count >= max_tasks`, state transitions to
 `RestartPending` and the engine signals the supervisor to restart
 the process.
 
-**Config** : `worker.toml` field `max_tasks_before_restart: u32`
-(default 50). `cuda_wipe_enabled: bool` (default true, feature-gated
+**Config** : `worker.toml` field `max_tasks: u32`
+(default 50). `vram_wipe: bool` (default true, feature-gated
 `gpu-ephemeral` for headless CI builds without GPU).
+*(Field names re-anchored S82 Phase H — the doc previously said
+`max_tasks_before_restart`/`cuda_wipe_enabled`, names that never
+existed in `EphemeralConfig`; a `worker.toml` key spelled that way
+is silently ignored by serde and falls back to the default.)*
 
 **Pattern** : restart-based recycling rather than process-pool
 (cold-start latency Ollama ~3-8s per spawn unacceptable) or
@@ -2121,22 +2149,36 @@ transitions, wipe mock, config parse, restart trigger at boundary.
 
 Coordinator dispatches tasks with `redundancy_factor > 1` (values
 1/3/5, wire format `Task.redundancy_factor`) to N workers and
-aggregates via majority vote on hash of canonical result bytes.
+aggregates via majority vote (the S23 Python era voted on a hash of
+the result bytes; the Rust path votes on the exact `result_text`,
+cf. **Comparison** below).
 
-**Module** : `packages/nexus-coordinator/src/nexus_coordinator/
-redundancy.py` — `RedundancyDispatcher` in-memory tracker. Registers
-pending tasks, collects results, votes when quorum reached.
-Mismatch → outlier worker IDs recorded → quarantine route.
+**Module** : originally
+`packages/nexus-coordinator/src/nexus_coordinator/redundancy.py`
+(`RedundancyDispatcher` in-memory tracker) — removed with the Python
+coordinator (S45 gut `e1c31a5`, S50 package purge `7358bd4`). The
+living Rust path is the quorum vote in
+`crates/nexus-coordinator-rs/src/validator.rs`
+(`validate_quorum_pre_guardrail`): registers results and, once the
+quorum count is reached, takes the best value — a strict majority of
+identical values is ACCEPTED (any divergent values are logged as
+outliers, `"quorum outlier detected"`, and the agreed text proceeds
+to the output guardrail); when NO strict majority exists the task is
+marked `Rejected` (`"build quorum divergence — rejected"`, terminal
+since the S74 B.2 carry).
 
-**Hash comparison** : SHA-256 of raw result bytes (deviation from
-D3 spec BLAKE3 — functionally equivalent for equality, not used
-for crypto integrity since Ed25519 sigs cover that). See
-`redundancy.py::hash_result_bytes` docstring.
+**Comparison** : the Python era hashed results (SHA-256 of raw
+result bytes, a documented deviation from the D3 spec BLAKE3). The
+Rust quorum compares **`result_text` by exact equality** — the DB
+column keeps the name `sha256` from its Sprint 55 build-task origin
+but stores the text verbatim on this path (no hashing, cf. §P53).
 
 **Wire** : `redundancy_factor` field in `Task` struct uses
-`#[serde(default)]` for runtime robustness (Python omission
-deserialises to 1). Excluded from canonical bytes (`#[serde(skip)]`
-in `TaskCanonical`) since it is a dispatch-only policy, not task
+`#[serde(default = "default_redundancy_factor")]` for runtime
+robustness (a client omission
+deserialises to 1). Excluded from canonical bytes (removed in
+`task_canonical_bytes`, `crates/nexus-core-rs/src/task.rs`) since
+it is a dispatch-only policy, not task
 identity. Fix landed `34c77ce`.
 
 **Pattern** : BOINC/Folding@Home result validator majority (10+ years
@@ -2151,8 +2193,10 @@ Two-component watermark for compute-theft detection (C-ComputeTheft,
 COMPUTE_THREATS §4). Complements canary-input S22 Phase E (watermark
 INPUT prompt probe).
 
-**Detector (coordinator-side, Python)** :
-`packages/nexus-coordinator/src/nexus_coordinator/watermark_detector.py`
+**Detector (coordinator-side, Rust)** :
+`crates/nexus-coordinator-rs/src/watermark_detector.rs` (Sprint 40
+Phase C port of the S27 Python `watermark_detector.py`, removed with
+the Python coordinator S45/S50)
 — `WatermarkDetector` performs binomial z-test on green token ratio.
 PRF = `HMAC-SHA256(secret, context_window || token_id) mod 1.0`.
 Tokens with PRF score > 0.5 = green. Z-score above threshold (default
@@ -2241,20 +2285,24 @@ lifetime gymnastics.
 
 ## §P40 — Sprint 40 Phase A : case-sensitivity convention Rust vs Python wire identifiers
 
-Python coordinator uses `.lower()` on wire identifiers (pubkey_hex,
-project_id) before storage/comparison. Rust coordinator-rs preserves
-the original case. Both are valid pre-launch (no cross-language wire
-traffic yet). Post-v1.0, when Python coordinator is removed (S45),
-the Rust convention becomes authoritative. Until then, any wire
-comparison that crosses the Python/Rust boundary must normalize case
-explicitly. The `hex::encode` function already outputs lowercase.
+Historical (S40-era): the Python coordinator lowercased wire
+identifiers (`.lower()` on pubkey_hex, project_id) before
+storage/comparison while Rust coordinator-rs preserved the original
+case — both valid pre-launch (no cross-language wire traffic), with
+explicit case normalization required at any Python/Rust comparison
+boundary. The Python coordinator was removed (S45 gut `e1c31a5`,
+S50 package purge `7358bd4`), so the Rust convention is the sole
+one today: original case preserved; `hex::encode` already outputs
+lowercase, which keeps hex identifiers canonical in practice.
+*(Re-anchored S82 Phase H — the section previously described the
+Python/Rust boundary in the present tense.)*
 
 ---
 
 ## §P41 — Sprint 42 Phase A : warrant canary WARN/ALARM threshold rationale
 
 Canary registry uses two time-based thresholds for dead-man-switch
-detection (`canary_registry.rs` / `canary_registry.py`):
+detection (`crates/nexus-coordinator-rs/src/canary_registry.rs`):
 
 - `WARN_THRESHOLD_DAYS = 30` — expected refresh cadence. A canary
   older than 30 days triggers a warning-level status. Aligned with
@@ -2271,10 +2319,9 @@ Longer windows (quarterly) delay detection of compromise. The 45-day
 alarm provides a 15-day grace period after warn — enough for a
 human to act on the warning before the switch fires.
 
-These values are constants in both Python and Rust coordinators.
-Pre-v1.0, the Python values are authoritative. Post-v1.0 (S45,
-Python coordinator removed), the Rust constants become sole
-source of truth.
+These values are constants in `canary_registry.rs` — the sole
+source of truth since the Python coordinator (and its
+`canary_registry.py`) was removed S45/S50.
 
 ---
 
@@ -2309,12 +2356,14 @@ challenge context Sprint 19), it serves three roles:
    iroh `Endpoint` uses for peer-to-peer connections
 2. **provenance signer** — `deploy.rs` signs artifact hashes and
    provenance attestations with this keypair
-3. **coordinator identity** — equivalent to the Python
-   `coordinator.keypair` used for task signing and kudos ledger
+3. **coordinator identity** — task signing (the role the Python
+   `coordinator.keypair` held until the Python coordinator was
+   removed S45; the Python-era phrasing also credited it with the
+   kudos ledger, but the Rust ledger is an UNSIGNED BLAKE3 chain —
+   `kudos_ledger::credit` takes no key)
 
-This equivalence holds through v1.0. Post-S45 (Python coordinator
-removed), `pow_keypair` becomes the sole source of truth for all
-daemon identity operations.
+Since S45 (Python coordinator removed), `pow_keypair` is the sole
+source of truth for all daemon identity operations.
 
 ---
 
@@ -2601,24 +2650,28 @@ without interpretation — a node running v1 code will relay a
 ### Core API (public_feed.rs)
 
 ```rust
-// Struct: FeedEntry.op is Value (l.79)
+// Struct: FeedEntry.op is Value
 pub struct FeedEntry {
     pub op: Value,  // NOT PublicFeedOperation
     // ...
 }
 
-// Typed access via try_parse_op (l.110-112)
+// Typed access via try_parse_op
 pub fn try_parse_op(op: &Value) -> Option<PublicFeedOperation> {
     serde_json::from_value(op.clone()).ok()
 }
 
-// Discriminant extraction (l.115-117)
+// Discriminant extraction via op_type
 pub fn op_type(op: &Value) -> Option<&str> {
     op.get("op_type").and_then(|v| v.as_str())
 }
 ```
 
-### Validation (public_feed.rs l.224-236)
+*(Line-number annotations dropped S82 Phase H — they had drifted;
+the symbol names above are the durable anchors into
+`crates/nexus-coordinator-rs/src/public_feed.rs`.)*
+
+### Validation (public_feed.rs `validate_feed_operation`)
 
 `validate_feed_operation` accepts unknown ops with size check only:
 
@@ -2653,7 +2706,7 @@ common trait object (`Store`). Callers receive `&Store` from
 `Node::blobs_store()` regardless of backing implementation.
 
 ```rust
-// node.rs l.111-126
+// node.rs (enum BlobStore + manual Deref impl)
 pub enum BlobStore {
     Mem(MemStore),
     Fs(FsStore),
@@ -2684,7 +2737,8 @@ Cross-ref: S66 Phase A `BlobStore` + `FsStore`, S66 audit P2-66-2.
 
 ## Note — Feed republish test limitation (P2-66-1)
 
-`test_feed_republish_at_boot` (runtime.rs l.1961) verifies that the
+`test_feed_republish_at_boot` (`crates/nexus-shell-daemon/src/runtime.rs`)
+verifies that the
 daemon boots without panic and that `feed_handle.is_some()` after
 restart, but does NOT assert that feed entries are actually present
 in iroh-docs after republish. The iroh-docs `Doc` API does not
@@ -3841,9 +3895,13 @@ additive §P64). Cross-ref: §P68 (placement), §P69 (routing/churn), THREAT_MOD
    with a gap or overlap is rejected (`covers_full_model` in `placement.rs`; the
    contiguity primitive `is_pipeline_contiguous` is delegated to `shard_plan.rs`),
    never dispatched.
-4. **Sybil-tail sampling is deterministic, non-lexicographic.** When more seeders
+4. **Sybil-tail sampling is deterministic, non-lexicographic.** When more workers
    than slots crowd the tail, selection is `blake3(session_id || pubkey)` ordered
-   (anti lexicographic-crowding, reproducible) — closes SYBIL-SEEDER-TAIL (S75).
+   (anti lexicographic-crowding, reproducible: `sampling_key`/`select_candidates`
+   in `placement.rs`) — this closes the WORKER-PLACEMENT Sybil tail only
+   *(scope re-anchored S82 Phase H: the SEEDER dial-set — `seeders_recent`,
+   `crates/nexus-shell-daemon/src/seed_registry.rs` — still sorts
+   lexicographically; the S75 seeder-tail carry stays OPEN)*.
 
 Internal types are non-wire (placement is a computation). 0 bump wire, no-float.
 Cross-ref: §P67 (data-plane), §P69 (routing), `sprint77_phase_d_preflight.md`.
@@ -3869,8 +3927,12 @@ Cross-ref: §P67 (data-plane), §P69 (routing), `sprint77_phase_d_preflight.md`.
    BOTH `rho` and `tau` (DoS) BEFORE building the `BTreeMap`. As a raw-op it adds 0
    `DOMAIN_*` and 0 `FEED_FORMAT_VERSION` bump (pre-launch raw-op policy).
 
-0 bump wire, 0 new iroh dep (crate-boundary split: the glue `doc.set` lives in the
-daemon). Cross-ref: §P67, §P68, `sprint77_phase_e_preflight.md`, THREAT_MODEL §16.
+0 bump wire, 0 new iroh dep. Crate-boundary split *(re-anchored S82 Phase H)*: the
+perf-map republish `doc.set` + `is_member` ingest gate is a daemon-side SEAM, not
+wired — the daemon today passes an empty `PerfMap::new()` to
+`assign_fallback_nodes`, and `PERF_MAP_REPUBLISH_INTERVAL` has no consumer outside
+`routing.rs` (S77 scope-cut, still open).
+Cross-ref: §P67, §P68, `sprint77_phase_e_preflight.md`, THREAT_MODEL §16.
 
 ## §P70 — Sprint 79 Phase B: the docs-contract cadence (generated étiquette drift-gated per phase, GUIDE at closure, provenance edges to the immutable past)
 
