@@ -1,6 +1,6 @@
 ---
 written: 2026-04-20  # S22 hors-sprint post Phase B `e9530c2`
-last_validated: 2026-07-11  # S81 Phase K : trigger re-fired post-G par les 5 routes shard-session Phase I (`bb6c4f9` 2026-07-10 > solde G 2026-07-08) — §3 indexe les 6 lignes `/api/daemon/shard-session/*` (la GET S77 heritee + 5 neuves I ; group/mount = candidats T1, actions signantes). Precedent 2026-07-08 S81 Phase G (LOT-LOOPBACK-DOC, audit S80 H-1/2/3) : §3.1 revalide — +2 routes lecture S80 (GET /api/git/diff, GET /api/gates), double transport bearer header + cookie sbfb_operator HttpOnly (bootstrap GET /?token, S80 A), description terminal/ws corrigee (PTY live interactif S80 D, plus « lecture cast »). Precedent 2026-06-03 S73 Phase A : §2.1 portee daemon+Operator + §3 GET /result reordonne + §8.1 couverture Operator (P2-TIER-MODEL, P2-RESULT-TEXT-GUARDRAIL-ORDER)
+last_validated: 2026-07-14  # S82 Phase I : passe de fidélité doc-dette sécurité (re-dérivation Track H S81, S81-H-2) — §3 row quarantine qualifiée au chemin réel `/api/v1/quarantine/{row_id}/flush` ; §3 row `/generate` bornée « session réelle » (K-R-7) ; §3.1 ancres numériques périmées re-ancrées SYMBOLE (`auth_required`, `CorsLayer::new()`/`is_loopback_origin`, `const SENSITIVE_ACTIONS`, gate `is_sensitive`→`sse_gate`, dispatch `target.run`, port Serve `default_value_t = 3001` — classe pointeur-qui-pourrit, root-cause S82 Phase H). Précédent 2026-07-11 S81 Phase K : trigger re-fired post-G par les 5 routes shard-session Phase I (`bb6c4f9` 2026-07-10 > solde G 2026-07-08) — §3 indexe les 6 lignes `/api/daemon/shard-session/*` (la GET S77 heritee + 5 neuves I ; group/mount = candidats T1, actions signantes). Precedent 2026-07-08 S81 Phase G (LOT-LOOPBACK-DOC, audit S80 H-1/2/3) : §3.1 revalide — +2 routes lecture S80 (GET /api/git/diff, GET /api/gates), double transport bearer header + cookie sbfb_operator HttpOnly (bootstrap GET /?token, S80 A), description terminal/ws corrigee (PTY live interactif S80 D, plus « lecture cast »). Precedent 2026-06-03 S73 Phase A : §2.1 portee daemon+Operator + §3 GET /result reordonne + §8.1 couverture Operator (P2-TIER-MODEL, P2-RESULT-TEXT-GUARDRAIL-ORDER)
 status: design-only T1/T2 (implementation S22 Phase F wrap-up + extension S25/S28/LT-4) ; §3.1 Operator = IMPLEMENTE+DURCI S71 C (`a0337c6`) ; Operator place dans le tier-model formel §2.1/§8.1 (S73 Phase A)
 triggers_revalidate:
   - "microsoft/sudo new elevation mode release"
@@ -78,7 +78,7 @@ confiance OS. Sa couverture threat model est tracée séparément en §8.1.
 | `POST /api/daemon/feed/insert` | S62, namespace S65 | T0 + `X-SBFB-Feed-Internal` header | T1 | Insert feed entry. S65 defense-in-depth: header check rejette callers externes (pas crypto, pas de nonce). Vrai T1 (CONFIRM_PROMPT + HMAC nonce temporal) programme post-pilote S69 |
 | `GET /auth/token` | S16 Phase A | T0 (Host+Origin only) | T0 | Bootstrap bearer token |
 | `POST /canary/cosign` FROST (S30 N1) | S30 futur | N/A | **T2** | Co-signer canary = engagement cryptographique plateforme, LT-4 consumer natif |
-| `POST /quarantine/flush` | S21 Phase D CLI | T0 | T1 | Purge queue = perte d'évidence, validator humain recommandé |
+| `POST /api/v1/quarantine/{row_id}/flush` | S21 Phase D CLI | T0 | T1 | Purge queue = perte d'évidence, validator humain recommandé |
 | `POST /api/daemon/keep-online` | S74 Phase D (M18) | T0 | T0 | Toggle un pin LOCAL d'app auto-déployée (skip-GC). Mutation locale + (dé)tag blob, pas de signature ni broadcast. **Duress no-op** (S76 B1). |
 | `POST /api/daemon/seed` | S74 Phase E | T0 | T0 | Seed VOLONTAIRE communautaire d'une app distante (fetch + pin + emit `SeedAnnounced`). Borné subscribed-only + `PULL_PROVIDER_CAP=8`. **Duress no-op** (S76 B1). |
 | `GET /api/daemon/seed-count/{project_id}` | S75 Phase C (WIRE-2) | T0 | T0 | Lecture seule du compteur best-effort de seeders (peut sur-estimer ; jamais une preuve de joignabilité — BLAKE3 reste la vérité). |
@@ -89,7 +89,7 @@ confiance OS. Sa couverture threat model est tracée séparément en §8.1.
 | `GET /api/daemon/shard-session/{session_id}` | S77 Phase J (stub) → réel S81 Phase I | T0 | T0 | Lecture seule du statut d'une session shard montée. Projection whitelist `ShardSessionView` : `member_count` AGRÉGÉ, jamais `worker_pubkey`/`initiator` (SI-3/SI-4). Insert du registre gated signature `DOMAIN_SHARD_PLAN_V1` + `is_member` AVANT toute visibilité. |
 | `POST /api/daemon/shard-session/group` | S81 Phase I | T0 | **T1** | Mint + signe le `ComputeGroupEntry` privé (Ed25519 + JCS, allowlist d'admission `sbfb/shard/1`). Action signante d'autorité ⇒ candidat T1 (même famille que `directory/publish`). |
 | `POST /api/daemon/shard-session/mount` | S81 Phase I | T0 | **T1** | Placement + signature `ShardedSessionManifestEntry` (`DOMAIN_SHARD_PLAN_V1`) + readiness barrier + insert gated. Signe un manifeste d'autorisation de session ⇒ candidat T1. |
-| `POST /api/daemon/shard-session/{id}/generate` | S81 Phase I | T0 | T0 | Pilote une génération sur la session déjà montée/signée (aucune signature nouvelle d'autorité ; RunProof driver signé en sortie de drive). Deadline SI-9 par hop ; depuis S81 K, attestation loaded-stage fail-closed à chaque stage-link. |
+| `POST /api/daemon/shard-session/{id}/generate` | S81 Phase I | T0 | T0 | Pilote une génération sur la session déjà montée/signée (aucune signature nouvelle d'autorité ; RunProof driver signé en sortie de drive). Deadline SI-9 par hop ; depuis S81 K, attestation loaded-stage fail-closed à chaque stage-link d'une session réelle (le chemin echo digest-zéros n'en émet ni n'en exige). |
 | `GET /api/daemon/shard-session/{id}/result` | S81 Phase I | T0 | T0 | Lecture seule du résultat mesuré (result_text borné `MAX_RESULT_TEXT_BYTES`, diagnostics passés par `sanitize_diagnostic` — anti log-injection + rédaction hex ≥32). Consommé verbatim par le harness b3_shard (T2 axe shard). |
 | `POST /api/daemon/shard-session/{id}/drop-shard` | S81 Phase I | T0 | T0 | Coupe EXPLICITE et comptée du tail shard (churn opérateur pour l'acceptance SI-9). Mutation locale du registre in-memory, pas de signature ni broadcast. |
 
@@ -97,7 +97,8 @@ confiance OS. Sa couverture threat model est tracée séparément en §8.1.
 
 Le **Factory Operator** (`crates/sbfb-factory/src/operator_server.rs`)
 est un serveur HTTP loopback **distinct du daemon** : process séparé,
-port `:3001` par défaut (`main.rs:161`), **TCP loopback uniquement** —
+port `:3001` par défaut (`main.rs`, arg `port` de la sous-commande
+`Serve`, `default_value_t = 3001`), **TCP loopback uniquement** —
 pas de UDS / peer-creds, un sous-ensemble token+Host+Origin du modèle
 S16 (le daemon, lui, ajoute SO_PEERCRED Unix / SDDL Named Pipe). Il
 **écrit des fichiers** et **spawn des sous-processus agent**
@@ -119,12 +120,13 @@ G7 + G2). Inventaire à jour (P2-H-1, audit S71 Track H) :
 | `GET /api/status` `…/lint` `…/audit/{rev}` `…/prompt/{kind}` `…/context` `…/providers` `…/actions/log` `…/chat/{id}/log` `…/sprint-history*` `…/terminal/sessions` | S70/S71 | T0 | T0 | Lecture seule sous le même middleware auth |
 
 Gate **G7** (S71 Phase C `a0337c6`) : middleware `auth_required`
-(`auth.rs:229`) sur chaque route data-bearing — `X-SBFB-Token`
-(`constant_time_eq`) + `Host:` loopback + `Origin:` loopback/absent +
-`CorsLayer` épinglé à `is_loopback_origin` (`operator_server.rs:103`,
-plus de `allow_origin(Any)`). Gate **G2** : `SENSITIVE_ACTIONS`
-(`const` ligne 34) dans `handle_chat_stream` AVANT le spawn (gate
-`:866`, spawn `:898`). Token réutilisé depuis `~/.sbfb/auth_token`.
+(fn `auth_required`, `auth.rs`) sur chaque route data-bearing —
+`X-SBFB-Token` (`constant_time_eq`) + `Host:` loopback + `Origin:`
+loopback/absent + `CorsLayer` épinglé à `is_loopback_origin` (bloc
+`CorsLayer::new()`, `operator_server.rs`, plus de `allow_origin(Any)`).
+Gate **G2** : `const SENSITIVE_ACTIONS` dans `handle_chat_stream`
+AVANT le spawn (gate `is_sensitive` → `sse_gate`, dispatch
+`target.run`). Token réutilisé depuis `~/.sbfb/auth_token`.
 
 **Double transport du bearer (S80 Phase A, revalidation S81 G — audit
 S80-H-2).** Depuis S80, le middleware accepte le bearer par **deux

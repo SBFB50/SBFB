@@ -849,8 +849,9 @@ items after Sprint 8 Phase A (commit `d321021`).
 4. **`nexus_core` wheel editable install drift** —
    **CLOSED Sprint 9 Phase A (H-3)** *(this "H-3" is the Sprint 7/9
    audit finding about the Python wheel — a NAME COLLISION with
-   S81-H-3, the S81 audit Track H hardening finding routed to S82
-   Phase I; the two are unrelated)*. The Sprint 7 Phase E test
+   S81-H-3, the S81 audit Track H hardening finding closed in S82
+   Phase I [requalified: the re-derived fidelity pass found zero live
+   drift in HARDENING_ROADMAP]; the two are unrelated)*. The Sprint 7 Phase E test
    run showed that the editable install of `nexus-core-py` can
    get wiped by a `uv sync` somewhere in the workflow — Sprint 8
    did NOT add `scripts/setup.sh` nor pin the wheel via
@@ -3422,6 +3423,46 @@ abort()+joined at shutdown BEFORE node reclamation (a detached
 `tokio::spawn` leaves live network work after shutdown); (c) resolution
 priority FROZEN by test (direct > local pin row > subscribed directories) so
 a divergent directory can never override the local pin.
+
+### §P59.8 — A node's signed catalog is own-published-only (`catalog_len:0` for a pure seeder is BY DESIGN)
+
+Observed live at the S75-G acceptance and re-observed at the S81 flip
+(S81-G-3): the signed `NodeDirectory` of a node that only SEEDS someone
+else's app advertises `catalog_len:0`. This is NOT a bug. The catalog is
+built exclusively from `own_entries(&my_node_id)` (fn
+`build_sign_announce_directory` in daemon `http.rs`; `own_entries` in
+`browse.rs` filters direct entries on `node_id == my_node_id`) — apps the
+node itself published. A voluntarily-seeded distant app keeps the AUTHOR's
+`node_id` and is never a direct entry (test
+`seed_voluntary_directory_only_app`), so it never enters the catalog.
+Signature semantics (the `node_directory.rs` contract): the directory
+signature attests HOSTING ("I claim to host these hashes"), NOT
+authorship — the wire contract allows a catalog of apps the node
+"hosts (or seeds)", and verrou-4 only guarantees that a seeder never
+signs the app's PROVENANCE (the `archive_hash` stays the author's).
+The own-published-only restriction is therefore a DAEMON POLICY
+(`own_entries`), a conservative code-side choice, not a wire
+constraint.
+
+Residual (bounded, DISCOVERABILITY not security): byte reachability is
+intact — the content-addressed blob is served by the seeder and fetched
+multi-provider once the hash is known — but INITIAL discovery through a
+pure seeder is absent. If the author's directory is never re-published, a
+fresh peer whose only subscribed anchor is a pure seeder loses the
+discovery path even though the bytes stay available (availability !=
+discoverability). Joinability accounting goes through seed-count/BLAKE3,
+never through the directory catalog.
+
+Closing decision (PO-8, S82 Phase I, 2026-07): **accept-and-document** —
+the item leaves the carry cycle (repeated report S75 origin → S76 [2/3] →
+S77 [3/3] → S78 → S81-G-3; §6.2.1 counter settled). Reopen ONLY on an
+observed pilot-scale discoverability loss, via one of: (a) unlabelled
+inclusion of seeded hashes in the catalog — CODE-ONLY, already
+compatible with the current wire ("hosts (or seeds)") but loses the
+published/seeded distinction; (b) a distinct NON-authoritative `seeded`
+section in `NodeDirectoryEntry` — wire change; or (c) the opt-in
+network-wide signed index (SearchManifest, post-launch). FR mirror:
+THREAT_MODEL §15.1.
 
 ## §P60 — Sprint 76 Phase D : redundancy>1 deterministic quorum over the bridge + TOPLOC étage-2 note
 

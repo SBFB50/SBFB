@@ -15,8 +15,8 @@ pattern OWASP Threat Dragon.
 |---|---|---|
 | **Shell React** | `web/src/` | Browser tab hote, iframe parent |
 | **Shell daemon** | `crates/nexus-shell-daemon*` | Binaire local, P2P, HTTP loopback |
-| **Coordinator** | `packages/nexus-coordinator/` | FastAPI local, dispatcher, deploy |
-| **Blob-serve** | `crates/nexus-shell-daemon/src/blob_serve.rs` | HTTP origin separee iframe |
+| **Coordinator** | `crates/nexus-coordinator-rs` | Lib Rust embarquee dans le daemon (DB, dispatcher, validator, kudos — porte de Python S50-S51 ; le handler deploy vit dans le daemon `deploy.rs`) |
+| **Blob-serve** | `crates/nexus-shell-daemon-core/src/blob_serve.rs` (handler route dans le daemon `http.rs`) | Route publique du listener daemon (`public_routes`) ; isolation iframe par origin OPAQUE (sandbox sans allow-same-origin), pas par port separe |
 | **Worker** | `crates/nexus-worker*` | Binaire GPU, claim-loop, Ollama runtime |
 | **NexusApp iframe** | `packages/nexus-app-*`, apps externes | Contenu untrusted, bridge postMessage |
 | **iroh stack** | `crates/nexus-core-rs` | QUIC, docs, gossip, blobs — iroh =1.0.1 / docs 0.101 / gossip 0.101 / blobs 0.103 (S81) |
@@ -99,8 +99,9 @@ par `=======`.
            v
     +------+-----------------+
     |  App iframe            |       <-- sandbox="allow-scripts"
-    |  (blob-serve origin    |           sans allow-same-origin,
-    |   :7000, untrusted)    |           CSP connect-src 'none'
+    |  (route /blob-serve du |           sans allow-same-origin
+    |   daemon, origin       |           => origin OPAQUE,
+    |   opaque, untrusted)   |           CSP connect-src 'none'
     +------------------------+
 
     authFetch(X-SBFB-Token + Host + Origin)
@@ -109,18 +110,19 @@ par `=======`.
            |
       LOOPBACK HOST (trust-B)
     +------+-----------------+         +-----------+
-    |  Coordinator FastAPI   +-------->|  Worker   |
-    |  :8080 (bearer+Host+   |         |  :none    |
-    |   Origin enforced)     |         | (GPU/CPU) |
-    +------+-----------------+         +-----+-----+
-           |                                  |
-           | proxy /daemon/*                  | consent.json
-           v                                  | usage.json
-    +------+-----------------+                v
-    |  Shell daemon :7777    |         +------+-----+
-    |  (bearer enforced)     |         |  Ollama    |
-    +------+-----------------+         |  runtime   |
-           |                            +-----------+
+    |  Shell daemon          +-------->|  Worker   |
+    |  :ephemere (api_port 0,|         |  :none    |
+    |   publie running.json) |         | (GPU/CPU) |
+    |  (bearer+Host+Origin   |         +-----+-----+
+    |   enforced ; embarque  |               |
+    |   nexus-coordinator-rs |               |
+    |   en lib : DB/dispatch |               | consent.json
+    |   /kudos, S50-S51)     |               | usage.json
+    +------+-----------------+               v
+           |                          +------+-----+
+           |                          |  Ollama    |
+           |                          |  runtime   |
+           |                          +------------+
            |  UDS (SO_PEERCRED) / Named Pipe (DACL)
            |  bypass auth via PeerCredsVerified marker
            v
@@ -145,8 +147,10 @@ L'orchestrateur de session qui pilote une generation token-par-token cross-shard
 mesure TTFT/tok-s et emet un `RunProof` in-vivo est CABLE depuis S81 Phases I/J
 (`shard_session.rs` : mount barrier + drive HUB + decode loop + premiere emission
 production du `RunProof` signe, benchmark live 5080+M2 PASS) ; depuis S81 Phase K
-chaque etablissement de stage-link exige en plus l'ATTESTATION du stage charge
-(binding loaded-stage <-> manifeste signe, fail-closed — cf. §16). Cf. §16.
+chaque etablissement de stage-link d'une session reelle exige en plus
+l'ATTESTATION du stage charge (binding loaded-stage <-> manifeste signe,
+fail-closed ; le chemin echo digest-zeros ne sert aucune session reelle et
+n'emet ni n'exige d'attestation — cf. §16). Cf. §16.
 
 ---
 
@@ -222,7 +226,7 @@ residuel E ci-dessus reste **M** pour cette raison.
 | Menace | Exemple | Severite brute | Mitigation | res |
 |---|---|:---:|---|:---:|
 | S | Task crafted pour consommer plus de ressources que claim | H | `3247e88` : `should_accept_task` check `estimated_watts` / `estimated_vram_mb` contre caps avant accept | **L** |
-| T | Consent.json edite par un autre process | H | Atomic tmp+rename cote coordinator (`consent.py`) ; `notify` watcher 50 ms debounce re-read | **M** |
+| T | Consent.json edite par un autre process | H | Atomic tmp+rename cote daemon (`save_consent`, `nexus-shell-daemon/src/consent.rs`, chemin UI `POST /api/v1/consent/set`) ; le worker ne fait que LIRE (`ConsentWatcher`, `notify` 50 ms debounce re-read) | **M** |
 | I | Usage.json divulgue patterns de contribution | L | Local-only, perm 0600 dossier parent | **L** |
 | D | Task boucle infinie saturant GPU | M | Caps heures/jour enforced ; Ollama timeout per-request | **M** |
 | E | L2 (open source) accepte un projet qui ment sur le flag | H | **res** : `d7c265a` + `10bbc63` — coordinator force `is_open_source=true` uniquement sur deploy-from-repo (repo public clone + verifie) ; non-user-settable | **L** |
@@ -245,7 +249,7 @@ reduit de 95% via la mise en VM.
 | Menace | Exemple | Severite brute | Mitigation | res |
 |---|---|:---:|---|:---:|
 | T | Dep Rust malveillante injectee via typosquat | H | `Cargo.lock` commited, review manuelle ajout deps | **M** |
-| T | npm dep postinstall script | H | `package-lock.json` commited ; **CI `cargo-audit`/`pip-audit`/`npm audit` scope cut S17+** | **H** |
+| T | npm dep postinstall script | H | `package-lock.json` commited ; CI `cargo-deny check advisories` (subsume `cargo-audit`) + `audit-ci` (npm, seuil critical-only : advisories CONNUES seulement — un postinstall malveillant frais sans advisory n'est PAS borne) — jobs PR fail-non-zero par config, S18, `.github/workflows/supply-chain.yml` ; la jambe `pip-audit` S18 est INOPERANTE depuis la purge Python S50-S51 (3 packages cibles supprimes, reparation/suppression du job routee au ledger) | **H** |
 | T | PyO3 wheel remplacee | H | `maturin develop --release` depuis sources locales ; pas de wheel telechargee | **M** |
 
 ---
@@ -307,6 +311,14 @@ de compute. Severites en contexte RGPD Art.5/6/9/35.
 
 ## 7. Mitigations table (Sprint 16 livre + roadmap)
 
+> **Note de lecture (S82 Phase I).** Cette table est un journal de
+> livraison date (colonne Commit). Les chemins
+> `packages/nexus-coordinator/**/*.py` cites dans « Fichier cle » sont
+> HISTORIQUES : le coordinator Python a ete porte en Rust
+> (`crates/nexus-coordinator-rs`, S50-S51) et la source .py est purgee
+> de l'arbre. Les equivalents vivants sont dans
+> `nexus-coordinator-rs` + `nexus-shell-daemon` (surface HTTP axum).
+
 | Mitigation | Composant | Commit | Fichier cle | Statut |
 |---|---|---|---|---|
 | Bearer 256-bit loopback | Daemon + Coord + Shell | `d7c265a` | `crates/nexus-shell-daemon-core/src/auth.rs:274-383` (AuthState + auth_required) / `packages/nexus-coordinator/src/nexus_coordinator/auth.py:1-229` | **LIVRE S16A** |
@@ -320,7 +332,7 @@ de compute. Severites en contexte RGPD Art.5/6/9/35.
 | Caps W/VRAM/h enforced | Worker-core | `3247e88` | `crates/nexus-worker-core/src/consent.rs:381-428` (should_accept_task pure-fn) | **LIVRE S16C** |
 | File watcher consent.json | Worker-core | `3247e88` | `crates/nexus-worker-core/src/consent.rs:438-540` (ConsentWatcher, notify + 50 ms debounce) | **LIVRE S16C** |
 | Usage daily counter + midnight-local reset | Worker-core | `3247e88` | `crates/nexus-worker-core/src/consent.rs:254-326` (UsageTracker, chrono::Local) | **LIVRE S16C** |
-| `is_open_source` flag PA v5 | Core-rs + Coord + Shell | `10bbc63` | `crates/nexus-shell-daemon-core/src/publish.rs:22-110` (VERSION=5) + `packages/nexus-coordinator/src/nexus_coordinator/api/deploy.py:1-475` (derive true/false) | **LIVRE S16D** |
+| `is_open_source` flag PA v5 | Core-rs + Coord + Shell | `10bbc63` | `crates/nexus-shell-daemon-core/src/publish.rs` (PA v5 = 5e iteration canonique ; la constante wire `PROJECT_ANNOUNCEMENT_VERSION` reste 1 pre-launch) + `packages/nexus-coordinator/src/nexus_coordinator/api/deploy.py:1-475` (derive true/false) | **LIVRE S16D** |
 | Zod schema `BrowseEntry.is_open_source: z.boolean().optional()` | Shell | `10bbc63` | `web/src/api/daemon.ts` (distingue legacy undefined de `false` explicite) | **LIVRE S16D** |
 | Iframe sandbox strict | Shell + Blob-serve | S12-S13 | `crates/nexus-shell-daemon/src/blob_serve.rs` (CSP connect-src 'none') | **LIVRE** |
 | postMessage bridge whitelist | Shell + iframe | S13 | `web/public/sbfb-bridge.js` + `web/src/bridge/protocol.ts` | **LIVRE** |
@@ -328,7 +340,7 @@ de compute. Severites en contexte RGPD Art.5/6/9/35.
 | CPU watchdog heartbeat | Shell bridge | S15 | `web/src/bridge/useBridge.ts` (watchdog state machine) | **LIVRE** |
 | Encryption at rest keypair | Daemon | — | Keychain / DPAPI / libsecret | **DIFFERE S17+** |
 | VM isolation auto-install | Launcher | — | Cf. `RUNTIME_ISOLATION.md` | **DIFFERE S17+** |
-| CI `cargo-audit` / `pip-audit` / `npm audit` | Infra | — | CI pipeline | **DIFFERE S17+** |
+| CI `cargo-deny check advisories` (subsume `cargo-audit`) / `audit-ci` (npm) — la jambe `pip-audit` S18 est INOPERANTE depuis la purge Python S50-S51 (3 packages cibles supprimes) | Infra | S18 | `.github/workflows/supply-chain.yml` | **LIVRE S18** |
 | Rate limit `/project/deploy-from-repo` | Coord | — | middleware | **DIFFERE S17+** |
 | CSP report-uri | Shell + blob-serve | — | `/security/csp-report` endpoint | **DIFFERE S17+** |
 | Token rotation automatique | Launcher | — | Scheduled regen | **DIFFERE S17+** |
@@ -356,16 +368,24 @@ Apres Sprint 16, les risques les plus serieux encore presents :
   Fallback non-VM : Keychain macOS / DPAPI Windows / libsecret
   Linux, decision D Sprint 17.
 
-### R2 — Supply chain sans CI audit (severite M a H selon dep)
+### R2 — Supply chain : residuel malgre CI advisories (severite M a H selon dep)
 
 - **Asset** : tout le repo compile
 - **Adversaire** : AD3 / AD4 + proprietaire dep typo-squatte
 - **Impact** : RCE au build-time ou exec-time.
 - **Mitigation residuelle** : `Cargo.lock`, `package-lock.json`,
-  pas de wheel telechargee. Revue manuelle ajout deps.
-- **Roadmap** : Sprint 17+ ajoute CI workflows `cargo-audit`,
-  `pip-audit`, `npm audit --audit-level=moderate` bloquants sur
-  PR.
+  revue manuelle ajout deps ; CI `cargo-deny check advisories`
+  (meme base RustSec que `cargo-audit`, qu'il subsume — S18 D3) +
+  `audit-ci` (npm, seuil critical-only) — jobs declenches sur PR,
+  fail non-zero par config (`.github/workflows/supply-chain.yml`,
+  S18). La jambe `pip-audit` S18 est INOPERANTE (packages Python
+  purges S50-S51).
+- **Residuel** : un scanner d'advisories ne borne que le CONNU —
+  fenetre zero-day avant publication d'advisory, postinstall
+  malveillant frais non couvert (d'ou le H de la row §5.8) + gap
+  solo-maintainer sur la revue des nouvelles deps
+  (`cargo-vet`/`osv-scanner` restent futurs, cf.
+  `VALIDATED_BLUEPRINT.md`).
 
 ### R3 — Rate limiting absent sur deploy-from-repo (severite M)
 
@@ -465,7 +485,7 @@ contre AD7 (nation-state root access).
 
 ### 9.4 Rate-limit tiers (Sprint 22 Phase A)
 
-Le rate-limit engine (`governor 0.10.2` GCRA) gate les claims
+Le rate-limit engine (`governor` 0.10 GCRA) gate les claims
 worker-side. Configuration via `rate_limit_policy.toml`.
 
 | Tier | Config | Residuals | Impact |
@@ -813,12 +833,13 @@ declencher un write artefact ou un spawn agent en forgeant des requetes
 vers l'Operator. Meme vecteur que CVE-2025-49596 (cf. §5.5 loopback).
 
 Mitigation (S71 G7, `a0337c6`) : middleware `auth_required`
-(`auth.rs:229`) applique sur chaque route data-bearing —
+(`sbfb-factory/src/auth.rs`, fn `auth_required`) applique sur chaque
+route data-bearing —
 (1) `X-SBFB-Token` bearer per-boot compare en `constant_time_eq` (401
 sinon) ; (2) header `Host:` doit etre loopback (403 sinon) ; (3) header
 `Origin:` doit etre loopback ou absent (403 sinon) ; (4) `CorsLayer`
-epingle a `is_loopback_origin` (`operator_server.rs:103`, plus de
-`allow_origin(Any)`).
+epingle a `is_loopback_origin` (bloc `CorsLayer::new()` de
+`operator_server.rs`, plus de `allow_origin(Any)`).
 
 **Amendement Sprint 80 Phase A (cookie de transport + garde cross-port).**
 Pour rendre le streaming exploitable en prod same-origin sous
@@ -878,9 +899,10 @@ bypassPermissions`. Un message portant une action sensible
 irreversible (commit, push, shell arbitraire) sans confirmation.
 
 Mitigation (S71 G2, `a0337c6`) : `handle_chat_stream`
-(`operator_server.rs:822`) applique le **meme** filtre `SENSITIVE_ACTIONS`
-(`const` ligne 34 : `shell`/`commit`/`push`/`PASS`) que les endpoints
-JSON, **AVANT** le spawn (gate `:866`, spawn `:898`). Un dernier message
+(`operator_server.rs`) applique le **meme** filtre `SENSITIVE_ACTIONS`
+(`const SENSITIVE_ACTIONS` : `shell`/`commit`/`push`/`PASS`) que les
+endpoints JSON, **AVANT** le spawn (gate `is_sensitive` -> `sse_gate`,
+dispatch `target.run`). Un dernier message
 sensible retourne `requires_gate` au lieu de spawner. `bypassPermissions`
 est **conserve** (PO-2 : le mode « prompt de base + discussion agent
 autonome » est un contrat, pas un bug) mais jamais sur un chemin non
@@ -989,7 +1011,7 @@ driver seed boot config-driven (`[seed] keep_online_projects`), front
 
 | Menace | Exemple | Sev. brute | Mitigation (file:line) | res |
 |---|---|:---:|---|:---:|
-| I/D | **Oracle blob-serve drive-by + amplification de dials** : un `GET /blob-serve/{hash}` sur un hash absent declenche le 4e tier directory-only → dials sortants vers ancre+seeders (observation du graphe, amplification) | M | resolution UNIQUEMENT sur annuaires ABONNES (`verrou 5`, attention-set explicite) ; cap `MAX_FETCH_PROVIDERS=16` enforce DANS la primitive (`blobs.rs fetch_hash_multi`) ; timeout appelant. **S76 B8 (THREAT-BLOBSERVE-BEARER) : `/blob-serve` est PUBLIQUE par construction (`public_routes` http.rs:248-255 — SANS bearer/Host/Origin, car un iframe sandboxe `allow-scripts` sans `allow-same-origin` ne peut pas porter le bearer pour charger ses assets) ; l'amplification est bornee par le subscribed-only + le cap + le timeout, JAMAIS par un bearer. La revendication anterieure « loopback bearer requis sur la route » etait fausse — corrigee.** | **L** |
+| I/D | **Oracle blob-serve drive-by + amplification de dials** : un `GET /blob-serve/{hash}` sur un hash absent declenche le 4e tier directory-only → dials sortants vers ancre+seeders (observation du graphe, amplification) | M | resolution UNIQUEMENT sur annuaires ABONNES (`verrou 5`, attention-set explicite) ; cap `MAX_FETCH_PROVIDERS=16` enforce DANS la primitive (`blobs.rs fetch_hash_multi`) ; timeout appelant. **S76 B8 (THREAT-BLOBSERVE-BEARER) : `/blob-serve` est PUBLIQUE par construction (binding `public_routes` dans `http.rs build_router` — SANS bearer/Host/Origin, car un iframe sandboxe `allow-scripts` sans `allow-same-origin` ne peut pas porter le bearer pour charger ses assets) ; l'amplification est bornee par le subscribed-only + le cap + le timeout, JAMAIS par un bearer. La revendication anterieure « loopback bearer requis sur la route » etait fausse — corrigee.** | **L** |
 | I | **Inventaire /nodes** : enumeration des catalogues connus du noeud | L | loopback bearer ; contenu = annuaires signes deja publics par construction ; route additive, `/browse` byte-identique | **Nil** |
 | S/D | **Timestamp futur dans `SeedAnnounced`** (monopoliser la fraicheur du registre) | M | SEED-1 : clamp `seen_at = min(seen_at, now)` DANS `SeedRegistry::record` (pas une convention d'appelant) | **Nil** |
 | D | **Gonflement du registre seeders** (buckets/slots illimites, variantes de casse d'une meme pubkey) | M | SEED-2 : double cap 1024 buckets / 64 seeders + eviction stalest-si-newcomer-plus-frais ; normalisation hex lowercase write+read (2^64 variantes de casse = 1 slot) | **L** |
@@ -1007,6 +1029,43 @@ freres pre-existants LOCAL-ONLY (L, route S76 ; les chemins boot
 wire-emit sont gates par l'audit S75 DURESS-BOOT-LEAK). Le sur-comptage §15 row D reste
 M : `known_entry_count` agrege le 3e bras nodedirectory en best-effort
 (sur-estimation toleree, jamais une preuve de joignabilite).
+
+**Residuel — decouvrabilite d'une app pur-seedee (`catalog_len:0` ;
+decision fermante PO-8 accept-and-document, S82 Phase I, 2026-07).**
+Constat (acceptance live S75-G, re-observe au flip S81, S81-G-3) :
+l'annuaire signe d'un noeud qui SEEDE l'app d'autrui sans l'avoir
+publiee reste `catalog_len:0`. C'est PAR CONSTRUCTION : le catalogue
+est bati exclusivement depuis `own_entries(&my_node_id)`
+(`build_sign_announce_directory` dans `http.rs` ; `own_entries` dans
+`browse.rs` filtre sur `node_id == my_node_id`) — une app
+volontairement seedee garde le node_id de l'AUTEUR et n'est jamais un
+direct-entry (test `seed_voluntary_directory_only_app`). Semantique de
+signature (contrat `node_directory.rs`) : la signature d'annuaire
+atteste l'HEBERGEMENT (« I claim to host these hashes »), PAS la
+paternite — le catalogue PEUT au contrat porter des apps « hosts (or
+seeds) », et verrou-4 garantit seulement que le seeder ne signe jamais
+la PROVENANCE de l'app (l'`archive_hash` reste celui de l'auteur).
+L'exclusion own-published-only est donc une POLITIQUE du daemon
+(`own_entries`), choix conservateur code-side, pas une contrainte du
+wire. Nature : trou de DECOUVRABILITE borne, PAS de securite — la
+joignabilite des octets reste intacte (blob content-adresse servi par
+le seeder, fetch multi-provider une fois le hash connu) ; seule la
+decouverte INITIALE via un pur-seeder manque. Si l'auteur disparait
+(annuaire plus jamais re-publie), un pair frais dont la seule ancre
+abonnee est un pur-seeder perd le chemin de decouverte meme si les
+octets restent disponibles (disponibilite != decouvrabilite). Le
+comptage de joignabilite passe par seed-count/BLAKE3, jamais par le
+catalogue d'annuaire. Decision PO-8 : accept-and-document — l'item
+sort du cycle de carry (report repete S75 origine -> S76 [2/3] ->
+S77 [3/3] -> S78 -> S81-G-3 ; compteur §6.2.1 solde). REOUVERTURE
+uniquement si declenchee par une perte de decouvrabilite observee a
+l'echelle pilote, par l'une de ces voies : (a) inclusion NON etiquetee
+des hashes seedes dans le catalogue — CODE-ONLY, deja compatible avec
+le wire actuel (« hosts (or seeds) ») mais perd la distinction
+publie/seede ; (b) une section « seeded » DISTINCTE et NON-autoritaire
+dans `NodeDirectoryEntry` — changement wire ; (c) l'index reseau-large
+signe opt-in (SearchManifest, post-launch). Miroir EN :
+`docs/rust/PATTERNS.md` §P59.8.
 
 ### 15.2 Extension Sprint 76 Phase D — quorum compute redundancy>1 cross-machine
 
@@ -1555,7 +1614,11 @@ is_first, is_last}` ; le driver compare au `ShardedSessionManifest` signe +
 frame de donnees (`attest_stage_link`, meme budget deadline SI-9 que tout hop).
 `ShardProtocol::accept` repond a la requete AVANT le forwarder — un backend
 reel ne voit jamais la sonde comme des activations (concern R-I-1 preserve) ;
-le chemin echo (digest zeros) est exempte byte-identique.
+le chemin echo (digest zeros) est exempte : ses frames echo/transport restent
+byte-identiques a S77 Phase B COTE DRIVER, tandis que l'accept-loop partage
+(non byte-identique, lui) porte la branche d'interception d'attestation pour
+toute session de l'ALPN — branche qui ne se declenche que pour un stage REEL
+(garde `is_real_stage` : un echo transport-only n'intercepte jamais).
 
 **Honnetete cardinale** : l'attestation est un **self-claim d'un membre admis**
 (famille N0). Elle ferme la classe **MISCONFIGURATION** ; un stage qui MENT

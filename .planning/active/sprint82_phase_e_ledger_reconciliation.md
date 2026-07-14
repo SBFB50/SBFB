@@ -125,6 +125,7 @@ S80-H-1/2/3/4 (CLOSED S81 G) ≠ S81-H-1/2/3 (findings NEUFS, routés Phase I).
 | G-D5-1 VALIDATED_BLUEPRINT iroh 0.97 stale | P3 | ROUTED | Phase I (`:156` pin + `:157` prose gossip → =1.0.1 / 0.101) |
 | K-R-7 qualificatifs sur-larges | P3 | ROUTED | Phase I |
 | CARGO-AUDIT-CLAIM-HONESTY | P3 | ROUTED | Phase I (trancher câbler vs subsomption cargo-deny) |
+| PIP-AUDIT-JOB-INOPERANT *(ajout daté S82 Phase I, découverte Codex round 1)* | P2 | ROUTED | Slot CI/hardening : le job `pip-audit` de `supply-chain.yml` cible 3 packages Python purgés S50-S51 (`uv export` exit 2) — réparer ou supprimer le job ; les docs sécurité le qualifient INOPÉRANTE depuis Phase I |
 | Carries : K-R-13 slow-timeout / K-R-14 save-if | P2 | CLOSED | Phase C `2931b82` (nextest override 180 s ; save-if mainline-only) |
 | Carry : RELAY-GATED-MULTI-DAEMON 4/10 | P1 | CLOSED | Phase D `c7b6790` (6 réparations / 0 requalif, 10/10) |
 | Carry : BENCHMARKS-STANDARDS (PO-2) | P2 | CLOSED | Phase B `1670251` (harness + T3 canon + artefact BLOCK{rig}) |

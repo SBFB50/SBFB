@@ -180,6 +180,34 @@ completude (credits Fable 5 epuises) — cf. §Track A et §Completude.
 - Findings (tous PRE-EXISTANTS, aucun cause par S81) : S81-H-1 (P2), S81-H-2 (P2),
   S81-H-3 (P3).
 
+> **Note (S82 Phase I, 2026-07-14).** La prose de S81-H-1/H-2/H-3 n'a
+> jamais ete persistee : seuls les IDs ci-dessus existent (meme classe
+> que Track C, cf. note Phase H supra — 2e occurrence, signal meta
+> consigne : la cause racine est que cet audit n'a detaille que les 4
+> P1 ; les phases S82 restantes qui « re-extraient » doivent d'emblee
+> planifier une RE-DERIVATION). Grep `S81-H-[123]` sur tout .planning
+> (dont les 30+ phase-reviews archivees v2.1) = 0 hit de prose
+> descriptive. Le mapping H-1->THREAT_MODEL / H-2->LOOPBACK /
+> H-3->HARDENING_ROADMAP du plan est une INFERENCE (non ancree
+> per-item), traitee comme simple cadrage. Disposition Phase I : passe
+> de fidelite hardening-drift RE-DERIVEE (Workflow 8 agents : 4
+> tranches THREAT x2 / LOOPBACK / HARDENING + verification
+> adversariale par tranche). Resultats — THREAT_MODEL : famille
+> coordinator-Python-au-present (scope §1.1, DFD §4, §5.6 consent.py,
+> note d'epoque §7, parenthese VERSION=5, governor 0.10) + 3 ancres
+> numeriques perimees (§14 T-OPERATOR-SPAWN/CSRF, §15.1 public_routes)
+> => **S81-H-1 SOLDE par re-derivation** (corriges in-phase).
+> LOOPBACK : 4 ancres numeriques perimees §3.1 + 1 chemin de route
+> abrege §3 (quarantine) => **S81-H-2 SOLDE** (corriges,
+> last_validated 2026-07-14). HARDENING_ROADMAP : 0 drift vivant
+> (front-matter, classification hickory :28, §3 historique intangible
+> re-verifies au lock) => **S81-H-3 REQUALIFIE CLOSED sans edit**
+> (hors annotation :889 cargo-audit, item distinct
+> CARGO-AUDIT-CLAIM-HONESTY). Desambiguisation : S80-H-1/2/3/4
+> (LOT-LOOPBACK-DOC, CLOSED S81 G) != S81-H-1/2/3 ; homonymes Sprint 9
+> H-3 wheel (PATTERNS) et SEC-H-1 (review phase H S81). Detail :
+> `sprint82_phase_i_preflight.md`.
+
 ---
 
 ## Track I — Meta-Process

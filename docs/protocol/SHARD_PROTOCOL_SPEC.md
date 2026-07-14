@@ -270,7 +270,11 @@ discriminants, `deny_unknown_fields`):
 `ShardProtocol::accept` answers the request BEFORE the forwarder (a
 real backend never sees the probe as activations); the echo/transport
 path (`model_digest == 0`) never emits nor requires an attestation
-(byte-identical to S77 Phase B). The attestation is a **self-claim by
+(driver-side echo/transport frames byte-identical to S77 Phase B; the
+shared accept-loop itself is NOT byte-identical — it now carries the
+attestation-interception branch for every ALPN session, and that
+branch fires only for a real stage: a transport-only echo never
+intercepts, mirror: PATTERNS §P73). The attestation is a **self-claim by
 an admitted member** — it closes the MISCONFIGURATION class, not a
 deliberately byzantine stage (SI-4 residual).
 

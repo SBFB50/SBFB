@@ -408,7 +408,11 @@ surface d'attaque reseau. Pas de TLS certificate a renouveler.
 
 - Keypair non chiffree au repos (OS perm 0600 seul — Keychain/DPAPI
   prevu post-v1.0)
-- Pas de cargo-audit en CI (carry post-v1.0)
+- Pas de cargo-audit standalone en CI — mais le gate advisory RustSec
+  EST couvert : `cargo-deny check advisories` (meme base
+  `rustsec/advisory-db` + yanked, decision S18 D3), job declenche sur
+  chaque PR vers `master`/`main` et fail non-zero par config
+  (`.github/workflows/supply-chain.yml`)
 - Rate limit absent sur deploy-from-repo (bearer token suffit pour le
   pilote ferme)
 - Audit iroh upstream pas fait (R-iroh-audit P0, bloquant pour

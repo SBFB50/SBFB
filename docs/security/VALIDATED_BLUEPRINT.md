@@ -68,7 +68,7 @@ hors scope SBFB Win11+Linux).
 | Brique | Version 2026 | License | Verdict | Notes |
 |---|---|---|---|---|
 | `aws-lc-rs` | Actif (AWS) | Apache-2.0/ISC | GO | **FIPS 140-3 ML-KEM valide**, premier OSS |
-| `ed25519-dalek` | 2.1.x | MIT/Apache-2.0 | GO | RUSTSEC-2022-0093 fixed v2.0 |
+| `ed25519-dalek` | 2.2.x | MIT/Apache-2.0 | GO | RUSTSEC-2022-0093 fixed v2.0 |
 | `frost-ed25519` (Zcash Foundation) | 2.0.0 | MIT/Apache-2.0 | GO | Threshold M-of-N prod Zcash |
 | `zeroize` | 1.8.x | MIT/Apache-2.0 | GO | Memoire clees zeroisee, standard |
 | `secrecy` | 0.10.x | MIT/Apache-2.0 | GO | Wrapper typed secrets sur zeroize |
@@ -153,8 +153,8 @@ signature quorum.
 | Brique | Version 2026 | License | Verdict | Notes |
 |---|---|---|---|---|
 | `pkarr` (Nuhvi) | Actif | MIT | GO | Mainline BT DHT + pubkey DNS |
-| `iroh` (n0-computer) | 0.97 (1.0 pas encore) | Apache-2.0/MIT | GO | SBFB deja pinne 0.97 |
-| `libp2p-gossipsub` | **0.49.4+** | MIT/Apache-2.0 | CAUTION | CVE-2026-33040 + CVE-2026-34219 patched 0.49.4 (cite pour awareness ecosysteme — **SBFB utilise `iroh-gossip` 0.97 native, PAS `libp2p-gossipsub`** — les CVE n'affectent pas directement SBFB, documente comme pattern a surveiller dans iroh-gossip futur) |
+| `iroh` (n0-computer) | =1.0.1 (1.0 GA) | Apache-2.0/MIT | GO | SBFB pinne =1.0.1 (upgrade S81, byte-identique aux 2 bornes) |
+| `libp2p-gossipsub` | **0.49.4+** | MIT/Apache-2.0 | CAUTION | CVE-2026-33040 + CVE-2026-34219 patched 0.49.4 (cite pour awareness ecosysteme — **SBFB utilise `iroh-gossip` =0.101.0 native, PAS `libp2p-gossipsub`** — les CVE n'affectent pas directement SBFB, documente comme pattern a surveiller dans iroh-gossip futur) |
 
 **Directory authorities pattern** : 10 organisations
 independantes jurisdictionnellement diverses (Amnesty, EFF, CCC,
@@ -215,7 +215,7 @@ depassement.
 | `age-plugin-sntrup761x25519` | Deploye OpenSSH | MIT | GO | PQC at-rest mature |
 | `automerge` (Rust backend) | 0.5.x | MIT/Apache-2.0 | GO | CRDT, rewrite Rust |
 | `yrs` (Y.js Rust) | 0.21.x | MIT | GO | Prod Liveblocks |
-| `blake3` | 1.8.3 | CC0 + Apache-2.0 | GO | Content-addressed hash, 80M+ downloads |
+| `blake3` | 1.8.5 | CC0 + Apache-2.0 | GO | Content-addressed hash, 80M+ downloads |
 
 **Encryption by default** : `rage` avec recipient
 `age-plugin-sntrup761x25519` (PQC at-rest deja deploye dans
@@ -375,8 +375,11 @@ Fediverse verification + DNS TXT + Keyoxide standard.
 
 **Supply chain hardening** :
 
-- `cargo-audit` + `pip-audit` + `npm audit` en CI (bloque PR sur
-  CVE critical)
+- `cargo-deny check advisories` (meme base RustSec advisory-db que
+  `cargo-audit`, qu'il subsume — decision S18 D3) + `audit-ci` (npm,
+  seuil critical-only) en CI — jobs declenches sur PR, fail non-zero
+  par config (la jambe `pip-audit` S18 est inoperante depuis la purge
+  Python S50-S51)
 - `cargo-vet` reutilise audits Mozilla/Bytecode Alliance (couvre
   solo-maintainer gap partiellement)
 - `osv-scanner` v2 continu sur Python + Rust + npm
@@ -664,7 +667,7 @@ non-techniques) ne se raccourcissent pas par le code.
 Docs officielles + advisories valides 2026 :
 
 - [aws-lc-rs (AWS)](https://github.com/aws/aws-lc-rs)
-- [ed25519-dalek 2.1](https://docs.rs/ed25519-dalek/2.1.0/)
+- [ed25519-dalek 2.2](https://docs.rs/ed25519-dalek/2.2.0/)
 - [frost-ed25519 2.0 (Zcash Foundation)](https://zfnd.org/frost-reference-implementation-v1-0-0-stable-release/)
 - [quinn 0.11.9](https://github.com/quinn-rs/quinn/releases)
 - [s2n-quic 1.68 (AWS, Kani-verified)](https://github.com/aws/s2n-quic)

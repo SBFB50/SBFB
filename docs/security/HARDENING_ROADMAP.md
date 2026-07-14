@@ -179,7 +179,12 @@ median app) :
   reproductible. Consolide Gate 1.
 - **Items** :
   - `cargo-audit` / `pip-audit` / `npm audit` en CI (bloque PR
-    sur CVE critical) — ~150 LOC
+    sur CVE critical) — ~150 LOC *(annotation S82 Phase I : livre
+    S18 sous forme `cargo-deny check advisories` [D3, subsume
+    cargo-audit] + `audit-ci` npm seuil critical-only — jobs PR
+    fail-non-zero par config, pas une required-check ; la jambe
+    `pip-audit` est inoperante depuis la purge Python S50-S51 ;
+    cf. row table §4)*
   - Reproducible builds Rust (`--locked`, SOURCE_DATE_EPOCH) +
     SHA256 artifact attestation — ~200 LOC
   - Radicle mirror + warrant canary page minimal — ~300 LOC
@@ -886,7 +891,7 @@ Items score >3 + effort S-M, landable Sprint 18-19 sans blocker.
 
 | Item | Sprint | LOC | Effort |
 |---|---|---|---|
-| cargo-audit en CI | S18 | ~100 | 1 jour |
+| cargo-audit en CI (LIVRE S18 via `cargo-deny check advisories`, qui le subsume — D3) | S18 | ~100 | 1 jour |
 | pip-audit en CI | S18 | ~80 | 0.5 jour |
 | npm audit en CI | S18 | ~60 | 0.5 jour |
 | Driver update warn launcher | S18 | ~250 | 2 jours |
