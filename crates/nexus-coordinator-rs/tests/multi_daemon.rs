@@ -3,6 +3,10 @@
 //! runtime unless `SBFB_INTEGRATION=1`; exercised for real by
 //! `.github/workflows/integration-nightly.yml` and the live T2 harness,
 //! never counted as coverage on a default CI run).
+//!
+//! S82 Phase D: the feed insert below carries the `x-sbfb-feed-internal`
+//! header required since S65 (ace05b0) — without it the endpoint returns
+//! 403 and this test never reaches its sync-poll subject.
 
 use nexus_test_harness::DaemonCluster;
 
@@ -35,6 +39,10 @@ async fn test_new_node_full_sync_and_verify() {
             .post(format!("{}/api/daemon/feed/insert", d1.http_url()))
             .header("X-SBFB-Token", &d1.auth_token)
             .header("Host", format!("127.0.0.1:{}", d1.http_port))
+            // Internal-only feed insert since S65 (ace05b0,
+            // P2-FEED-INSERT-NO-AUTH-TIER): the loopback harness drives the
+            // sanctioned internal path (403 without this header).
+            .header("x-sbfb-feed-internal", "1")
             .json(&serde_json::json!({
                 "op": {
                     "op_type": "ReleasePublished",

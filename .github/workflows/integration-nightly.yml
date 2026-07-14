@@ -13,9 +13,10 @@
 #
 # A red run here is a SIGNAL, not a push-blocker: the hermetic T1
 # class stays the blocking gate on every push (rust-ci.yml); this
-# job surfaces relay/network rot early — including the known S81 A3
-# test-rot backlog (artefact `sprint81_a3_integration_run_098.txt`,
-# repairs tracked by the S81→S82 audit carry).
+# job surfaces relay/network rot early. The S81 A3 test-rot backlog
+# (artefact `sprint81_a3_integration_run_098.txt`) was repaired in
+# S82 Phase D — the class ran 10/10 under `SBFB_INTEGRATION=1`; this
+# job now guards that repaired state against regression.
 
 name: integration-nightly
 

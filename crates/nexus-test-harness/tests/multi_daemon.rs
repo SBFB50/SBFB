@@ -12,14 +12,41 @@
 //! coverage of this class comes from the dedicated nightly/manual
 //! workflow (`.github/workflows/integration-nightly.yml`) and the
 //! live T2 acceptance harness; never count a default green run as
-//! relay coverage. Known state (S81 A3 first real run, artefact
-//! `sprint81_a3_integration_run_098.txt`): part of this class is
-//! test-rotted and repairs are tracked by the S81→S82 audit carry.
+//! relay coverage. Sprint 82 Phase D repaired the 5 deterministic
+//! test-rots the S81 A3 first real run exposed (artefact
+//! `sprint81_a3_integration_run_098.txt`): the blob test (now
+//! `test_blob_serve_local_zip_roundtrip`, de-gated — purely local, so
+//! it is NOT part of the self-skip class) published a raw blob against
+//! the zip-only blob-serve (S12), and the four feed tests (three in
+//! this file, one in `nexus-coordinator-rs`) omitted the
+//! `x-sbfb-feed-internal` header required since S65 (ace05b0). The
+//! former product-signal `test_cross_daemon_gossip_exchange` now
+//! converges in the current tree (fresh run HEAD 2931b82, 4/4 in
+//! 2.3-3.4s vs 33s timeout under 0.98) — attributed to the S81
+//! transport delta (iroh 1.0.1); the loopback measurement does not
+//! isolate which S81 feature closed it. The negative auth-tier guard
+//! is covered hermetically by
+//! `feed_insert_rejects_without_internal_header` in `nexus-shell-daemon`.
 
 use nexus_test_harness::DaemonCluster;
 
 fn integration_enabled() -> bool {
     std::env::var("SBFB_INTEGRATION").unwrap_or_default() == "1"
+}
+
+/// Build a minimal in-memory zip archive (STORED, no compression) so a
+/// test can publish a real archive to blob-serve, which is zip-only
+/// since S12. Mirrors the daemon's own `make_zip` test helper.
+fn make_zip(files: &[(&str, &[u8])]) -> Vec<u8> {
+    use std::io::Write;
+    let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    let options =
+        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+    for (name, data) in files {
+        writer.start_file(*name, options).expect("zip start_file");
+        writer.write_all(data).expect("zip write_all");
+    }
+    writer.finish().expect("zip finish").into_inner()
 }
 
 /// Row 30 — smoke test: spawn 2 daemons, health check both,
@@ -89,25 +116,31 @@ async fn test_cross_daemon_discovery() {
     cluster.shutdown().await.expect("graceful shutdown");
 }
 
-/// Row 32 — cross-daemon blob transfer: publish a blob on
-/// daemon 1, verify it is served via blob-serve HTTP.
+/// Row 32 — blob round-trip through blob-serve: publish a real zip
+/// archive on a daemon and fetch an inner file back via blob-serve.
 ///
-/// Cross-daemon fetch (daemon 2 retrieves daemon 1's blob via
-/// iroh-blobs) requires P2P connectivity and is tested only
-/// when `SBFB_INTEGRATION=1`.
+/// Purely LOCAL single-daemon path (no P2P/relay), so the whole
+/// round-trip runs unconditionally. blob-serve decompresses a zip and
+/// serves inner paths; it rejects a non-zip body with 400 (S12
+/// zip-archive-only contract) — publishing a real zip is the repair
+/// for the S81 A3 test-rot (a raw blob was published, then the GET
+/// asserted 200). Renamed from `test_cross_daemon_blob_transfer` in
+/// S82 Phase D: the old name claimed a cross-daemon iroh fetch this
+/// test never performed (it always spawned a single daemon).
 #[tokio::test]
-async fn test_cross_daemon_blob_transfer() {
+async fn test_blob_serve_local_zip_roundtrip() {
     let mut cluster = DaemonCluster::spawn(1).await.expect("spawn daemon");
 
     let daemon = &cluster.nodes[0];
     let client = reqwest::Client::new();
 
-    let payload = b"hello from SBFB integration test";
+    let file_bytes: &[u8] = b"hello from SBFB integration test";
+    let zip_bytes = make_zip(&[("test.txt", file_bytes)]);
     let resp = client
         .post(format!("{}/api/daemon/publish-blob", daemon.http_url()))
         .header("X-SBFB-Token", &daemon.auth_token)
         .header("Host", format!("127.0.0.1:{}", daemon.http_port))
-        .body(payload.to_vec())
+        .body(zip_bytes)
         .send()
         .await
         .expect("publish-blob request");
@@ -122,11 +155,17 @@ async fn test_cross_daemon_blob_transfer() {
     let hash = body["hash"].as_str().expect("response has hash field");
     assert!(!hash.is_empty(), "hash must be non-empty");
 
-    if integration_enabled() {
-        let blob_url = format!("{}/blob-serve/{}/test.txt", daemon.http_url(), hash);
-        let blob_resp = client.get(&blob_url).send().await.expect("blob-serve GET");
-        assert_eq!(blob_resp.status().as_u16(), 200, "blob-serve returns 200");
-    }
+    // Local blob-serve round-trip: fetch the inner file and check the
+    // exact bytes come back (200 + body). No relay, so no gate.
+    let blob_url = format!("{}/blob-serve/{}/test.txt", daemon.http_url(), hash);
+    let blob_resp = client.get(&blob_url).send().await.expect("blob-serve GET");
+    assert_eq!(blob_resp.status().as_u16(), 200, "blob-serve returns 200");
+    let served = blob_resp.bytes().await.expect("blob-serve body");
+    assert_eq!(
+        served.as_ref(),
+        file_bytes,
+        "blob-serve must return the exact file bytes from the zip"
+    );
 
     cluster.shutdown().await.expect("graceful shutdown");
 }
@@ -365,6 +404,11 @@ async fn test_cross_daemon_feed_sync() {
             .header("X-SBFB-Token", &cluster.nodes[0].auth_token)
             .header("Host", format!("127.0.0.1:{}", cluster.nodes[0].http_port))
             .header("Content-Type", "application/json")
+            // `/api/daemon/feed/insert` is internal-only since S65 (ace05b0,
+            // P2-FEED-INSERT-NO-AUTH-TIER): 403 without this header. The
+            // loopback harness holds the daemon's own bearer and drives the
+            // sanctioned internal insert path to seed the sync fixtures.
+            .header("x-sbfb-feed-internal", "1")
             .json(&serde_json::json!({
                 "op": {
                     "op_type": "ReleasePublished",
@@ -505,6 +549,11 @@ async fn test_feed_offline_catchup() {
             .header("X-SBFB-Token", &cluster.nodes[0].auth_token)
             .header("Host", format!("127.0.0.1:{}", cluster.nodes[0].http_port))
             .header("Content-Type", "application/json")
+            // `/api/daemon/feed/insert` is internal-only since S65 (ace05b0,
+            // P2-FEED-INSERT-NO-AUTH-TIER): 403 without this header. The
+            // loopback harness holds the daemon's own bearer and drives the
+            // sanctioned internal insert path to seed the sync fixtures.
+            .header("x-sbfb-feed-internal", "1")
             .json(&serde_json::json!({
                 "op": {
                     "op_type": "ReleasePublished",
@@ -620,6 +669,11 @@ async fn test_feed_replay_idempotent() {
             .header("X-SBFB-Token", &cluster.nodes[0].auth_token)
             .header("Host", format!("127.0.0.1:{}", cluster.nodes[0].http_port))
             .header("Content-Type", "application/json")
+            // `/api/daemon/feed/insert` is internal-only since S65 (ace05b0,
+            // P2-FEED-INSERT-NO-AUTH-TIER): 403 without this header. The
+            // loopback harness holds the daemon's own bearer and drives the
+            // sanctioned internal insert path to seed the sync fixtures.
+            .header("x-sbfb-feed-internal", "1")
             .json(&serde_json::json!({
                 "op": {
                     "op_type": "ReleasePublished",

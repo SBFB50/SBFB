@@ -7955,6 +7955,62 @@ mod tests {
         writer.finish().unwrap().into_inner()
     }
 
+    /// S82 Phase D — exercise the feed/insert internal-auth guard (S65
+    /// ace05b0, P2-FEED-INSERT-NO-AUTH-TIER) hermetically so a future
+    /// refactor cannot silently regress it to a pre-S65 no-auth endpoint.
+    /// The `multi_daemon` feed integration tests are relay-gated (they
+    /// self-skip on a default run), so before this test the tree had NO
+    /// default-CI coverage of the 403 path.
+    #[tokio::test]
+    async fn feed_insert_rejects_without_internal_header() {
+        let state = mk_state().await;
+        let app = build_test_router(Arc::clone(&state));
+
+        // Without `x-sbfb-feed-internal` the guard rejects with 403 before
+        // touching any feed state.
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/daemon/feed/insert")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(r#"{"op":{}}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::FORBIDDEN,
+            "feed/insert must reject a request lacking x-sbfb-feed-internal"
+        );
+
+        // With the header the guard passes; mk_state has no feed_sync_state
+        // so the handler proceeds to 503 (NOT 403) — proving the header is
+        // the gate, not an unrelated rejection. This positive control is
+        // coupled to mk_state's `feed_sync_state: None`: if mk_state ever
+        // gains a feed_sync_state, this assertion fails VISIBLY — re-anchor
+        // it (e.g. assert any non-403 success/error), don't delete it.
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/daemon/feed/insert")
+                    .header("content-type", "application/json")
+                    .header("x-sbfb-feed-internal", "1")
+                    .body(axum::body::Body::from(r#"{"op":{}}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::SERVICE_UNAVAILABLE,
+            "internal header passes the auth gate (503 = feed sync uninitialised in test state)"
+        );
+    }
+
     #[tokio::test]
     async fn publish_blob_stores_and_returns_hash() {
         let state = mk_state().await;
