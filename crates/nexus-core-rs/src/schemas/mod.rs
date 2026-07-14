@@ -27,7 +27,7 @@
 //! between wire schema, worker dispatch, and coordinator parse.
 //!
 //! A `task_response.schema.json` file lives next to this module as
-//! a **snapshot** used by `test_schema_snapshot_matches_struct`:
+//! a **snapshot** used by `schema_snapshot_matches_struct`:
 //! if the struct evolves and the snapshot is not regenerated, the
 //! test fails loudly with a diff. The snapshot is _not_ the source
 //! of truth — it's a canary against silent drift.

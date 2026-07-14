@@ -11,7 +11,7 @@
 //!   "domain":  "TASK_RESPONSE_V1",
 //!   "content": "<LLM output>",
 //!   "reasoning": null,               // optional CoT trace
-//!   "tool_calls": []                 // empty at S20 — S22+ sandbox activates
+//!   "tool_calls": []                 // declarative — ignored by the coordinator
 //! }
 //! ```
 //!
@@ -34,7 +34,7 @@
 //!    doesn't match.
 //! 2. **Grammar drift** — if a future sprint redefines the
 //!    canonical domain tag without regenerating the schema
-//!    snapshot, the test `test_schema_snapshot_matches_struct`
+//!    snapshot, the test `schema_snapshot_matches_struct`
 //!    fires.
 //! 3. **Operator debugging** — parsing a hex-encoded blob from
 //!    the wire is easier when the JSON itself says what it is.
@@ -80,30 +80,33 @@ pub struct TaskResponse {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning: Option<String>,
     /// Tool calls the worker asks the coordinator to dispatch on
-    /// its behalf. Empty at Sprint 20 — every worker allowlisted
-    /// at Sprint 20 is expected to emit `[]` until the Sprint 22
-    /// tool-calling sandbox activates the gate.
+    /// its behalf. Declarative since Sprint 20: workers emit `[]`
+    /// and the coordinator ignores the field — the tool-calling
+    /// capability was deferred and stays OFF (source of truth:
+    /// `docs/security/CAPABILITY_TOGGLES.md`, gate `tool_calling`).
     #[serde(default)]
     pub tool_calls: Vec<ToolCall>,
 }
 
 /// A single tool call the worker asks the coordinator to execute.
 ///
-/// At Sprint 20 this structure is purely declarative — the
-/// coordinator ignores `tool_calls` until Sprint 22 activates the
-/// allow-list + wasmtime sandbox. The field is part of the wire
-/// format from day one so the schema does not bump when S22 lands.
+/// Purely declarative since Sprint 20 — the coordinator ignores
+/// `tool_calls`; the tool-calling capability was deferred and has
+/// never been activated (`docs/security/CAPABILITY_TOGGLES.md`,
+/// gate `tool_calling`, OFF). The field was put on the wire from
+/// day one so that wiring real tool dispatch later cannot change
+/// the schema shape.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ToolCall {
     /// Name of the tool to invoke (e.g. `"http_get"`,
-    /// `"fs_read"`). Match against the S22+ allow-list.
+    /// `"fs_read"`). No allow-list is enforced today — the
+    /// tool-calling capability stays OFF and the field is ignored.
     pub name: String,
-    /// Free-form JSON arguments the tool will receive. Shape
-    /// depends on the tool registered in the allow-list — the
-    /// schema intentionally leaves this field as
-    /// `serde_json::Value` so tool authors define their own
-    /// inner validation.
+    /// Free-form JSON arguments the tool will receive. Shape is
+    /// delegated to the tool author — the schema intentionally
+    /// leaves this field as `serde_json::Value` (no allow-list is
+    /// consulted today, the capability stays OFF).
     pub arguments: serde_json::Value,
 }
 

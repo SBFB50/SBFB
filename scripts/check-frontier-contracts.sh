@@ -12,15 +12,28 @@
 #   (1) anti-promise source-ref — an in-code provenance comment must
 #       point only at the IMMUTABLE PAST. A future promise anchored to a
 #       phase / sprint / worker-wave ("lands in Phase K", "Phase C will
-#       populate", "Sprint 2 will add", "W9 will layer") rots into a lie:
-#       the STALE-PHASE-K anti-pattern (real S77 incident, http.rs). The
-#       pattern is ANCHORED (a phase/sprint/wave token adjacent to a
-#       future verb) so it never fires on generic prose ("the values the
-#       consumer will read", "node A adds a blob", "a future sprint adds
-#       a field"). Scanned over tracked crates/ + web/src/ source only;
-#       docs/ (which describes the anti-pattern verbatim), this script,
-#       vendored crates, target/ and node_modules/ are out of scope by
-#       construction.
+#       populate", "Sprint 2 will add", "W9 will layer", "until Sprint N
+#       activates", "when SN lands", "the SN+ allow-list") rots into a
+#       lie: the STALE-PHASE-K anti-pattern (real S77 incident, http.rs).
+#       The pattern is ANCHORED (a phase/sprint/wave token adjacent to a
+#       future verb or capability noun) so it never fires on generic
+#       prose ("the values the consumer will read", "node A adds a blob",
+#       "a future sprint adds a field") nor on past narration ("Sprint 20
+#       ships only one schema identity"). Known residual: the
+#       sandbox/allow-list/activates branches are not tense-anchored, so
+#       future HISTORICAL prose like "the Sprint 22 sandbox was added"
+#       would flag — acceptable, any "Sprint N sandbox" adjacency
+#       deserves a look; reviewers arbitrate. Likewise a bare NON-sprint
+#       S<digit> token would flag ("until S3 responds" [AWS], "S5
+#       activates" [section label]) — no such usage exists in this repo,
+#       where S<n> always reads as Sprint. grep -E is line-oriented:
+#       only same-line token+verb forms are detectable; split-line forms
+#       are caught by the verb-free token branch "until (the )?Sprint".
+#       A PROMISE_RE self-test (non-vacuity + anchoring) runs before the
+#       scan and fails the gate if the motif rots. Scanned over tracked
+#       crates/ + web/src/ source only; docs/ (which describes the
+#       anti-pattern verbatim), this script, vendored crates, target/
+#       and node_modules/ are out of scope by construction.
 #   (2) frontier-tag coverage (opt-in, INCREMENTAL) — every type opted
 #       in with "// FRONTIER: <name> domain=DOMAIN_X_V1 version=X_FORMAT_VERSION"
 #       must resolve its domain + version consts AND carry a generated
@@ -63,7 +76,41 @@ cd "$REPO_ROOT"
 fail=0
 
 # ── (1) anti-promise source-ref ──────────────────────────────────
-PROMISE_RE='lands? (in )?Phase [A-Z0-9]|arrive(ra|nt|ront)? en Phase [A-Z0-9]|Phase [A-Z0-9]+ (will|adds|ships)|Sprint [0-9]+ will|S[0-9]+ will|W[0-9]+(\.[0-9]+)? (will|adds|ships|introduce)|When Sprint [0-9]+|inert until Phase|will land (in|with)'
+# S82 Phase F broadened the motif with the "until/when Sprint N
+# activates/lands" class (carry S79-P2-1 / S80-G-2): 4 new branches —
+# "until (the )?(Sprint |S)N" (verb-free token, also catches the
+# split-line form), "[Ww]hen (Sprint |S)N lands|activates|ships",
+# "(Sprint |S)N+? sandbox|allow-list", "(Sprint |S)N+? activates".
+# lands/ships stay [Ww]hen-anchored: a bare "(Sprint |S)N (lands|ships)"
+# branch false-positives on past narration ("Sprint 20 ships only...").
+PROMISE_RE='lands? (in )?Phase [A-Z0-9]|arrive(ra|nt|ront)? en Phase [A-Z0-9]|Phase [A-Z0-9]+ (will|adds|ships)|Sprint [0-9]+ will|S[0-9]+ will|W[0-9]+(\.[0-9]+)? (will|adds|ships|introduce)|When Sprint [0-9]+|inert until Phase|will land (in|with)|until (the )?(Sprint |S)[0-9]|[Ww]hen (Sprint |S)[0-9]+ (lands|activates|ships)|(Sprint |S)[0-9]+\+? (sandbox|allow-list)|(Sprint |S)[0-9]+\+? activates'
+
+# Self-test: PROMISE_RE must stay non-vacuous AND anchored (mirrors the
+# FRONTIER ShardPlan anti-silent-removal guard below). The scan loop
+# wraps grep in `|| true`, so a malformed motif (grep exit 2) would
+# otherwise silently green the whole anti-promise check. Assertions run
+# inside `if` so a malformed regex fails loudly here (exit 2 != 0 ->
+# "vacuous or malformed") instead of aborting the gate via set -e.
+# Fixtures are single-line by design (grep -E is line-oriented). The
+# four positive fixtures each match EXACTLY ONE S82 branch (until-token
+# / when-verb / capability-noun / bare-activates), so silently deleting
+# any single new branch fails the self-test (no overlap: the until
+# fixture carries no verb, the activates fixture no until/when/noun).
+_promise_neg='the values the consumer will read once a future sprint adds a field'
+for _promise_pos in \
+  'promise: tool_calls stay inert until Sprint 22' \
+  'promise: the schema does not bump when S25 lands' \
+  'promise: match the name against the S25+ allow-list' \
+  'promise: S25 activates the pump'; do
+  if ! printf '%s\n' "$_promise_pos" | grep -qE "$PROMISE_RE"; then
+    echo "PROMISE_RE self-test: vacuous or malformed (positive fixture not detected: $_promise_pos)"
+    fail=1
+  fi
+done
+if printf '%s\n' "$_promise_neg" | grep -qE "$PROMISE_RE"; then
+  echo "PROMISE_RE self-test: over-broad (anchored negative fixture matched)"
+  fail=1
+fi
 
 while IFS= read -r f; do
   [ -f "$f" ] || continue

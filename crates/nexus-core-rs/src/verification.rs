@@ -28,7 +28,8 @@
 //! into the live result path today (it has no production caller); the
 //! live path is the hash-exact quorum over `result_text`
 //! (`validate_quorum_pre_guardrail`). Callers must not treat the
-//! digest as a weights attestation until S77.
+//! digest as a weights attestation — to date it binds the model
+//! NAME string only.
 //!
 //! ## Layer 3 — N0 TOPLOC fingerprint (DID the model actually run)
 //!

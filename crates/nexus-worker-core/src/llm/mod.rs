@@ -26,11 +26,10 @@
 //! `format` parameter (Ollama's internal llama.cpp runs the GBNF
 //! grammar), which is enough to secure the signature chain
 //! (invalid JSON → signature refuse). But everything upstream of
-//! sample time (tool-call interception for S22 sandbox,
-//! process-boundary VRAM wipe for S23 ephemeral workers, PQC
-//! task-response signing inline with sampling for S26) requires
-//! direct control over the LLM process — impossible across the
-//! Ollama HTTP boundary.
+//! sample time (tool-call interception, process-boundary VRAM
+//! wipe for ephemeral workers, signing inline with sampling)
+//! requires direct control over the LLM process — impossible
+//! across the Ollama HTTP boundary.
 //!
 //! The `llama_cpp` backend is therefore an architectural unlock,
 //! not just a performance win. See the design doc
@@ -43,8 +42,9 @@
 //! constrains the *format* of the output, not its *content*. A
 //! successful prompt-injection against the user query can still
 //! produce schema-valid output with a malicious payload. Defense
-//! against prompt injection is a separate layer : Sprint 21
-//! client-side redaction + Sprint 22 tool-calling sandbox. See
+//! against prompt injection is a separate layer : client-side
+//! redaction (the tool-calling capability stays OFF —
+//! `docs/security/CAPABILITY_TOGGLES.md`, gate `tool_calling`). See
 //! `docs/rust/PATTERNS.md §P30` for the longer form warning.
 
 pub mod factory;

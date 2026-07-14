@@ -1541,8 +1541,11 @@ cargo bench -p nexus-core-rs --bench keystore -- derive_kek_64_mib
 > can still produce schema-valid responses with malicious payload
 > (e.g. `TaskResponse { content: "<exfiltrated secret>",
 > tool_calls: [...] }` — valid shape, bad content). Defense against
-> prompt injection belongs to Sprint 22 (tool-calling sandbox +
-> wasmtime jail) and Sprint 21 (client-side redaction SDK).
+> prompt injection is a separate layer: the client-side redaction
+> SDK (S21, delivered). The tool-calling capability was deferred
+> and stays OFF (`docs/security/CAPABILITY_TOGGLES.md`, gate
+> `tool_calling`); no wasmtime jail was ever wired (wasmtime is a
+> pre-emptive ban in `deny.toml`, never a dependency).
 > Grammar enforcement + signature chain integrity is *one layer*
 > of defense, not a replacement for prompt-injection hardening.
 > Cf. `docs/security/HARDENING_ROADMAP.md audited_findings
@@ -3902,15 +3905,33 @@ close (the store is an S78 carry). S79 Phase B scrubbed these comments across
 `crates/` and the `web/src/` shard-session UI (doc-comments only, 0 behaviour
 change) and gated recurrence: `scripts/check-frontier-contracts.sh` fails CI on a
 phase/sprint/wave token adjacent to a future verb (the "Phase X will|adds|ships",
-"lands [in] Phase X", "arrive en Phase X" [FR], "Sprint N will", "Wn[.n]
-will|introduce", "inert until Phase", "will land in|with" forms), scoped to
+"lands [in] Phase X", "arrive en Phase X" [FR], "Sprint N will", "SN will",
+"When Sprint N", "Wn[.n] will|adds|ships|introduce", "inert until Phase",
+"will land in|with" forms; S82 Phase F added the "until [the] Sprint N / until SN",
+"when Sprint N|SN lands|activates|ships", "Sprint N|SN[+] sandbox|allow-list" and
+"Sprint N|SN[+] activates" forms — carry S79-P2-1/S80-G-2), scoped to
 `crates/` + `web/src/` (docs/ describe the anti-pattern verbatim → out of scope
-by construction). The pattern is ANCHORED so it never fires on generic prose
+by construction). A self-test (four positive fixtures — each matching exactly
+one new branch, no overlap — plus an anchored negative, added S82 Phase F)
+fails the gate if `PROMISE_RE` rots vacuous/malformed, silently loses any
+single new branch, or matches the anchored negative — the scan loop's
+`|| true` would otherwise swallow a malformed regex silently. The
+pattern is ANCHORED so it never fires on generic prose
 ("the values the consumer will read", "node A adds a blob", "a future sprint
-adds a field"). Two classes are intentionally NOT gated (uncatchable without
+adds a field") nor past narration ("Sprint 20 ships only one schema identity" —
+lands/ships stay when-anchored for this reason). Known residual: the
+sandbox/allow-list/activates branches are not tense-anchored (historical prose
+"the Sprint 22 sandbox was added" would flag), and a bare NON-sprint S<digit>
+token would flag too ("until S3 responds" [AWS], "S5 activates" [section
+label] — none exists in-repo, where S<n> always reads as Sprint); reviewers
+arbitrate. Two classes
+are intentionally NOT gated (uncatchable without
 false-positives on legit prose) and are caught by review, not the gate:
 parenthetical forms ("(Phase K)") and non-adjacent forms where the future verb
 is separated from the phase/sprint token ("the Sprint 4 coordinator will rely").
+A third documented-out class: still-open scope-cut markers ("post-S77",
+"reserved for S77", "for SN (frozen)") describe a deferral that is still true
+today — present-true, not a stale promise; they stay reviewable, not gated.
 
 **The `// FRONTIER:` registry (opt-in, INCREMENTAL).** A type opts in with
 `// FRONTIER: <name> domain=DOMAIN_X_V1 version=X_FORMAT_VERSION`. The gate then

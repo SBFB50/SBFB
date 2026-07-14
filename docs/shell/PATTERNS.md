@@ -1866,8 +1866,9 @@ Both backends enforce JSON Schema on the LLM output. This
 guarantees the signature chain never signs garbled JSON, but does
 **not** defend against prompt injection producing schema-valid
 malicious content. See `docs/rust/PATTERNS.md §P30` for the full
-warning and the layered defense roadmap (Sprint 21 client-side
-redaction, Sprint 22 tool-calling sandbox).
+warning and the layered defense (client-side redaction, delivered
+S21; the tool-calling capability stays OFF —
+`docs/security/CAPABILITY_TOGGLES.md`, gate `tool_calling`).
 
 Reference : design doc
 `.planning/research/S20_phase_D_structured_output_design.md`,
