@@ -58,32 +58,19 @@ unmaintained = "workspace"
 # `advisory-not-detected`; rand 0.8.6 is outside the revised advisory
 # range). The rand 0.9 upgrade exemption itself is unchanged (cascades
 # to ed25519-dalek 2.3 + rand_core 0.9, wants a dedicated sprint).
+#
+# Removed S82 Phase K: the four hickory-root ignores
+# (RUSTSEC-2026-0119 hickory-proto O(n^2) name-compression, DoS
+# class; RUSTSEC-2026-0098/0099 rustls-webpki name-constraint
+# laxity, authentication class; RUSTSEC-2026-0104 rustls-webpki
+# CRL-parsing panic, DoS/availability class) — all four closed by
+# the hickory-resolver 0.24 -> 0.26 bump (HICKORY-024-RUSTSEC).
+# Lock now resolves hickory-proto 0.26.1 (advisory threshold
+# 0.26.1) and rustls-webpki 0.103.13 (thresholds 0.103.12 /
+# 0.103.13); the legacy 0.24 tree (rustls 0.21.12 +
+# rustls-webpki 0.101.7 + tokio-rustls 0.24.1) left the lock
+# entirely, collapsing those crates back to a single version.
 ignore = [
-    # --- hickory-resolver 0.24 root (S81 Phase G, carry S82) ---
-    # The four advisories below share one root: the SBFB pin
-    # `hickory-resolver = "0.24"` (workspace Cargo.toml), which pulls
-    # hickory-proto 0.24.4 + rustls 0.21.12 + rustls-webpki 0.101.7.
-    # Fixing them means bumping hickory-resolver 0.24 -> 0.26 (API
-    # churn in crates/nexus-core-rs/src/dns_fallback.rs: resolver
-    # construction + config types were reworked in 0.25). S81 is
-    # "iroh STRICTLY ALONE" (Day-0 #10 anti-bundle, bisectability),
-    # so the bump is carried to S82 (HICKORY-024-RUSTSEC, grouped
-    # with P2-AUDIT-2-RESIDUEL). Intrinsic classes differ: 0119 and
-    # 0104 are DoS-class; 0098/0099 are certificate name-constraint
-    # validation laxity (authentication-class, NOT DoS). The SBFB
-    # residual is bounded for all four by the same facts: the DNS
-    # fallback is opt-in (default `enabled: false`, env
-    # SBFB_DNS_FALLBACK_ENABLED), only talks to pinned reputable
-    # DoH/DoT resolvers (Cloudflare/Google defaults hardcoded in
-    # DnsFallbackConfig::default) whose certs chain normally
-    # (name-constrained intermediates are not part of that trust
-    # path), and DNS is not a trust anchor here — pkarr records stay
-    # Ed25519-verified downstream, so even a spoofed DNS answer
-    # cannot forge content.
-    { id = "RUSTSEC-2026-0119", reason = "hickory-proto 0.24.4 O(n^2) name compression DoS; reached only via opt-in default-off DNS fallback against pinned reputable TLS-validated resolvers (Cloudflare/Google defaults). Root = hickory-resolver 0.24 pin; bump to 0.26 carried to S82 (HICKORY-024-RUSTSEC), out of S81 iroh-only scope." },
-    { id = "RUSTSEC-2026-0098", reason = "rustls-webpki 0.101.7 URI name-constraint laxity; pulled only by hickory-resolver 0.24 dns-over-* features (opt-in default-off fallback). Fix rides the hickory 0.26 bump (rustls 0.23), carried to S82 (HICKORY-024-RUSTSEC)." },
-    { id = "RUSTSEC-2026-0099", reason = "rustls-webpki 0.101.7 wildcard name-constraint laxity; same bounded opt-in surface and same S82 remediation as RUSTSEC-2026-0098." },
-    { id = "RUSTSEC-2026-0104", reason = "rustls-webpki 0.101.7 reachable panic in CRL parsing; SBFB DNS fallback never feeds CRLs, surface opt-in default-off. Same S82 remediation as RUSTSEC-2026-0098." },
     # --- quick-xml via iroh (upstream, S81 Phase G) ---
     # quick-xml 0.39.4 is pulled exclusively by the pinned iroh
     # `=1.0.1` chain (iroh -> netwatch -> netdev -> plist ->

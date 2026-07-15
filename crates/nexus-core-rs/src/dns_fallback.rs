@@ -31,13 +31,14 @@
 //! connectivity issue.
 
 use std::net::{IpAddr, Ipv4Addr};
+use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use hickory_resolver::TokioAsyncResolver;
-use hickory_resolver::config::{
-    NameServerConfig, NameServerConfigGroup, Protocol, ResolverConfig, ResolverOpts,
-};
+use hickory_resolver::Resolver;
+use hickory_resolver::config::{ConnectionConfig, NameServerConfig, ResolverConfig, ResolverOpts};
+use hickory_resolver::net::runtime::TokioRuntimeProvider;
+use hickory_resolver::proto::rr::RData;
 use tracing::debug;
 
 use crate::error::{NexusError, Result};
@@ -159,22 +160,37 @@ impl Default for DnsFallbackConfig {
 // Resolver
 // -----------------------------------------------------------------
 
+/// hickory 0.26: `TokioAsyncResolver` is gone upstream; the
+/// tokio-backed resolver is `Resolver<TokioRuntimeProvider>`.
+type TokioResolver = Resolver<TokioRuntimeProvider>;
+
+/// Transport of one of the two raced resolvers. Replaces the
+/// hickory 0.24 `Protocol` config enum (removed in 0.26): the
+/// fallback only speaks DoH and DoT, so a two-variant enum makes
+/// "unsupported protocol" unrepresentable instead of a runtime
+/// rejection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DnsTransport {
+    Doh,
+    Dot,
+}
+
 /// DNS fallback resolver using DoH (RFC 8484) + DoT (RFC 7858).
 ///
 /// Constructed from a [`DnsFallbackConfig`]. The resolver tries
 /// DoH first (faster on modern networks where HTTPS is unblocked),
 /// then falls back to DoT (port 853, may bypass HTTP-layer DPI).
 pub struct DnsFallbackResolver {
-    doh_resolver: TokioAsyncResolver,
-    dot_resolver: TokioAsyncResolver,
+    doh_resolver: TokioResolver,
+    dot_resolver: TokioResolver,
     domain_suffix: String,
 }
 
 impl DnsFallbackResolver {
     /// Build a resolver from config.
     pub fn new(config: &DnsFallbackConfig) -> Result<Self> {
-        let doh_resolver = Self::build_resolver(&config.doh_endpoints, Protocol::Https, config)?;
-        let dot_resolver = Self::build_resolver(&config.dot_endpoints, Protocol::Tls, config)?;
+        let doh_resolver = Self::build_resolver(&config.doh_endpoints, DnsTransport::Doh, config)?;
+        let dot_resolver = Self::build_resolver(&config.dot_endpoints, DnsTransport::Dot, config)?;
         Ok(Self {
             doh_resolver,
             dot_resolver,
@@ -184,38 +200,42 @@ impl DnsFallbackResolver {
 
     fn build_resolver(
         endpoints: &[DnsEndpoint],
-        protocol: Protocol,
+        transport: DnsTransport,
         config: &DnsFallbackConfig,
-    ) -> Result<TokioAsyncResolver> {
+    ) -> Result<TokioResolver> {
         if endpoints.is_empty() {
             return Err(NexusError::Endpoint(format!(
-                "no DNS endpoints configured for protocol {protocol:?}"
+                "no DNS endpoints configured for transport {transport:?}"
             )));
         }
-        if !matches!(protocol, Protocol::Https | Protocol::Tls) {
-            return Err(NexusError::Endpoint(
-                "DNS fallback only supports DoH (Https) and DoT (Tls)".to_string(),
-            ));
-        }
 
-        let mut ns_group = NameServerConfigGroup::with_capacity(endpoints.len());
+        let mut name_servers = Vec::with_capacity(endpoints.len());
         for ep in endpoints {
-            ns_group.push(NameServerConfig {
-                socket_addr: std::net::SocketAddr::new(ep.ip, ep.port),
-                protocol,
-                tls_dns_name: Some(ep.tls_name.clone()),
-                trust_negative_responses: false,
-                tls_config: None,
-                bind_addr: None,
-            });
+            // Per-endpoint TLS name (P2-E-1): each endpoint validates
+            // against its own certificate name, never a global one.
+            let server_name: Arc<str> = Arc::from(ep.tls_name.as_str());
+            let mut conn = match transport {
+                // `None` path selects the standard "/dns-query" (RFC 8484).
+                DnsTransport::Doh => ConnectionConfig::https(server_name, None),
+                DnsTransport::Dot => ConnectionConfig::tls(server_name),
+            };
+            conn.port = ep.port;
+            // trust_negative_responses=false must stay EXPLICIT: the
+            // 0.26 default flipped to true, and negative caching would
+            // defeat the DoH/DoT race in resolve_node.
+            name_servers.push(NameServerConfig::new(ep.ip, false, vec![conn]));
         }
 
-        let resolver_config = ResolverConfig::from_parts(None, vec![], ns_group);
-        let mut opts = ResolverOpts::default();
+        let resolver_config = ResolverConfig::from_parts(None, vec![], name_servers);
+        let mut builder =
+            Resolver::builder_with_config(resolver_config, TokioRuntimeProvider::default());
+        let opts: &mut ResolverOpts = builder.options_mut();
         opts.timeout = config.timeout;
         opts.attempts = 2;
 
-        Ok(TokioAsyncResolver::tokio(resolver_config, opts))
+        builder
+            .build()
+            .map_err(|e| NexusError::Endpoint(format!("failed to build DNS resolver: {e}")))
     }
 
     /// Build the DNS query name for a node_id.
@@ -229,7 +249,7 @@ impl DnsFallbackResolver {
     }
 
     async fn resolve_txt_via(
-        resolver: &TokioAsyncResolver,
+        resolver: &TokioResolver,
         query: &str,
         protocol_label: &str,
     ) -> anyhow::Result<Vec<u8>> {
@@ -239,9 +259,13 @@ impl DnsFallbackResolver {
             .map_err(|e| anyhow::anyhow!("{protocol_label} TXT lookup failed for {query}: {e}"))?;
 
         let mut data = Vec::new();
-        for txt in lookup.iter() {
-            for segment in txt.txt_data() {
-                data.extend_from_slice(segment);
+        // hickory 0.26: txt_lookup returns the generic `Lookup`; TXT
+        // payloads are extracted from the answer records' RData.
+        for record in lookup.answers() {
+            if let RData::TXT(txt) = &record.data {
+                for segment in txt.txt_data.iter() {
+                    data.extend_from_slice(segment);
+                }
             }
         }
         if data.is_empty() {
@@ -546,23 +570,15 @@ mod tests {
         assert_eq!(resolver.label(), "dns-fallback-doh-dot");
     }
 
-    #[test]
-    fn build_resolver_rejects_unsupported_protocol() {
-        let eps = vec![DnsEndpoint {
-            ip: DOH_CLOUDFLARE_IP,
-            port: 53,
-            tls_name: "dns.example.com".to_string(),
-        }];
-        let cfg = DnsFallbackConfig::default();
-        let err = DnsFallbackResolver::build_resolver(&eps, Protocol::Udp, &cfg).unwrap_err();
-        let msg = format!("{err}");
-        assert!(msg.contains("only supports DoH"), "got: {msg}");
-    }
+    // `build_resolver_rejects_unsupported_protocol` was removed with
+    // the hickory 0.26 bump (S82 Phase K): the local `DnsTransport`
+    // enum only has Doh/Dot variants, so an unsupported protocol is
+    // unrepresentable and the runtime guard it exercised is gone.
 
     #[test]
     fn build_resolver_rejects_empty_endpoints() {
         let cfg = DnsFallbackConfig::default();
-        let err = DnsFallbackResolver::build_resolver(&[], Protocol::Https, &cfg).unwrap_err();
+        let err = DnsFallbackResolver::build_resolver(&[], DnsTransport::Doh, &cfg).unwrap_err();
         let msg = format!("{err}");
         assert!(msg.contains("no DNS endpoints"), "got: {msg}");
     }

@@ -1850,3 +1850,29 @@ Historique versions :
   l'agregat T2 (`sprint81_t2_acceptance.json`) → route S82. 0 bump wire,
   0 dep ; +1 surface applicative DANS l'ALPN existant (attestation),
   documentee ci-dessus.
+- **v18 (Sprint 82 Phase K, 2026-07-15)** : supply-chain DNS fallback —
+  bump hickory-resolver 0.24 → 0.26 (construction resolver reecrite
+  `dns_fallback.rs` : Resolver/builder + `NameServerConfig::new` +
+  `ConnectionConfig` ; per-endpoint TLS name P2-E-1 PRESERVE ;
+  `trust_negative_responses=false` rendu EXPLICITE — le defaut upstream
+  a bascule a `true` et le caching negatif defairait la course DoH/DoT).
+  Les 4 RUSTSEC racine hickory-0.24 sont FERMEES, ignores `deny.toml`
+  RETIRES : RUSTSEC-2026-0119 (hickory-proto O(n^2) name-compression,
+  classe DoS) close par hickory-proto 0.26.1 (seuil exact 0.26.1) ;
+  RUSTSEC-2026-0098/0099 (laxite name-constraints, classe
+  AUTHENTIFICATION, pas DoS) + RUSTSEC-2026-0104 (panic parsing CRL,
+  DoS/availability) closes par rustls-webpki 0.103.13 (seuils 0.103.12
+  / 0.103.13). La validation de certificats DoH/DoT est RENFORCEE
+  (rustls 0.21.12 → 0.23.40) — l'argument residuel S81-G
+  « name-constrained intermediates hors trust path » devient sans
+  objet. Magasin de racines desormais EXPLICITE (feature
+  `webpki-roots`, deja au lock : 0.26 ne fournit AUCUN root store par
+  defaut, l'omission aurait casse tous les handshakes en silence).
+  Backend crypto : `ring` conserve, aucun `aws-lc-rs` au lock
+  (verifie). Threat model du module INCHANGE (« DNS is not a trust
+  anchor », pkarr Ed25519-verifie en aval) ; fallback toujours opt-in
+  default-off. Remediation yanked meme commit : spin 0.9.8/0.10.0
+  yankes upstream → 0.9.9/0.10.1 (lock-only, classe S81-G anyhow/
+  crossbeam). 0 bump wire, 0 dep runtime neuve (l'arbre 0.24 legacy
+  quitte le lock, l'arbre 0.26 etait deja present via iroh — collapse
+  2→1 versions), 0 nouvelle row STRIDE, 0 nouvelle frontiere.

@@ -440,15 +440,22 @@ cudarc = { version = "0.12", default-features = false, features = ["driver", "cu
 # Sprint 24 Phase E : DNS-based DHT fallback (DoH RFC 8484 + DoT
 # RFC 7858). When pkarr relay quorum (Sprint 19) returns AllFailed,
 # the browse aggregator falls back to encrypted DNS resolution via
-# hickory-resolver (formerly trust-dns-resolver). Mature crate
-# (4.4k stars, Apache-2.0), tokio-native async, DoH + DoT + DNSSEC
-# support. RustSec scan 2026-04-21 : zero active advisories.
-# `dns-over-https-rustls` and `dns-over-rustls` use the rustls TLS
-# backend already pulled transitively by the iroh stack — no
-# new TLS backend added to the binary.
-hickory-resolver = { version = "0.24", features = [
-    "dns-over-https-rustls",
-    "dns-over-rustls",
+# hickory-resolver (formerly trust-dns-resolver). Sprint 82 Phase K
+# bumped 0.24 -> 0.26 (resolver construction reworked upstream in
+# 0.25), closing RUSTSEC-2026-0119 (hickory-proto >= 0.26.1, DoS)
+# and RUSTSEC-2026-0098/0099/0104 (rustls-webpki >= 0.103.13,
+# name-constraint laxity + CRL panic) and removing the four
+# deny.toml ignores. Features: `tls-ring` (DoT) + `https-ring`
+# (DoH) keep rustls on the `ring` backend already pulled by the
+# iroh stack — no aws-lc-rs, no new TLS backend in the binary
+# (re-validated against Cargo.lock at the S82 K bump).
+# `webpki-roots` restores the Mozilla root store that the 0.24
+# `dns-over-*-rustls` features bundled implicitly; 0.26 ships no
+# root store by default, which would fail every DoH/DoT handshake.
+hickory-resolver = { version = "0.26", features = [
+    "tls-ring",
+    "https-ring",
+    "webpki-roots",
 ] }
 
 # Sprint 31 Phase C : Tor transport phase 1. Config infrastructure,
