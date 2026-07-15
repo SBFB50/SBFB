@@ -308,25 +308,10 @@ impl DaemonRuntime {
             }
         }
 
-        // 2. Boot the iroh endpoint + protocol router. Arc so
-        //    the gossip task can hold a clone without fighting
-        //    with the shutdown path for ownership.
-        //
-        //    Sprint 20 Phase A: if the launcher ran `sbfb unlock`
-        //    before spawning us, it put the 32-byte Ed25519 secret
-        //    key as a 64-char hex string into
-        //    `SBFB_IDENTITY_SECRET_HEX`. We pick it up here and
-        //    hand it to `NodeConfig::with_secret_key` so the iroh
-        //    endpoint boots with a persistent identity instead of
-        //    minting a fresh ephemeral keypair each run. Absent or
-        //    malformed env → legacy `create_node()` path so dev
-        //    flows that predate the encrypted keystore still work.
-        // Sprint 20 Phase C : mint the PoW keypair from the same
-        // secret the iroh endpoint consumes so the Hashcash
-        // `publisher_pubkey` field matches the node identity the
-        // peers already know via gossip. A fallback ephemeral keypair
-        // (generated when the launcher did not hand a secret) pairs
-        // naturally with the `create_node()` ephemeral identity path.
+        // 2. Boot the iroh endpoint + protocol router (see
+        //    `boot_node_identity` — persistent identity + matching
+        //    PoW keypair). Arc so the gossip task can hold a clone
+        //    without fighting with the shutdown path for ownership.
         // Sprint 74 Phase E: open the coordinator DB BEFORE the node so the
         // cross-node seed protocol handler (registered on the Router, which
         // accepts no post-spawn protocols) can capture it. The DB only needs
@@ -342,72 +327,18 @@ impl DaemonRuntime {
         let seed_nonce_cache = std::sync::Arc::new(crate::seed_protocol::NonceCache::default());
 
         let iroh_data_dir = opts.paths.root.join("iroh");
-        let (node, pow_keypair) = match read_optional_identity_env() {
-            Some(secret_bytes) => {
-                info!("shell daemon using persistent identity from launcher keystore");
-                let pow_kp = Arc::new(KeyPair::from_secret_bytes(&secret_bytes));
-                let cfg = NodeConfig::default()
-                    .with_secret_key(secret_bytes)
-                    .with_data_dir(iroh_data_dir.clone());
-                let factory = crate::seed_protocol::seed_protocol_factory(
-                    Arc::clone(&coordinator_db),
-                    Arc::clone(&pow_kp),
-                    Arc::clone(&seed_nonce_cache),
-                );
-                let n = create_node_with_protocols(
-                    cfg,
-                    vec![(nexus_core_rs::SEED_ALPN.to_vec(), factory)],
-                )
-                .await
-                .context("failed to boot iroh node with persistent identity")?;
-                (n, pow_kp)
-            }
-            None => {
-                let secret_bytes = load_or_generate_node_key(&opts.paths.root)?;
-                info!(
-                    path = %opts.paths.root.join("node_key").display(),
-                    "shell daemon using file-based persistent identity"
-                );
-                let pow_kp = Arc::new(KeyPair::from_secret_bytes(&secret_bytes));
-                let cfg = NodeConfig::default()
-                    .with_secret_key(secret_bytes)
-                    .with_data_dir(iroh_data_dir.clone());
-                let factory = crate::seed_protocol::seed_protocol_factory(
-                    Arc::clone(&coordinator_db),
-                    Arc::clone(&pow_kp),
-                    Arc::clone(&seed_nonce_cache),
-                );
-                let n = create_node_with_protocols(
-                    cfg,
-                    vec![(nexus_core_rs::SEED_ALPN.to_vec(), factory)],
-                )
-                .await
-                .context("failed to boot iroh node with file-based identity")?;
-                (n, pow_kp)
-            }
-        };
+        let (node, pow_keypair) = boot_node_identity(
+            &opts.paths.root,
+            &iroh_data_dir,
+            &coordinator_db,
+            &seed_nonce_cache,
+        )
+        .await?;
         let node_id = node.node_id();
-        info!(node_id = %node_id, "shell daemon iroh node ready");
-        let node = Arc::new(node);
 
-        // 3. Bind the TCP listener. An empty host in the config
-        //    was clamped to 127.0.0.1 at load time (see
-        //    `ShellDaemonConfig::clamped`); defend-in-depth here
-        //    too so a future bypass of `load` cannot slip
-        //    through.
-        let host = if opts.api_host.is_empty() {
-            "127.0.0.1".to_string()
-        } else {
-            opts.api_host.clone()
-        };
-        let bind_target = format!("{}:{}", host, opts.api_port);
-        let listener = TcpListener::bind(&bind_target)
-            .await
-            .with_context(|| format!("failed to bind HTTP listener to {bind_target}"))?;
-        let bound_addr = listener
-            .local_addr()
-            .context("local_addr on freshly bound TcpListener")?;
-        info!(addr = %bound_addr, "shell daemon HTTP listener bound");
+        // 3. Bind the TCP listener (the 127.0.0.1 defend-in-depth
+        //    clamp lives INSIDE the sub-function, before the bind).
+        let (listener, bound_addr, host) = bind_api_listener(&opts.api_host, opts.api_port).await?;
 
         // 4. Write running.json with the real port.
         let running_json_path = opts.paths.running_json.clone();
@@ -587,44 +518,9 @@ impl DaemonRuntime {
         //     `coordinator_db` handle from that step.
 
         // 6a-2. Sprint 66 Phase D: restore the RevocationCache from
-        //       persisted key rotations in SQLite.
-        let revocation_cache =
-            nexus_shell_daemon_core::key_rotation_handler::shared_revocation_cache();
-        {
-            let db = coordinator_db
-                .lock()
-                .map_err(|e| anyhow::anyhow!("coordinator DB lock failed: {e}"))?;
-            match db.load_key_rotations() {
-                Ok(rows) if !rows.is_empty() => {
-                    let tuples: Vec<(String, String, u64, u16, String)> = rows
-                        .iter()
-                        .map(|r| {
-                            (
-                                r.old_pubkey.clone(),
-                                r.new_pubkey.clone(),
-                                r.timestamp,
-                                r.transition_days,
-                                r.reason.clone(),
-                            )
-                        })
-                        .collect();
-                    let applied = nexus_shell_daemon_core::key_rotation_handler::populate_cache(
-                        &revocation_cache,
-                        &tuples,
-                    );
-                    info!(
-                        total = rows.len(),
-                        applied, "RevocationCache restored from SQLite"
-                    );
-                }
-                Ok(_) => {
-                    debug!("no persisted key rotations to restore");
-                }
-                Err(e) => {
-                    warn!(error = %e, "failed to load key rotations from DB");
-                }
-            }
-        }
+        //       persisted key rotations in SQLite (BEFORE the loops
+        //       that consult it; soft-fail `warn!` preserved inside).
+        let revocation_cache = restore_revocation_cache(&coordinator_db)?;
 
         // 6b. Sprint 38 Phase A: create the result event broadcast
         //     channel for the validator loop. The sender is stored in
@@ -787,96 +683,11 @@ impl DaemonRuntime {
             } else {
                 feed_sync_state.as_ref()
             };
-        // 6c-5. Sprint 66 Phase C: republish SQLite feed entries to
-        //       iroh-docs at boot (one-shot, synchronous before HTTP).
-        if let Some(fs) = feed_sync_for_republish {
-            let entries_result = {
-                let db = coordinator_db
-                    .lock()
-                    .map_err(|e| anyhow::anyhow!("coordinator DB lock failed: {e}"))?;
-                nexus_coordinator_rs::public_feed::replay_all(&db)
-            };
-            match entries_result {
-                Ok(entries) => {
-                    let mut published = 0u64;
-                    for entry in &entries {
-                        if let Err(e) =
-                            crate::feed_sync::publish_feed_entry_to_docs(fs, entry).await
-                        {
-                            warn!(seq = entry.seq, error = %e, "feed republish failed");
-                        } else {
-                            published += 1;
-                        }
-                    }
-                    info!(
-                        total = entries.len(),
-                        published, "feed entries republished to iroh-docs at boot"
-                    );
-                }
-                Err(e) => warn!(error = %e, "feed replay_all failed, skipping republish"),
-            }
-        }
-
-        // 6c-5b. Sprint 66 Phase D: orphan recovery — detect entries
-        //        in SQLite but missing from iroh-docs and republish.
-        //        (Sprint 75 audit DURESS-BOOT-LEAK: also a no-op under duress
-        //        via `feed_sync_for_republish`.)
-        if let Some(fs) = feed_sync_for_republish {
-            match fs.doc.get_many_by_prefix("feed/").await {
-                Ok(doc_entries) => {
-                    let present_keys: std::collections::HashSet<String> = doc_entries
-                        .iter()
-                        .filter_map(|e| String::from_utf8(e.key().to_vec()).ok())
-                        .collect();
-
-                    let entries_result = {
-                        let db = coordinator_db
-                            .lock()
-                            .map_err(|e| anyhow::anyhow!("coordinator DB lock failed: {e}"))?;
-                        nexus_coordinator_rs::public_feed::replay_all(&db)
-                    };
-                    if let Ok(entries) = entries_result {
-                        let entry_hash_set: std::collections::HashSet<&str> =
-                            entries.iter().map(|e| e.entry_hash.as_str()).collect();
-                        let mut orphan_count = 0u64;
-                        let mut recovered = 0u64;
-                        for entry in &entries {
-                            let key =
-                                crate::feed_sync::format_feed_key(&entry.author_pubkey, entry.seq);
-                            if present_keys.contains(&key) {
-                                continue;
-                            }
-                            orphan_count += 1;
-                            let is_genesis = entry.prev_hash.chars().all(|c| c == '0');
-                            if !is_genesis && !entry_hash_set.contains(entry.prev_hash.as_str()) {
-                                warn!(
-                                    seq = entry.seq,
-                                    prev_hash = %entry.prev_hash,
-                                    "orphan recovery: skipping broken chain tail"
-                                );
-                                continue;
-                            }
-                            if let Err(e) =
-                                crate::feed_sync::publish_feed_entry_to_docs(fs, entry).await
-                            {
-                                warn!(seq = entry.seq, error = %e, "orphan recovery: republish failed");
-                            } else {
-                                recovered += 1;
-                            }
-                        }
-                        if orphan_count > 0 {
-                            info!(
-                                orphans = orphan_count,
-                                recovered, "feed orphan recovery completed"
-                            );
-                        }
-                    }
-                }
-                Err(e) => {
-                    warn!(error = %e, "orphan recovery: iroh-docs query failed, skipping");
-                }
-            }
-        }
+        // 6c-5 + 6c-5b. Sprint 66 Phases C/D: republish SQLite feed
+        // entries to iroh-docs at boot + orphan recovery (one-shot,
+        // synchronous before HTTP). Takes the ALREADY duress-substituted
+        // Option above — never re-derives from `feed_sync_state`.
+        boot_feed_recovery(feed_sync_for_republish, &coordinator_db).await?;
 
         // 6c-5c. Sprint 74 Phase F: re-announce every app this node keeps online
         //        (its keep_online enabled rows) to the feed, so peers learn this
@@ -996,103 +807,26 @@ impl DaemonRuntime {
             // route populates it behind the signature + membership gate.
             shard_sessions: Arc::new(crate::shard_session::ShardSessionRegistry::default()),
         });
-        // Sprint 16 Phase A (D1): load the loopback bearer token.
-        // The launcher generates it at first boot; if we are being
-        // started directly (cargo run, tests, packaging without a
-        // launcher), generate + persist one ourselves so the
-        // shell binary can hit a clean daemon stand-alone.
-        //
-        // `SBFB_AUTH_TOKEN` env wins over the file so integration
-        // tests can inject a known token without touching disk.
-        //
-        // Sprint 18 audit fix D-1: when the launcher has written a
-        // `tokens.json` (rotation pair persisted by
-        // `nexus_launcher::token_rotation::spawn_rotation_loop`),
-        // boot the daemon in `AuthState::Rotated` mode and spawn a
-        // file-watcher so subsequent rotations are picked up
-        // without a daemon restart. The env var keeps absolute
-        // precedence so test harnesses that inject a known token
-        // are unaffected, and a missing file falls through to the
-        // legacy single-token path (`AuthState::Static`).
-        let env_token = std::env::var(auth::AUTH_TOKEN_ENV)
-            .ok()
-            .filter(|t| !t.is_empty());
-        let (auth_state, tokens_watcher) = if let Some(t) = env_token {
-            (auth::AuthState::new(t), None)
-        } else if let Some(rotator_with_path) = load_initial_rotator()? {
-            let (path, initial) = rotator_with_path;
-            let watcher = auth::TokenRotatorWatcher::spawn(path, initial)
-                .context("failed to spawn tokens.json watcher")?;
-            let auth_state = auth::AuthState::rotated(watcher.shared());
-            (auth_state, Some(watcher))
-        } else {
-            let static_token = resolve_token_from_disk()?;
-            (auth::AuthState::new(static_token), None)
-        };
-
-        {
-            let limiter = Arc::clone(&http_state.storage_write_limiter);
-            tokio::spawn(async move {
-                let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
-                loop {
-                    interval.tick().await;
-                    limiter.retain_recent();
-                }
-            });
-        }
-
-        {
-            let limiter = Arc::clone(&http_state.feed_rate_limiter);
-            tokio::spawn(async move {
-                let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
-                loop {
-                    interval.tick().await;
-                    limiter.retain_recent();
-                }
-            });
-        }
-
-        {
-            let store = http_state.preview_store.clone();
-            tokio::spawn(async move {
-                let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
-                loop {
-                    interval.tick().await;
-                    store.evict_expired();
-                }
-            });
-        }
+        // Sprint 16 Phase A (D1) + Sprint 18 audit fix D-1: resolve
+        // the loopback bearer auth state (env token > rotated
+        // tokens.json + watcher > static auth_token file — the
+        // precedence chain lives in `wire_auth`).
+        let (auth_state, tokens_watcher) = wire_auth()?;
 
         // Sprint 75 Phase E: keep a handle for the headless boot driver
-        // spawned below — build_router takes ownership of http_state.
+        // spawned below — `spawn_api_server` takes ownership of
+        // http_state (via build_router).
         let boot_driver_state = Arc::clone(&http_state);
 
-        let router = build_router(
+        // 6a. Janitor tasks + router build + UDS/Named-Pipe accept
+        //     loop + TCP serve (see `spawn_api_server`).
+        let (http_handle, http_shutdown_tx, peer_handle, peer_shutdown) = spawn_api_server(
             http_state,
             auth_state,
             &opts.cors_origins,
             opts.web_root.as_deref(),
+            listener,
         );
-
-        // 6a. Sprint 16 Phase B (D2): spawn the UDS / Named Pipe
-        //     accept loop on a clone of the same router. The
-        //     accept loop wraps the cloned router with the
-        //     `PeerCredsVerified` extension layer so the auth
-        //     middleware bypasses bearer + Host + Origin for
-        //     kernel-authenticated peers. The TCP listener spawned
-        //     just below keeps the strict triple-check for browser
-        //     traffic.
-        let (peer_handle, peer_shutdown) = spawn_peer_listener(router.clone());
-
-        let (http_shutdown_tx, http_shutdown_rx) = oneshot::channel::<()>();
-        let http_handle = tokio::spawn(async move {
-            let serve = axum::serve(listener, router).with_graceful_shutdown(async move {
-                let _ = http_shutdown_rx.await;
-            });
-            if let Err(e) = serve.await {
-                warn!(error = %e, "axum serve exited with an error");
-            }
-        });
 
         // 6d. Sprint 38 Phase A: spawn the validator loop. It
         //     drains ResultEvents from the broadcast channel and
@@ -1101,109 +835,19 @@ impl DaemonRuntime {
         let validator_db = Arc::clone(&coordinator_db);
         tokio::spawn(crate::validator_loop::run(validator_db, result_event_rx));
 
-        // 7. Spawn the gossip subscribe task. It joins the
-        //    curator topic, streams events, and forwards each
-        //    message body to the curator runtime. The oneshot
-        //    lets shutdown signal a clean exit.
-        //
-        //    Sprint 20 Phase C : the task also receives the
-        //    `PowVerifyCache` + shared policy so every inbound
-        //    gossip message is unwrapped from its PoW envelope
-        //    and dropped if the proof fails to satisfy the
-        //    policy's topic difficulty.
-        let (gossip_shutdown_tx, gossip_shutdown_rx) = oneshot::channel::<()>();
-        let bootstrap_peers = curator_runtime.subscribed_pubkeys_hex();
-        let initial_outbox = {
-            let guard = coordinator_db
-                .lock()
-                .map_err(|e| anyhow::anyhow!("coordinator DB lock failed: {e}"))?;
-            guard
-                .load_outbox()
-                .map_err(|e| anyhow::anyhow!("outbox load failed: {e}"))?
-        };
-        let (boot_replay_done_tx, boot_replay_done_rx) = oneshot::channel::<()>();
-        // Sprint 82 Phase A: serialize the one-shot boot seed driver (spawned
-        // below) against the re-drive-on-ingest hook in the gossip task, so the
-        // `was_already_announced` read-before-write in `run_boot_seed_driver`
-        // cannot double-emit `SeedAnnounced` when both fire close together.
-        let seed_driver_lock = Arc::new(tokio::sync::Mutex::new(()));
-        let gossip_handle = spawn_gossip_subscribe_task(GossipTaskConfig {
-            node: Arc::clone(&node),
-            curator_runtime: Arc::clone(&curator_runtime),
-            browse_aggregator: Arc::clone(&browse_aggregator),
-            gossip_sender_slot: Arc::clone(&gossip_sender),
-            pow_verify_cache: Arc::clone(&pow_verify_cache),
-            pow_policy: Arc::clone(&pow_policy),
-            shutdown_rx: gossip_shutdown_rx,
-            bootstrap_peers,
-            cmd_rx: gossip_cmd_rx,
-            pow_solve_cache: Arc::clone(&pow_solve_cache),
-            pow_keypair: Arc::clone(&pow_keypair),
-            curator_topic,
-            coordinator_db: Arc::clone(&coordinator_db),
-            initial_outbox,
-            boot_replay_done: Some(boot_replay_done_tx),
-            boot_driver_state: Some(Arc::clone(&boot_driver_state)),
-            keep_online_projects: opts.seed.keep_online_projects.clone(),
-            seed_driver_lock: Arc::clone(&seed_driver_lock),
-            redrive_coord: Arc::new(tokio::sync::Mutex::new(RedriveCoord::default())),
-        });
-
-        // Sprint 75 Phase E (D3, PO-signed): the headless boot driver.
-        // Two state-driven jobs, both no-ops on a fresh default install
-        // (verrou 5: empty config + never-published = zero work):
-        //   1. acquire + pin every `[seed] keep_online_projects` app — the
-        //      operator's EXPLICIT accept-list (an app this node may have
-        //      NEVER deployed locally resolves through the subscribed node
-        //      directories + the best-effort seeder registry, then
-        //      `fetch_and_pin_multi` — the Phase D consumer leg, never a
-        //      ticket re-mint);
-        //   2. re-announce this PRODUCER's own signed `NodeDirectoryEntry`
-        //      if it ever published one (the Phase C deferral: the publish
-        //      route's gossip announce is live-only and does not survive a
-        //      reboot on the producer side).
-        // Waits for the gossip task's boot replay (outbox restore +
-        // directory re-pull) so resolution sees the restored state;
-        // proceeds best-effort on timeout. The handle is RETAINED on the
-        // runtime (Codex round 1): shutdown aborts+joins it so a pull
-        // still in flight cannot outlive the daemon or block the Node
-        // Arc reclamation.
-        let boot_driver_handle = {
-            let configured = opts.seed.keep_online_projects.clone();
-            let seed_driver_lock = Arc::clone(&seed_driver_lock);
-            tokio::spawn(async move {
-                if tokio::time::timeout(
-                    std::time::Duration::from_secs(BOOT_DRIVER_REPLAY_WAIT_SECS),
-                    boot_replay_done_rx,
-                )
-                .await
-                .is_err()
-                {
-                    warn!(
-                        "boot seed driver: gossip boot-replay signal timed out — proceeding best-effort"
-                    );
-                }
-                // Producer re-announce FIRST: it is local + instantaneous
-                // (build/sign/store + one gossip emit) and must not wait
-                // behind the seed acquisition's network budgets — closing
-                // the discovery window is the very point of the re-emit.
-                if crate::http::reannounce_directory_at_boot(&boot_driver_state).await {
-                    info!("producer node directory re-announced at boot");
-                }
-                // Sprint 82 Phase A: hold the shared lock across the driver so a
-                // concurrent re-drive-on-ingest cannot double-announce.
-                let pinned = {
-                    let _guard = seed_driver_lock.lock().await;
-                    crate::http::run_boot_seed_driver(&boot_driver_state, &configured).await
-                };
-                if pinned > 0 {
-                    info!(
-                        pinned,
-                        "boot seed driver: configured apps acquired + pinned"
-                    );
-                }
-            })
-        };
+        // 7. Spawn the gossip subscribe task + the headless boot seed
+        //    driver (see `spawn_gossip_and_boot_seed_driver`). The
+        //    sub-function OWNS the creation of the shared
+        //    `seed_driver_lock` and hands it to BOTH consumers
+        //    (Sprint 82 Phase A: a split-brain second lock instance
+        //    would re-open the `SeedAnnounced` double-emit).
+        let (gossip_handle, gossip_shutdown_tx, boot_driver_handle) =
+            spawn_gossip_and_boot_seed_driver(
+                &boot_driver_state,
+                &pow_verify_cache,
+                gossip_cmd_rx,
+                &opts.seed.keep_online_projects,
+            )?;
 
         Ok(Self {
             node: Some(node),
@@ -1389,6 +1033,505 @@ impl DaemonRuntime {
         info!("shell daemon shutdown complete");
         Ok(())
     }
+}
+
+// =================================================================
+// start() boot sequence sub-functions (Sprint 82 Phase L)
+// =================================================================
+//
+// Pure decomposition of the `start()` monolith: each sub-function
+// owns one boot phase, takes its inputs explicitly and RETURNS every
+// handle the final `Ok(Self { .. })` literal needs (a dropped watcher
+// or JoinHandle would silently kill the corresponding service).
+// Duress gating: `start()` computes the substituted values itself and
+// passes them down (`boot_feed_recovery` takes the ALREADY-substituted
+// Option, never `feed_sync_state`); the pre-existing boot fns
+// (`open_project_doc_for_dispatch`, `boot_storage_namespace`,
+// `boot_feed_namespace`, `reannounce_seeds_at_boot`) keep
+// `identity_mode` as a mandatory argument — never defaulted — so a
+// duress-gated callee cannot silently fall back to `Normal`
+// (DURESS-BOOT-LEAK class).
+
+/// Boot the iroh endpoint + protocol router and mint the matching
+/// PoW keypair (start() step 2).
+///
+/// Sprint 20 Phase A: if the launcher ran `sbfb unlock` before
+/// spawning us, it put the 32-byte Ed25519 secret key as a 64-char
+/// hex string into `SBFB_IDENTITY_SECRET_HEX`. We pick it up here
+/// and hand it to `NodeConfig::with_secret_key` so the iroh endpoint
+/// boots with a persistent identity instead of minting a fresh
+/// ephemeral keypair each run. Absent or malformed env → the
+/// file-based `node_key` identity path.
+///
+/// Sprint 20 Phase C: the PoW keypair is minted from the same secret
+/// the iroh endpoint consumes so the Hashcash `publisher_pubkey`
+/// field matches the node identity the peers already know via
+/// gossip.
+///
+/// Sprint 74 Phase E: BOTH identity arms register the cross-node
+/// seed protocol handler (`SEED_ALPN`) on the Router at creation —
+/// the Router accepts no post-spawn protocols, which is why the
+/// coordinator DB + nonce cache are opened BEFORE this function
+/// runs and captured by the handler factory here.
+async fn boot_node_identity(
+    root: &Path,
+    iroh_data_dir: &Path,
+    coordinator_db: &std::sync::Arc<std::sync::Mutex<nexus_coordinator_rs::db::CoordinatorDb>>,
+    seed_nonce_cache: &std::sync::Arc<crate::seed_protocol::NonceCache>,
+) -> Result<(Arc<Node>, Arc<KeyPair>)> {
+    let (node, pow_keypair) = match read_optional_identity_env() {
+        Some(secret_bytes) => {
+            info!("shell daemon using persistent identity from launcher keystore");
+            let pow_kp = Arc::new(KeyPair::from_secret_bytes(&secret_bytes));
+            let cfg = NodeConfig::default()
+                .with_secret_key(secret_bytes)
+                .with_data_dir(iroh_data_dir.to_path_buf());
+            let factory = crate::seed_protocol::seed_protocol_factory(
+                Arc::clone(coordinator_db),
+                Arc::clone(&pow_kp),
+                Arc::clone(seed_nonce_cache),
+            );
+            let n =
+                create_node_with_protocols(cfg, vec![(nexus_core_rs::SEED_ALPN.to_vec(), factory)])
+                    .await
+                    .context("failed to boot iroh node with persistent identity")?;
+            (n, pow_kp)
+        }
+        None => {
+            let secret_bytes = load_or_generate_node_key(root)?;
+            info!(
+                path = %root.join("node_key").display(),
+                "shell daemon using file-based persistent identity"
+            );
+            let pow_kp = Arc::new(KeyPair::from_secret_bytes(&secret_bytes));
+            let cfg = NodeConfig::default()
+                .with_secret_key(secret_bytes)
+                .with_data_dir(iroh_data_dir.to_path_buf());
+            let factory = crate::seed_protocol::seed_protocol_factory(
+                Arc::clone(coordinator_db),
+                Arc::clone(&pow_kp),
+                Arc::clone(seed_nonce_cache),
+            );
+            let n =
+                create_node_with_protocols(cfg, vec![(nexus_core_rs::SEED_ALPN.to_vec(), factory)])
+                    .await
+                    .context("failed to boot iroh node with file-based identity")?;
+            (n, pow_kp)
+        }
+    };
+    info!(node_id = %node.node_id(), "shell daemon iroh node ready");
+    Ok((Arc::new(node), pow_keypair))
+}
+
+/// Bind the daemon's TCP API listener (start() step 3). An empty
+/// host in the config was clamped to 127.0.0.1 at load time (see
+/// `ShellDaemonConfig::clamped`); the clamp is repeated here,
+/// defend-in-depth BEFORE the bind, so a future bypass of `load`
+/// cannot slip through. Returns the listener, its real bound
+/// address (the OS picks the port when `api_port` is 0) and the
+/// effective host string.
+async fn bind_api_listener(
+    api_host: &str,
+    api_port: u16,
+) -> Result<(TcpListener, std::net::SocketAddr, String)> {
+    let host = if api_host.is_empty() {
+        "127.0.0.1".to_string()
+    } else {
+        api_host.to_string()
+    };
+    let bind_target = format!("{}:{}", host, api_port);
+    let listener = TcpListener::bind(&bind_target)
+        .await
+        .with_context(|| format!("failed to bind HTTP listener to {bind_target}"))?;
+    let bound_addr = listener
+        .local_addr()
+        .context("local_addr on freshly bound TcpListener")?;
+    info!(addr = %bound_addr, "shell daemon HTTP listener bound");
+    Ok((listener, bound_addr, host))
+}
+
+/// Restore the shared [`nexus_core_rs::RevocationCache`] from the
+/// key rotations persisted in SQLite (start() step 6a-2, Sprint 66
+/// Phase D). Runs BEFORE the loops that consult the cache. A failed
+/// row load is a soft-fail `warn!` (pre-existing behaviour) — only a
+/// poisoned DB lock aborts the boot.
+fn restore_revocation_cache(
+    coordinator_db: &std::sync::Arc<std::sync::Mutex<nexus_coordinator_rs::db::CoordinatorDb>>,
+) -> Result<Arc<std::sync::RwLock<nexus_core_rs::RevocationCache>>> {
+    let revocation_cache = nexus_shell_daemon_core::key_rotation_handler::shared_revocation_cache();
+    {
+        let db = coordinator_db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("coordinator DB lock failed: {e}"))?;
+        match db.load_key_rotations() {
+            Ok(rows) if !rows.is_empty() => {
+                let tuples: Vec<(String, String, u64, u16, String)> = rows
+                    .iter()
+                    .map(|r| {
+                        (
+                            r.old_pubkey.clone(),
+                            r.new_pubkey.clone(),
+                            r.timestamp,
+                            r.transition_days,
+                            r.reason.clone(),
+                        )
+                    })
+                    .collect();
+                let applied = nexus_shell_daemon_core::key_rotation_handler::populate_cache(
+                    &revocation_cache,
+                    &tuples,
+                );
+                info!(
+                    total = rows.len(),
+                    applied, "RevocationCache restored from SQLite"
+                );
+            }
+            Ok(_) => {
+                debug!("no persisted key rotations to restore");
+            }
+            Err(e) => {
+                warn!(error = %e, "failed to load key rotations from DB");
+            }
+        }
+    }
+    Ok(revocation_cache)
+}
+
+/// Boot feed recovery (start() steps 6c-5 + 6c-5b): republish SQLite
+/// feed entries to iroh-docs (Sprint 66 Phase C) and recover orphans
+/// present in SQLite but missing from iroh-docs (Sprint 66 Phase D).
+///
+/// Takes the ALREADY duress-substituted option computed by start()
+/// (Sprint 75 audit DURESS-BOOT-LEAK, P1): under duress the caller
+/// passes `None` and both blocks are skipped — this function must
+/// NEVER re-derive the state from `feed_sync_state` itself.
+async fn boot_feed_recovery(
+    feed_sync_for_republish: Option<&Arc<crate::feed_sync::FeedSyncState>>,
+    coordinator_db: &std::sync::Arc<std::sync::Mutex<nexus_coordinator_rs::db::CoordinatorDb>>,
+) -> Result<()> {
+    // 6c-5: one-shot boot republish, synchronous before HTTP.
+    if let Some(fs) = feed_sync_for_republish {
+        let entries_result = {
+            let db = coordinator_db
+                .lock()
+                .map_err(|e| anyhow::anyhow!("coordinator DB lock failed: {e}"))?;
+            nexus_coordinator_rs::public_feed::replay_all(&db)
+        };
+        match entries_result {
+            Ok(entries) => {
+                let mut published = 0u64;
+                for entry in &entries {
+                    if let Err(e) = crate::feed_sync::publish_feed_entry_to_docs(fs, entry).await {
+                        warn!(seq = entry.seq, error = %e, "feed republish failed");
+                    } else {
+                        published += 1;
+                    }
+                }
+                info!(
+                    total = entries.len(),
+                    published, "feed entries republished to iroh-docs at boot"
+                );
+            }
+            Err(e) => warn!(error = %e, "feed replay_all failed, skipping republish"),
+        }
+    }
+
+    // 6c-5b: orphan recovery — detect entries in SQLite but missing
+    // from iroh-docs and republish.
+    if let Some(fs) = feed_sync_for_republish {
+        match fs.doc.get_many_by_prefix("feed/").await {
+            Ok(doc_entries) => {
+                let present_keys: std::collections::HashSet<String> = doc_entries
+                    .iter()
+                    .filter_map(|e| String::from_utf8(e.key().to_vec()).ok())
+                    .collect();
+
+                let entries_result = {
+                    let db = coordinator_db
+                        .lock()
+                        .map_err(|e| anyhow::anyhow!("coordinator DB lock failed: {e}"))?;
+                    nexus_coordinator_rs::public_feed::replay_all(&db)
+                };
+                if let Ok(entries) = entries_result {
+                    let entry_hash_set: std::collections::HashSet<&str> =
+                        entries.iter().map(|e| e.entry_hash.as_str()).collect();
+                    let mut orphan_count = 0u64;
+                    let mut recovered = 0u64;
+                    for entry in &entries {
+                        let key =
+                            crate::feed_sync::format_feed_key(&entry.author_pubkey, entry.seq);
+                        if present_keys.contains(&key) {
+                            continue;
+                        }
+                        orphan_count += 1;
+                        let is_genesis = entry.prev_hash.chars().all(|c| c == '0');
+                        if !is_genesis && !entry_hash_set.contains(entry.prev_hash.as_str()) {
+                            warn!(
+                                seq = entry.seq,
+                                prev_hash = %entry.prev_hash,
+                                "orphan recovery: skipping broken chain tail"
+                            );
+                            continue;
+                        }
+                        if let Err(e) =
+                            crate::feed_sync::publish_feed_entry_to_docs(fs, entry).await
+                        {
+                            warn!(seq = entry.seq, error = %e, "orphan recovery: republish failed");
+                        } else {
+                            recovered += 1;
+                        }
+                    }
+                    if orphan_count > 0 {
+                        info!(
+                            orphans = orphan_count,
+                            recovered, "feed orphan recovery completed"
+                        );
+                    }
+                }
+            }
+            Err(e) => {
+                warn!(error = %e, "orphan recovery: iroh-docs query failed, skipping");
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Resolve the loopback bearer auth state (Sprint 16 Phase A D1 +
+/// Sprint 18 audit fix D-1).
+///
+/// The launcher generates the token at first boot; if the daemon is
+/// started directly (cargo run, tests, packaging without a launcher)
+/// a token is generated + persisted so the shell binary can hit a
+/// clean daemon stand-alone. Precedence: `SBFB_AUTH_TOKEN` env
+/// (non-empty — an empty value must NEVER seat an empty bearer) >
+/// launcher-rotated `tokens.json` (+ file-watcher so subsequent
+/// rotations reach the daemon without a restart, `AuthState::Rotated`)
+/// > legacy single-token `auth_token` file (`AuthState::Static`).
+fn wire_auth() -> Result<(auth::AuthState, Option<auth::TokenRotatorWatcher>)> {
+    let env_token = std::env::var(auth::AUTH_TOKEN_ENV)
+        .ok()
+        .filter(|t| !t.is_empty());
+    if let Some(t) = env_token {
+        Ok((auth::AuthState::new(t), None))
+    } else if let Some(rotator_with_path) = load_initial_rotator()? {
+        let (path, initial) = rotator_with_path;
+        let watcher = auth::TokenRotatorWatcher::spawn(path, initial)
+            .context("failed to spawn tokens.json watcher")?;
+        let auth_state = auth::AuthState::rotated(watcher.shared());
+        Ok((auth_state, Some(watcher)))
+    } else {
+        let static_token = resolve_token_from_disk()?;
+        Ok((auth::AuthState::new(static_token), None))
+    }
+}
+
+/// Spawn the HTTP serving surface (start() step 6a): the three
+/// periodic janitor tasks (storage-write limiter, feed rate limiter,
+/// preview store eviction), the router build (consumes `http_state`),
+/// the UDS / Named Pipe accept loop and the TCP serve task.
+///
+/// Sprint 16 Phase B (D2): the peer accept loop wraps the CLONED
+/// router with the `PeerCredsVerified` extension layer so the auth
+/// middleware bypasses bearer + Host + Origin for kernel-
+/// authenticated peers — that bypass layer stays scoped to the
+/// UDS / Named Pipe path ONLY; the TCP listener keeps the strict
+/// triple-check for browser traffic.
+///
+/// Handles returned by [`spawn_api_server`]: the TCP serve task +
+/// its shutdown sender, then the optional UDS / Named Pipe accept
+/// loop pair (`None` when the peer bind failed at boot — TCP-only
+/// fallback, warn already logged by `spawn_peer_listener`).
+type ApiServerHandles = (
+    JoinHandle<()>,
+    oneshot::Sender<()>,
+    Option<JoinHandle<()>>,
+    Option<oneshot::Sender<()>>,
+);
+
+/// Returns `(http_handle, http_shutdown_tx, peer_handle,
+/// peer_shutdown)` — every one of them must be threaded onto
+/// [`DaemonRuntime`] by the caller.
+fn spawn_api_server(
+    http_state: Arc<DaemonHttpState>,
+    auth_state: auth::AuthState,
+    cors_origins: &[String],
+    web_root: Option<&Path>,
+    listener: TcpListener,
+) -> ApiServerHandles {
+    {
+        let limiter = Arc::clone(&http_state.storage_write_limiter);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
+            loop {
+                interval.tick().await;
+                limiter.retain_recent();
+            }
+        });
+    }
+
+    {
+        let limiter = Arc::clone(&http_state.feed_rate_limiter);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
+            loop {
+                interval.tick().await;
+                limiter.retain_recent();
+            }
+        });
+    }
+
+    {
+        let store = http_state.preview_store.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+            loop {
+                interval.tick().await;
+                store.evict_expired();
+            }
+        });
+    }
+
+    let router = build_router(http_state, auth_state, cors_origins, web_root);
+
+    let (peer_handle, peer_shutdown) = spawn_peer_listener(router.clone());
+
+    let (http_shutdown_tx, http_shutdown_rx) = oneshot::channel::<()>();
+    let http_handle = tokio::spawn(async move {
+        let serve = axum::serve(listener, router).with_graceful_shutdown(async move {
+            let _ = http_shutdown_rx.await;
+        });
+        if let Err(e) = serve.await {
+            warn!(error = %e, "axum serve exited with an error");
+        }
+    });
+
+    (http_handle, http_shutdown_tx, peer_handle, peer_shutdown)
+}
+
+/// Spawn the gossip subscribe task AND the headless boot seed driver
+/// (start() step 7 + Sprint 75 Phase E) — the two consumers of the
+/// shared `seed_driver_lock`.
+///
+/// This function OWNS the lock's creation and hands `Arc::clone`s to
+/// both consumers: a second lock instance anywhere would reopen the
+/// `SeedAnnounced` double-emit the lock exists to prevent (Sprint 82
+/// Phase A — the `was_already_announced` read-before-write in
+/// `run_boot_seed_driver` must be serialized against the
+/// re-drive-on-ingest hook in the gossip task).
+///
+/// The gossip task joins the curator topic, streams events, and
+/// forwards each message body to the curator runtime; it also
+/// receives the `PowVerifyCache` + shared policy so every inbound
+/// gossip message is unwrapped from its PoW envelope and dropped if
+/// the proof fails the policy's topic difficulty (Sprint 20 Phase C).
+/// Every other shared dependency of the task is a clone of the SAME
+/// `Arc` already pinned on `state` (the runtime's `boot_driver_state`).
+///
+/// The boot seed driver (Sprint 75 Phase E, D3 PO-signed) runs two
+/// state-driven jobs, both no-ops on a fresh default install
+/// (verrou 5: empty config + never-published = zero work):
+///   1. acquire + pin every `[seed] keep_online_projects` app — the
+///      operator's EXPLICIT accept-list (an app this node may have
+///      NEVER deployed locally resolves through the subscribed node
+///      directories + the best-effort seeder registry, then
+///      `fetch_and_pin_multi` — the Phase D consumer leg, never a
+///      ticket re-mint);
+///   2. re-announce this PRODUCER's own signed `NodeDirectoryEntry`
+///      if it ever published one (the Phase C deferral: the publish
+///      route's gossip announce is live-only and does not survive a
+///      reboot on the producer side).
+///
+/// It waits for the gossip task's boot replay (outbox restore +
+/// directory re-pull) so resolution sees the restored state, and
+/// proceeds best-effort on timeout. The returned driver handle is
+/// RETAINED on the runtime (Codex round 1): shutdown aborts+joins it
+/// so a pull still in flight cannot outlive the daemon or block the
+/// Node Arc reclamation.
+fn spawn_gossip_and_boot_seed_driver(
+    state: &Arc<DaemonHttpState>,
+    pow_verify_cache: &Arc<PowVerifyCache>,
+    gossip_cmd_rx: tokio::sync::mpsc::Receiver<GossipCmd>,
+    keep_online_projects: &[String],
+) -> Result<(JoinHandle<()>, oneshot::Sender<()>, JoinHandle<()>)> {
+    let (gossip_shutdown_tx, gossip_shutdown_rx) = oneshot::channel::<()>();
+    let bootstrap_peers = state.curator_runtime.subscribed_pubkeys_hex();
+    let initial_outbox = {
+        let guard = state
+            .coordinator_db
+            .lock()
+            .map_err(|e| anyhow::anyhow!("coordinator DB lock failed: {e}"))?;
+        guard
+            .load_outbox()
+            .map_err(|e| anyhow::anyhow!("outbox load failed: {e}"))?
+    };
+    let (boot_replay_done_tx, boot_replay_done_rx) = oneshot::channel::<()>();
+    // Sprint 82 Phase A: serialize the one-shot boot seed driver (spawned
+    // below) against the re-drive-on-ingest hook in the gossip task, so the
+    // `was_already_announced` read-before-write in `run_boot_seed_driver`
+    // cannot double-emit `SeedAnnounced` when both fire close together.
+    let seed_driver_lock = Arc::new(tokio::sync::Mutex::new(()));
+    let gossip_handle = spawn_gossip_subscribe_task(GossipTaskConfig {
+        node: Arc::clone(&state.node),
+        curator_runtime: Arc::clone(&state.curator_runtime),
+        browse_aggregator: Arc::clone(&state.browse_aggregator),
+        gossip_sender_slot: Arc::clone(&state.gossip_sender),
+        pow_verify_cache: Arc::clone(pow_verify_cache),
+        pow_policy: Arc::clone(&state.pow_policy),
+        shutdown_rx: gossip_shutdown_rx,
+        bootstrap_peers,
+        cmd_rx: gossip_cmd_rx,
+        pow_solve_cache: Arc::clone(&state.pow_solve_cache),
+        pow_keypair: Arc::clone(&state.pow_keypair),
+        curator_topic: state.curator_gossip_topic,
+        coordinator_db: Arc::clone(&state.coordinator_db),
+        initial_outbox,
+        boot_replay_done: Some(boot_replay_done_tx),
+        boot_driver_state: Some(Arc::clone(state)),
+        keep_online_projects: keep_online_projects.to_vec(),
+        seed_driver_lock: Arc::clone(&seed_driver_lock),
+        redrive_coord: Arc::new(tokio::sync::Mutex::new(RedriveCoord::default())),
+    });
+
+    let boot_driver_handle = {
+        let configured = keep_online_projects.to_vec();
+        let boot_driver_state = Arc::clone(state);
+        let seed_driver_lock = Arc::clone(&seed_driver_lock);
+        tokio::spawn(async move {
+            if tokio::time::timeout(
+                std::time::Duration::from_secs(BOOT_DRIVER_REPLAY_WAIT_SECS),
+                boot_replay_done_rx,
+            )
+            .await
+            .is_err()
+            {
+                warn!(
+                    "boot seed driver: gossip boot-replay signal timed out — proceeding best-effort"
+                );
+            }
+            // Producer re-announce FIRST: it is local + instantaneous
+            // (build/sign/store + one gossip emit) and must not wait
+            // behind the seed acquisition's network budgets — closing
+            // the discovery window is the very point of the re-emit.
+            if crate::http::reannounce_directory_at_boot(&boot_driver_state).await {
+                info!("producer node directory re-announced at boot");
+            }
+            // Sprint 82 Phase A: hold the shared lock across the driver so a
+            // concurrent re-drive-on-ingest cannot double-announce.
+            let pinned = {
+                let _guard = seed_driver_lock.lock().await;
+                crate::http::run_boot_seed_driver(&boot_driver_state, &configured).await
+            };
+            if pinned > 0 {
+                info!(
+                    pinned,
+                    "boot seed driver: configured apps acquired + pinned"
+                );
+            }
+        })
+    };
+
+    Ok((gossip_handle, gossip_shutdown_tx, boot_driver_handle))
 }
 
 /// Resolve the bearer token from `~/.sbfb/auth_token`, generating
@@ -1984,6 +2127,10 @@ fn jittered_republish_duration() -> std::time::Duration {
     std::time::Duration::from_secs(secs)
 }
 
+// =================================================================
+// Announcement ingest helpers
+// =================================================================
+
 /// Hand a raw gossip message body to the curator runtime and
 /// log the outcome.
 ///
@@ -2037,6 +2184,183 @@ async fn handle_announcement(curator_runtime: &CuratorRuntimeHandle, node: &Node
         }
     }
 }
+
+/// Handle a gossip message identified as a node directory announcement
+/// (Sprint 75 Phase C). The receive-side sibling of [`handle_announcement`]:
+/// fetch + verify + store the referenced `NodeDirectoryEntry` through the shared
+/// `SignedList` ingest gate, subscription-gated. Mirrors the curator arm's error
+/// logging (non-subscribed/rollback at `debug!`, attribution mismatch at `warn!`)
+/// so a flood of routine drops never masks a real spoof attempt.
+/// Returns `true` iff the announcement was ACCEPTED (subscription-gated +
+/// Ed25519 attribution + anti-rollback all passed and the entry was stored) —
+/// the caller uses this to trigger the Sprint 82 Phase A re-drive-on-ingest of
+/// the boot seed driver. Every reject path returns `false`.
+async fn handle_directory_announcement(
+    curator_runtime: &CuratorRuntimeHandle,
+    node: &Node,
+    content: &[u8],
+) -> bool {
+    match curator_runtime
+        .process_directory_announcement_bytes_throttled(content, node)
+        .await
+    {
+        Ok(entry) => {
+            info!(
+                node = %hex::encode(entry.node_id),
+                revision = entry.directory.revision,
+                "node directory accepted via gossip"
+            );
+            true
+        }
+        Err(CuratorRuntimeError::NotSubscribed { curator }) => {
+            debug!(node = %curator, "dropped node directory from non-subscribed anchor");
+            false
+        }
+        Err(CuratorRuntimeError::EnvelopeMismatch {
+            announcement,
+            entry,
+        }) => {
+            warn!(
+                announcement = %announcement,
+                entry = %entry,
+                "node directory attribution mismatch — a peer is stapling a signed directory to a different pubkey"
+            );
+            false
+        }
+        Err(CuratorRuntimeError::RevisionRollback { new, stored }) => {
+            debug!(new, stored, "ignored node directory revision rollback");
+            false
+        }
+        Err(e) => {
+            warn!(error = %e, "failed to process node directory announcement");
+            false
+        }
+    }
+}
+
+/// Whether a gossiped [`publish::ProjectAnnouncement`] payload claims OUR own
+/// node_id. Used to drop a self-impersonating LIVE gossip announcement before it
+/// reaches the browse aggregator (Sprint 75 Phase B, Codex round 3): a remote
+/// peer announcing `node_id == ours` is always a spoof, since our own apps are
+/// added directly by deploy + boot-restore, never via the live gossip path.
+/// Returns `false` for an unparseable payload (the handler will skip it anyway).
+fn announcement_claims_own_node_id(payload: &[u8], node: &Node) -> bool {
+    publish::ProjectAnnouncement::from_gossip_bytes(payload)
+        .map(|ann| ann.node_id == node.node_id())
+        .unwrap_or(false)
+}
+
+/// Handle a gossip message identified as a project announcement.
+/// Parse, validate, and insert into the browse aggregator.
+///
+/// Sprint 11 Phase A.
+fn handle_project_announcement(
+    browse_aggregator: &BrowseAggregatorHandle,
+    coordinator_db: &std::sync::Arc<std::sync::Mutex<nexus_coordinator_rs::db::CoordinatorDb>>,
+    node: &Node,
+    content: &[u8],
+) {
+    match publish::ProjectAnnouncement::from_gossip_bytes(content) {
+        Ok(ann) => {
+            // Per-app identity from the announcement (blake3(name)). Fall back to
+            // node_id only for a legacy announcement that predates the field, so
+            // a node hosting N apps shows N distinct cards instead of collapsing
+            // them onto one node_id-keyed card.
+            let project_id = if ann.project_id.is_empty() {
+                ann.node_id.clone()
+            } else {
+                ann.project_id.clone()
+            };
+            // Derive the archive hash from the ticket: the hash itself never
+            // travels on the announcement (only the ticket does), so without this
+            // the shell sees archive_hash=None, marks the app as having no archive
+            // (BrowsedProject hasArchive), and never opens it. blob-serve resolves
+            // the ticket back from the aggregator to P2P-download the zip.
+            let archive_hash = ann
+                .archive_ticket
+                .as_deref()
+                .and_then(crate::http::archive_hash_from_ticket);
+            // Remediation #6 (freshness): seed the announcing node's address —
+            // carried inside the archive ticket — into our endpoint's address
+            // book so the reachability probe (and a later blob fetch) can dial
+            // node_id without waiting on a pkarr round-trip. This reconciles
+            // gossip discovery with the iroh service layer; mirrors
+            // blobs.rs::fetch_ticket.
+            if let Some(ticket_str) = ann.archive_ticket.as_deref() {
+                use std::str::FromStr;
+                match iroh_blobs::ticket::BlobTicket::from_str(ticket_str) {
+                    Ok(ticket) => {
+                        let (addr, _hash, _format) = ticket.into_parts();
+                        node.memory_lookup().add_endpoint_info(addr);
+                    }
+                    Err(e) => {
+                        debug!(error = %e, "could not parse archive ticket for addr-seed");
+                    }
+                }
+            }
+            // Sprint 76 Phase B (B2, CARRY-3): downgrade a byzantine
+            // `is_open_source=true` carrying no provenance chain to `false` at
+            // THIS ingress — the `/browse`-aggregator chokepoint — not only at
+            // the search index (`index_browse_entry`, S74 B.6). A gossiped
+            // announcement from an untrusted peer can set the flag with a null
+            // `provenance_hash`/`repo_url`; without the downgrade the served
+            // `/browse` card would carry the spoofable badge, and front "verrou
+            // 4" (reads `source=="direct"` + `is_open_source`) would surface it.
+            // Same predicate as the index path (THREAT_MODEL §15.1: declarative
+            // trust, not a crypto attestation).
+            let is_open_source = crate::http::trustworthy_open_source(
+                ann.is_open_source,
+                ann.provenance_hash.as_deref(),
+                ann.repo_url.as_deref(),
+            );
+            if ann.is_open_source && !is_open_source {
+                warn!(
+                    project = %project_id,
+                    "downgrading is_open_source at /browse ingress: missing provenance_hash/repo_url"
+                );
+            }
+            let entry = BrowseEntry {
+                project_id,
+                // Remediation #6: the hosting node's dialable identity. The
+                // freshness probe dials this, NOT project_id (= blake3(name)).
+                node_id: Some(ann.node_id.clone()),
+                project_name: ann.project_name,
+                category: ann.category,
+                description: ann.description,
+                curator_pubkey: String::new(),
+                curator_name: "Self-published".into(),
+                source: BrowseSource::Direct,
+                status: BrowseStatus::Unknown,
+                last_probed_at: None,
+                archive_ticket: ann.archive_ticket,
+                archive_hash,
+                repo_url: ann.repo_url,
+                provenance_hash: ann.provenance_hash,
+                is_open_source,
+            };
+            // Index the gossiped app for search (the gossip path deferred from the
+            // search hotfix). Best-effort: a search-index hiccup must never drop
+            // the discovered browse entry.
+            if let Ok(db) = coordinator_db.lock() {
+                crate::http::index_browse_entry(&db, &entry);
+            }
+            browse_aggregator.add_direct_entry(entry);
+            // Path-agnostic: this handler ingests both live gossip arrivals
+            // and boot-restored outbox entries (remediation #7).
+            info!(
+                node_id = %ann.node_id,
+                "project announcement ingested"
+            );
+        }
+        Err(e) => {
+            warn!(error = %e, "failed to parse project announcement");
+        }
+    }
+}
+
+// =================================================================
+// Re-drive-on-ingest (Sprint 82 Phase A)
+// =================================================================
 
 /// Sprint 82 Phase A: pace between two SEQUENTIAL re-drive passes. The re-drive
 /// is single-flight + dirty-coalesced (see [`RedriveCoord`]); this only spaces
@@ -2170,63 +2494,14 @@ pub(crate) async fn maybe_redrive_seed_on_ingest(
     }))
 }
 
-/// Handle a gossip message identified as a node directory announcement
-/// (Sprint 75 Phase C). The receive-side sibling of [`handle_announcement`]:
-/// fetch + verify + store the referenced `NodeDirectoryEntry` through the shared
-/// `SignedList` ingest gate, subscription-gated. Mirrors the curator arm's error
-/// logging (non-subscribed/rollback at `debug!`, attribution mismatch at `warn!`)
-/// so a flood of routine drops never masks a real spoof attempt.
-/// Returns `true` iff the announcement was ACCEPTED (subscription-gated +
-/// Ed25519 attribution + anti-rollback all passed and the entry was stored) —
-/// the caller uses this to trigger the Sprint 82 Phase A re-drive-on-ingest of
-/// the boot seed driver. Every reject path returns `false`.
-async fn handle_directory_announcement(
-    curator_runtime: &CuratorRuntimeHandle,
-    node: &Node,
-    content: &[u8],
-) -> bool {
-    match curator_runtime
-        .process_directory_announcement_bytes_throttled(content, node)
-        .await
-    {
-        Ok(entry) => {
-            info!(
-                node = %hex::encode(entry.node_id),
-                revision = entry.directory.revision,
-                "node directory accepted via gossip"
-            );
-            true
-        }
-        Err(CuratorRuntimeError::NotSubscribed { curator }) => {
-            debug!(node = %curator, "dropped node directory from non-subscribed anchor");
-            false
-        }
-        Err(CuratorRuntimeError::EnvelopeMismatch {
-            announcement,
-            entry,
-        }) => {
-            warn!(
-                announcement = %announcement,
-                entry = %entry,
-                "node directory attribution mismatch — a peer is stapling a signed directory to a different pubkey"
-            );
-            false
-        }
-        Err(CuratorRuntimeError::RevisionRollback { new, stored }) => {
-            debug!(new, stored, "ignored node directory revision rollback");
-            false
-        }
-        Err(e) => {
-            warn!(error = %e, "failed to process node directory announcement");
-            false
-        }
-    }
-}
+// =================================================================
+// Outbox / replay helpers
+// =================================================================
 
-/// Handle a gossip message identified as a project announcement.
-/// Parse, validate, and insert into the browse aggregator.
-///
-/// Sprint 11 Phase A.
+/// Wrap `payload` in a PoW envelope stamped from the shared solve
+/// cache under the current relay policy (Sprint 20 Phase C). Shared
+/// by the browse_request command arm and the outbox replay re-mint
+/// ([`remint_and_wrap_for_replay`]).
 fn wrap_payload_with_pow_static(
     solve_cache: &Arc<PowSolveCache>,
     pow_policy: &Arc<std::sync::RwLock<RelayPowPolicy>>,
@@ -2240,76 +2515,6 @@ fn wrap_payload_with_pow_static(
     };
     let proof = solve_cache.ensure_proof(*topic, keypair.as_ref(), &policy)?;
     nexus_core_rs::PowEnvelope::encode(&proof, payload)
-}
-
-/// Open the coordinator's project doc (or create it on first boot) AND
-/// enter its iroh-docs sync-set via `start_sync(vec![])`.
-///
-/// `open_doc`/`create_doc` alone do NOT enter the sync-set (iroh-docs
-/// 0.101, recalibrated at the S81 Phase B/C bump — mechanism unchanged
-/// from 0.98: only `start_sync` inserts the namespace into `SyncState`,
-/// `engine/live.rs:408-414`). A coordinator outside the sync-set (a)
-/// never gossip-broadcasts its incremental `task:` writes
-/// (`LocalInsert` gated by `is_syncing`, `engine/live.rs:713`) and (b)
-/// REJECTS every incoming worker sync with `AbortReason::NotFound`
-/// (`engine/state.rs:96-97`). Before Sprint 81 Phase A4 the sync-set
-/// was only (re)armed by `share_write()` side-effects — invite mint and
-/// the on-demand local-worker bootstrap on task submit
-/// (`local_worker.rs` `provision()`, nudged from the submit path) —
-/// which left a dead boot->first-submit window observed LIVE on the
-/// anchor (S81 Phase A3 baseline: journal "Aborted sync .. NotFound"
-/// ~26s after boot) and made WAN task delivery depend on a fragile
-/// side-effect. Booting straight into the sync-set closes that window
-/// at the root; the worker-side keepalive (`spawn_doc_sync_keepalive`,
-/// S77) is complementary and untouched.
-///
-/// `start_sync(vec![])` dials nothing by itself, but iroh-docs merges
-/// the peers PERSISTED in `docs.redb` (`register_useful_peer` /
-/// `get_sync_peers`) and re-dials them (`DirectJoin`) — bounded by the
-/// store's known-peer list (`PEERS_PER_DOC_CACHE_SIZE = 5`,
-/// `store.rs:17`), no new wire surface, no relay in the hot path.
-///
-/// Under `IdentityMode::Duress` the sync-set entry is SKIPPED
-/// (S81 Phase C, `noop_identity::sync_set_entry_in_duress`): the
-/// reopened doc is the REAL replica (duress swaps only the node
-/// keypair, never the data dir) and entering the sync-set would
-/// re-dial the real persisted peers under the decoy key — regressing
-/// DURESS-BOOT-LEAK (`THREAT_MODEL.md` §15.1). This is regression-free
-/// functionally: no real dispatch happens under duress
-/// (`task_dispatch_in_duress` => 503).
-pub(crate) async fn open_project_doc_for_dispatch(
-    docs_client: &nexus_core_rs::docs::DocsClient,
-    identity_mode: nexus_core_rs::IdentityMode,
-) -> Result<nexus_core_rs::docs::DocHandle> {
-    let existing = docs_client
-        .list_docs()
-        .await
-        .context("failed to list project docs")?;
-    let project_doc = if let Some(&first_id) = existing.first() {
-        docs_client
-            .open_doc(first_id)
-            .await
-            .context("failed to open project doc")?
-            .ok_or_else(|| anyhow!("project doc listed but failed to open"))?
-    } else {
-        docs_client
-            .create_doc()
-            .await
-            .context("failed to create project doc")?
-    };
-    match crate::noop_identity::sync_set_entry_in_duress(identity_mode) {
-        crate::noop_identity::SyncSetOutcome::Enter => {
-            project_doc.start_sync(Vec::new()).await.context(
-                "failed to enter the project doc sync-set at boot \
-                 (coordinator would neither broadcast task: writes nor accept worker syncs)",
-            )?;
-        }
-        crate::noop_identity::SyncSetOutcome::Skip => {
-            // Duress: silent skip, mirroring the boot feed republish
-            // (no "duress" marker is ever emitted, even at debug level).
-        }
-    }
-    Ok(project_doc)
 }
 
 /// Mint a fresh `BlobTicket` for `hash` from the node's CURRENT endpoint address.
@@ -2517,142 +2722,6 @@ async fn remint_and_wrap_for_replay(
     wrap_payload_with_pow_static(solve_cache, pow_policy, keypair, topic, &fresh_payload).ok()
 }
 
-/// Whether a gossiped [`publish::ProjectAnnouncement`] payload claims OUR own
-/// node_id. Used to drop a self-impersonating LIVE gossip announcement before it
-/// reaches the browse aggregator (Sprint 75 Phase B, Codex round 3): a remote
-/// peer announcing `node_id == ours` is always a spoof, since our own apps are
-/// added directly by deploy + boot-restore, never via the live gossip path.
-/// Returns `false` for an unparseable payload (the handler will skip it anyway).
-fn announcement_claims_own_node_id(payload: &[u8], node: &Node) -> bool {
-    publish::ProjectAnnouncement::from_gossip_bytes(payload)
-        .map(|ann| ann.node_id == node.node_id())
-        .unwrap_or(false)
-}
-
-fn handle_project_announcement(
-    browse_aggregator: &BrowseAggregatorHandle,
-    coordinator_db: &std::sync::Arc<std::sync::Mutex<nexus_coordinator_rs::db::CoordinatorDb>>,
-    node: &Node,
-    content: &[u8],
-) {
-    match publish::ProjectAnnouncement::from_gossip_bytes(content) {
-        Ok(ann) => {
-            // Per-app identity from the announcement (blake3(name)). Fall back to
-            // node_id only for a legacy announcement that predates the field, so
-            // a node hosting N apps shows N distinct cards instead of collapsing
-            // them onto one node_id-keyed card.
-            let project_id = if ann.project_id.is_empty() {
-                ann.node_id.clone()
-            } else {
-                ann.project_id.clone()
-            };
-            // Derive the archive hash from the ticket: the hash itself never
-            // travels on the announcement (only the ticket does), so without this
-            // the shell sees archive_hash=None, marks the app as having no archive
-            // (BrowsedProject hasArchive), and never opens it. blob-serve resolves
-            // the ticket back from the aggregator to P2P-download the zip.
-            let archive_hash = ann
-                .archive_ticket
-                .as_deref()
-                .and_then(crate::http::archive_hash_from_ticket);
-            // Remediation #6 (freshness): seed the announcing node's address —
-            // carried inside the archive ticket — into our endpoint's address
-            // book so the reachability probe (and a later blob fetch) can dial
-            // node_id without waiting on a pkarr round-trip. This reconciles
-            // gossip discovery with the iroh service layer; mirrors
-            // blobs.rs::fetch_ticket.
-            if let Some(ticket_str) = ann.archive_ticket.as_deref() {
-                use std::str::FromStr;
-                match iroh_blobs::ticket::BlobTicket::from_str(ticket_str) {
-                    Ok(ticket) => {
-                        let (addr, _hash, _format) = ticket.into_parts();
-                        node.memory_lookup().add_endpoint_info(addr);
-                    }
-                    Err(e) => {
-                        debug!(error = %e, "could not parse archive ticket for addr-seed");
-                    }
-                }
-            }
-            // Sprint 76 Phase B (B2, CARRY-3): downgrade a byzantine
-            // `is_open_source=true` carrying no provenance chain to `false` at
-            // THIS ingress — the `/browse`-aggregator chokepoint — not only at
-            // the search index (`index_browse_entry`, S74 B.6). A gossiped
-            // announcement from an untrusted peer can set the flag with a null
-            // `provenance_hash`/`repo_url`; without the downgrade the served
-            // `/browse` card would carry the spoofable badge, and front "verrou
-            // 4" (reads `source=="direct"` + `is_open_source`) would surface it.
-            // Same predicate as the index path (THREAT_MODEL §15.1: declarative
-            // trust, not a crypto attestation).
-            let is_open_source = crate::http::trustworthy_open_source(
-                ann.is_open_source,
-                ann.provenance_hash.as_deref(),
-                ann.repo_url.as_deref(),
-            );
-            if ann.is_open_source && !is_open_source {
-                warn!(
-                    project = %project_id,
-                    "downgrading is_open_source at /browse ingress: missing provenance_hash/repo_url"
-                );
-            }
-            let entry = BrowseEntry {
-                project_id,
-                // Remediation #6: the hosting node's dialable identity. The
-                // freshness probe dials this, NOT project_id (= blake3(name)).
-                node_id: Some(ann.node_id.clone()),
-                project_name: ann.project_name,
-                category: ann.category,
-                description: ann.description,
-                curator_pubkey: String::new(),
-                curator_name: "Self-published".into(),
-                source: BrowseSource::Direct,
-                status: BrowseStatus::Unknown,
-                last_probed_at: None,
-                archive_ticket: ann.archive_ticket,
-                archive_hash,
-                repo_url: ann.repo_url,
-                provenance_hash: ann.provenance_hash,
-                is_open_source,
-            };
-            // Index the gossiped app for search (the gossip path deferred from the
-            // search hotfix). Best-effort: a search-index hiccup must never drop
-            // the discovered browse entry.
-            if let Ok(db) = coordinator_db.lock() {
-                crate::http::index_browse_entry(&db, &entry);
-            }
-            browse_aggregator.add_direct_entry(entry);
-            // Path-agnostic: this handler ingests both live gossip arrivals
-            // and boot-restored outbox entries (remediation #7).
-            info!(
-                node_id = %ann.node_id,
-                "project announcement ingested"
-            );
-        }
-        Err(e) => {
-            warn!(error = %e, "failed to parse project announcement");
-        }
-    }
-}
-
-/// Remediation #7 (Browse boot-restore): repopulate the in-memory Browse
-/// aggregator from the node's own persisted gossip outbox at startup.
-///
-/// The aggregator is in-memory and starts empty on every boot, so a node's
-/// own published apps would otherwise disappear from its Browse after a
-/// restart — only the outbox (and the feed) survive. Sprint 75 Phase A: each
-/// outbox entry is the UNWRAPPED ProjectAnnouncement payload; pre-S75 entries are
-/// PoW-wrapped and transparently unwrapped via [`normalize_outbox_payload`] (no
-/// PoW re-verification: these are our own trusted local bytes, and a
-/// difficulty-policy bump since they were minted must not drop them). We re-ingest
-/// every project announcement through
-/// [`handle_project_announcement`], which repopulates the aggregator and
-/// re-indexes the search corpus with the real `project_name`. Returns the
-/// number of project announcements restored. Idempotent: `add_direct_entry`
-/// dedups by `project_id` and the search upsert is `INSERT OR REPLACE`.
-///
-/// Note: after a `daemon.key` identity rotation, restored entries carry the
-/// pre-rotation `node_id`, so they probe as remote instead of taking the
-/// self-branch — benign, since rotation also invalidates the old
-/// announcements (they are re-published under the new identity).
 /// Sprint 74 Phase D / Sprint 75 Phase A: should this outbox entry still be
 /// re-broadcast to peers? Apps the node has turned OFF (`keep_online` disabled) are
 /// skipped; everything else — including an unparseable entry — is replayed, so a
@@ -2713,6 +2782,26 @@ fn load_disabled_keep_online(
     }
 }
 
+/// Remediation #7 (Browse boot-restore): repopulate the in-memory Browse
+/// aggregator from the node's own persisted gossip outbox at startup.
+///
+/// The aggregator is in-memory and starts empty on every boot, so a node's
+/// own published apps would otherwise disappear from its Browse after a
+/// restart — only the outbox (and the feed) survive. Sprint 75 Phase A: each
+/// outbox entry is the UNWRAPPED ProjectAnnouncement payload; pre-S75 entries are
+/// PoW-wrapped and transparently unwrapped via [`normalize_outbox_payload`] (no
+/// PoW re-verification: these are our own trusted local bytes, and a
+/// difficulty-policy bump since they were minted must not drop them). We re-ingest
+/// every project announcement through
+/// [`handle_project_announcement`], which repopulates the aggregator and
+/// re-indexes the search corpus with the real `project_name`. Returns the
+/// number of project announcements restored. Idempotent: `add_direct_entry`
+/// dedups by `project_id` and the search upsert is `INSERT OR REPLACE`.
+///
+/// Note: after a `daemon.key` identity rotation, restored entries carry the
+/// pre-rotation `node_id`, so they probe as remote instead of taking the
+/// self-branch — benign, since rotation also invalidates the old
+/// announcements (they are re-published under the new identity).
 fn restore_browse_from_outbox(
     browse_aggregator: &BrowseAggregatorHandle,
     coordinator_db: &std::sync::Arc<std::sync::Mutex<nexus_coordinator_rs::db::CoordinatorDb>>,
@@ -2733,6 +2822,80 @@ fn restore_browse_from_outbox(
         }
     }
     restored
+}
+
+// =================================================================
+// Boot namespaces / migration guards
+// =================================================================
+
+/// Open the coordinator's project doc (or create it on first boot) AND
+/// enter its iroh-docs sync-set via `start_sync(vec![])`.
+///
+/// `open_doc`/`create_doc` alone do NOT enter the sync-set (iroh-docs
+/// 0.101, recalibrated at the S81 Phase B/C bump — mechanism unchanged
+/// from 0.98: only `start_sync` inserts the namespace into `SyncState`,
+/// `engine/live.rs:408-414`). A coordinator outside the sync-set (a)
+/// never gossip-broadcasts its incremental `task:` writes
+/// (`LocalInsert` gated by `is_syncing`, `engine/live.rs:713`) and (b)
+/// REJECTS every incoming worker sync with `AbortReason::NotFound`
+/// (`engine/state.rs:96-97`). Before Sprint 81 Phase A4 the sync-set
+/// was only (re)armed by `share_write()` side-effects — invite mint and
+/// the on-demand local-worker bootstrap on task submit
+/// (`local_worker.rs` `provision()`, nudged from the submit path) —
+/// which left a dead boot->first-submit window observed LIVE on the
+/// anchor (S81 Phase A3 baseline: journal "Aborted sync .. NotFound"
+/// ~26s after boot) and made WAN task delivery depend on a fragile
+/// side-effect. Booting straight into the sync-set closes that window
+/// at the root; the worker-side keepalive (`spawn_doc_sync_keepalive`,
+/// S77) is complementary and untouched.
+///
+/// `start_sync(vec![])` dials nothing by itself, but iroh-docs merges
+/// the peers PERSISTED in `docs.redb` (`register_useful_peer` /
+/// `get_sync_peers`) and re-dials them (`DirectJoin`) — bounded by the
+/// store's known-peer list (`PEERS_PER_DOC_CACHE_SIZE = 5`,
+/// `store.rs:17`), no new wire surface, no relay in the hot path.
+///
+/// Under `IdentityMode::Duress` the sync-set entry is SKIPPED
+/// (S81 Phase C, `noop_identity::sync_set_entry_in_duress`): the
+/// reopened doc is the REAL replica (duress swaps only the node
+/// keypair, never the data dir) and entering the sync-set would
+/// re-dial the real persisted peers under the decoy key — regressing
+/// DURESS-BOOT-LEAK (`THREAT_MODEL.md` §15.1). This is regression-free
+/// functionally: no real dispatch happens under duress
+/// (`task_dispatch_in_duress` => 503).
+pub(crate) async fn open_project_doc_for_dispatch(
+    docs_client: &nexus_core_rs::docs::DocsClient,
+    identity_mode: nexus_core_rs::IdentityMode,
+) -> Result<nexus_core_rs::docs::DocHandle> {
+    let existing = docs_client
+        .list_docs()
+        .await
+        .context("failed to list project docs")?;
+    let project_doc = if let Some(&first_id) = existing.first() {
+        docs_client
+            .open_doc(first_id)
+            .await
+            .context("failed to open project doc")?
+            .ok_or_else(|| anyhow!("project doc listed but failed to open"))?
+    } else {
+        docs_client
+            .create_doc()
+            .await
+            .context("failed to create project doc")?
+    };
+    match crate::noop_identity::sync_set_entry_in_duress(identity_mode) {
+        crate::noop_identity::SyncSetOutcome::Enter => {
+            project_doc.start_sync(Vec::new()).await.context(
+                "failed to enter the project doc sync-set at boot \
+                 (coordinator would neither broadcast task: writes nor accept worker syncs)",
+            )?;
+        }
+        crate::noop_identity::SyncSetOutcome::Skip => {
+            // Duress: silent skip, mirroring the boot feed republish
+            // (no "duress" marker is ever emitted, even at debug level).
+        }
+    }
+    Ok(project_doc)
 }
 
 /// Backup file left behind by the iroh-docs redb 2->4 tuple migration
