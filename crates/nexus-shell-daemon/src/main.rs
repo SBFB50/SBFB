@@ -54,6 +54,7 @@ mod runtime;
 mod seed_protocol;
 mod seed_registry;
 mod shard_session;
+mod shard_session_http_api;
 mod shell_api;
 mod storage_api;
 mod tasks_api;

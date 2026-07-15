@@ -136,8 +136,8 @@ Each step lists **source_ref** (`path:Symbol`, grep-resolvable) · **signed?** �
   its own signed proof" claim PROVISIONAL until then.
 
 ### OBSERVE — read-only aggregate status
-- source_ref `crates/nexus-shell-daemon/src/http.rs:shard_session_response` (body),
-  `crates/nexus-shell-daemon/src/http.rs:shard_session_response` (privacy projection).
+- source_ref `crates/nexus-shell-daemon/src/shard_session_http_api.rs:shard_session_response` (body),
+  `crates/nexus-shell-daemon/src/shard_session_http_api.rs:shard_session_response` (privacy projection).
 - Signed? n/a (read-only GET). DOMAIN n/a.
 - Auth tier: loopback only — `x-sbfb-token` bearer + loopback Host + absent-or-loopback
   Origin, enforced by `crates/nexus-shell-daemon-core/src/auth.rs:auth_required`;
@@ -152,18 +152,18 @@ Each step lists **source_ref** (`path:Symbol`, grep-resolvable) · **signed?** �
 GET /api/daemon/shard-session/{id}
 ```
 
-- source_ref `crates/nexus-shell-daemon/src/http.rs:shard_session_response`
+- source_ref `crates/nexus-shell-daemon/src/shard_session_http_api.rs:shard_session_response`
   (builds the body); the status is served from the LIVE in-memory registry
   `crates/nexus-shell-daemon/src/shard_session.rs:ShardSessionRegistry`
   (S81 Phase I replaced the S77 empty-store stub `live_shard_session`, which
-  no longer exists); `crates/nexus-shell-daemon/src/http.rs:shard_session_response`
+  no longer exists); `crates/nexus-shell-daemon/src/shard_session_http_api.rs:shard_session_response`
   (the privacy projection).
 - **Auth tier — loopback only**: `x-sbfb-token` bearer **+** loopback `Host` **+**
   absent-or-loopback `Origin`, enforced by the middleware
   `crates/nexus-shell-daemon-core/src/auth.rs:auth_required` (header
   `crates/nexus-shell-daemon-core/src/auth.rs:AUTH_HEADER`); the route is
   registered in `crates/nexus-shell-daemon/src/http.rs:authed_routes` (handler
-  `crates/nexus-shell-daemon/src/http.rs:shard_session`). Not reachable from a
+  `crates/nexus-shell-daemon/src/shard_session_http_api.rs:shard_session`). Not reachable from a
   sandboxed iframe.
 - **Response (unknown id)** — deterministically:
 
@@ -195,7 +195,7 @@ Violating any of these is a wire/security defect, not a style nit:
    (`crates/nexus-core-rs/src/shard_plan.rs:RunMetrics`) — a float would make
    canonical bytes non-deterministic across platforms and break signatures.
 2. **Never expose `worker_pubkey` or `initiator`** on any read surface. The HTTP
-   projection (`crates/nexus-shell-daemon/src/http.rs:shard_session_response`)
+   projection (`crates/nexus-shell-daemon/src/shard_session_http_api.rs:shard_session_response`)
    emits only aggregates — `session_id`, `member_count`, `rtt_frontier_ms`
    (THREAT_MODEL §16 SI-3/SI-4).
 3. **Additive-only, 0-bump (pre-v1.0).**
