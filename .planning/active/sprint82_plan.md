@@ -327,6 +327,19 @@
 > touchée ⇒ index Phase T). Risque : **med** chacune (conflit rebase attendu avec l'arc front
 > parqué [`provider_router.rs`] + axe sharding ; mitigation incrémentale D3 + golden + count).
 > Covers (chacune) : REFACTO-HTTP-SPLIT.
+>
+> **AMENDEMENT PO-10 (2026-07-15, « S82 = une fin », posé post-commit Phase N `2e87eef`)** :
+> (a) la Phase N a montré que « co-déplacer les tests » se lit sémantiquement : seuls les
+> tests direct-call migrent tant que le harness de test est privé à http.rs::tests — la
+> **Phase N2** (insérée ci-dessous) partage le harness (`test_support.rs`), après quoi la
+> discipline s'étend : chaque split O→S co-déplace AUSSI ses tests HTTP router-driven
+> (duress + intégration) — un domaine part avec TOUS ses tests, et le preflight de phase
+> ajoute le gate `check-sharding-docs.sh`/docs-contrat à l'oracle T1 quand des refs
+> file:symbol bougent (leçon N). (b) La cible « région production < ~2500 l » et le
+> défèrement du long tail sont **SUPERSEDÉS** : phases S2→S4 ajoutées, cible finale =
+> **http.rs ~≤2500 l TOTAL** (state + build_router/authed_routes + middlewares
+> auth/CORS/CSP + helpers origin + tests core routeur), **0 carry « split différé » vers
+> S83**. Détail : memory `po_s82_http_split_est_une_fin.md`.
 
 > Chaque phase N→S applique la **discipline commune** ci-dessus (T1 = GREEN golden Phase M +
 > nextest invariant + fmt/clippy [D4] ; T2 = N-A ; risque **med** ; frontier_closure N/A sauf
@@ -338,6 +351,28 @@
   `shard_session_http_api.rs` — handler + DTO + tests co-déplacés, route inchangée.
 - **Livrables** : `shard_session_http_api.rs` (6 handlers + DTO + tests) ; `build_router`
   pointant `crate::shard_session_http_api::<handler>`.
+- **DONE `2e87eef`** (preflight PLAN-ADAPT : bornes réelles 2129-2453, 8 fns, 0 DTO local,
+  + livrable docs-contrat 7 source_refs ; review 0 P0-P3 ; Codex CLEAN round 1 6/6).
+
+## Phase N2 — Extraction du harness de test partagé → `test_support.rs` (amendement PO-10)
+
+- **Goal** : déplacer le harness du `mod tests` de http.rs vers
+  `crates/nexus-shell-daemon/src/test_support.rs`, déclaré `#[cfg(test)] mod test_support;`
+  dans main.rs, items `pub(crate)` : `TEST_TOKEN`, `mk_state`/`mk_state_with_mode`,
+  `build_test_router_ext` + wrappers de posture, infra golden (`GoldenCase`/`GoldenBody`/
+  `golden_redact`/`golden_check`/`golden_run`/`GOLDEN_VOLATILE_FIELDS`) et les 9 tests
+  `golden_http_*` si le préflight tranche qu'ils suivent le harness — **invariant : la
+  famille golden reste UN bloc singulier, jamais fragmentée par domaine**. Puis migrer le
+  test duress `shard_session_routes_noop_in_duress` vers `shard_session_http_api.rs`
+  (reste de N, débloqué par le partage). C'est le verrou qui empêchait les tests
+  router-driven de migrer avec leur domaine (D-N3).
+- **Covers** : REFACTO-HTTP-TEST-HARNESS-SHARE (PO-10).
+- **Livrables** : `test_support.rs` pub(crate) cfg(test) ; `http.rs::tests` consomme le
+  harness partagé ; duress shard-session migré ; goldens 9/9 verts inchangés.
+- **Testabilité** : T1 = GREEN count nextest invariant EXACT + goldens 9/9 + fmt/clippy (D4).
+  T2 = N-A.
+- **Risque** : **med** (churn d'imports du mod tests ; 0 logique modifiée ; move pur).
+- **frontier_closure** : N/A (test-only).
 
 ## Phase O — Split http.rs : domaine seed → seed_api.rs
 
@@ -376,6 +411,45 @@
   http.rs < ~2500 l après cette phase.
 - **Livrables** : `publish_api.rs` (handlers + DTO + tests) ; `build_router` pointant
   `crate::publish_api::<handler>` ; vérif région production http.rs < ~2500 l.
+
+## Phases S2→S4 — Long tail dé-déféré (amendement PO-10)
+
+> Même discipline que N→S (move pur verbatim, goldens 9/9 verts, count nextest invariant
+> EXACT, fmt/clippy D4, 0 route path, 0 wire, 0 dep ; tests router-driven co-migrent
+> [post-N2] ; docs-contrat re-pointés si une ref file:symbol bouge, gate
+> `check-sharding-docs.sh`/frontier à l'oracle). Chaque préflight re-dérive les bornes par
+> NOM (inventaire de référence : preflight N, 62 fns production au 2026-07-15). Risque med
+> chacune. Covers (chacune) : REFACTO-HTTP-SPLIT + PO-10.
+
+## Phase S2 — Split http.rs : browse + nodes → browse_api.rs
+
+- **Goal** : extraire le domaine browse (`subscribed_catalog_index`, `browse_views`,
+  `list_browse`, `browse_pull`) + nodes (`nodes_response`, `list_nodes`) avec leurs tests
+  vers `browse_api.rs` — routes inchangées.
+- **Livrables** : `browse_api.rs` (handlers + projections + tests) ; `build_router` re-pointé.
+
+## Phase S3 — Split http.rs : feed + provenance + search + preview/proof-card
+
+- **Goal** : extraire `get_provenance`/`get_feed_cursor`/`get_feed_entries`
+  (+`default_feed_limit`) → `feed_api.rs` ; `search_handler` (+`default_search_limit`) →
+  `search_api.rs` ; `preview_load` + `get_proof_card` → module tranché au préflight
+  (`preview_api.rs` par défaut) ; tests co-migrés, routes inchangées.
+- **Livrables** : `feed_api.rs` + `search_api.rs` (+ `preview_api.rs`) ; `build_router`
+  re-pointé.
+
+## Phase S4 — Sweep final : dispatch des singles + assertion cible PO-10
+
+- **Goal** : dispatcher les handlers résiduels vers leurs modules (existants quand ils
+  existent) : `canary_observed`/`canary_network_health`/`canary_freshness` →
+  `canary_api.rs` ; `diagnostic_neighborhood` → `diagnostic_api.rs` ; `default_curators` →
+  `curators_api.rs` ; `publish_blob` → `publish_api.rs` ; `panic_wipe` + `blob_serve`/
+  `mint_blob_ticket` (+ middleware CSP si déplaçable proprement) → modules tranchés au
+  préflight (`blob_serve_http.rs` par défaut pour le chemin de rendu). État final :
+  http.rs = `DaemonHttpState` + `build_router`/`authed_routes` + middlewares
+  auth/CORS/CSP + helpers origin (`is_valid_origin`/`is_loopback_origin`) + tests core
+  routeur.
+- **Livrables** : singles dispatchés ; **critère machine PO-10 : `wc -l http.rs` ~≤2500
+  TOTAL** + goldens 9/9 + count invariant + 3 gates docs exit 0.
 
 ## Clôture
 
@@ -417,7 +491,7 @@
 
 | Cible | Fait vérifié | Phase(s) |
 |---|---|---|
-| `http.rs` | **12460 l** ; région production visée < ~2500 l post-S | M→S |
+| `http.rs` | **12460 l** ; région production visée < ~2500 l post-S — **SUPERSEDÉ PO-10 : ~≤2500 l TOTAL post-S4** | M→S4 |
 | `runtime.rs` | **5096 l** ; `DaemonRuntime::start()` ~950 l monolithiques (l.276-1224) | L, A |
 | Modules `*_api.rs` | **11 modules** de précédent existent — pattern d'extraction PROUVÉ | N→S |
 | Test module http | ~**7915 l** (region 4546-12460) — co-déplacé sans orphelin | M→S |

@@ -122,6 +122,14 @@ gh-run success / re-jeu live PASS / artefact JSON versionné).
 - **PO-9 = ratifier décalage.** Impact : supersede D6 actée ; staging
   workflow-engine SUPERSEDED (Phase E) ; audit_plan §6 corrigé ; workflow-engine
   + Viewer = futurs slots tracés non-perdus.
+- **PO-10 = « S82 = une fin » (2026-07-15, amendement in-sprint post-Phase-N
+  `2e87eef`).** Le split http.rs ne s'arrête pas au palier « production < 2500 l » :
+  Phase N2 (harness de test partagé `test_support.rs`) insérée ; discipline O→S
+  étendue aux tests router-driven ; long tail dé-déféré (Phases S2→S4) ; cible
+  finale **http.rs ~≤2500 l TOTAL**, 0 carry « split différé ». Supersede la
+  clause « long tail différée » de D3 (le reste de D3 — incrémental, 1 domaine =
+  1 phase, golden AVANT — INCHANGÉ). Sprint : 20 → 24 phases. Détail : plan
+  §Phases S2→S4 + memory `po_s82_http_split_est_une_fin.md`.
 
 Les **4 réserves du critic** (verdict NEEDS-ADJUSTMENT) sont **levées** :
 (1) granularité commit split → D3 (1 domaine = 1 commit = 1 phase, N→S) ;
@@ -133,7 +141,7 @@ Les **4 réserves du critic** (verdict NEEDS-ADJUSTMENT) sont **levées** :
 
 ## Scope
 
-### In (Phase 0 jouée + A→T, 20 phases)
+### In (Phase 0 jouée + A→T, 20 phases — **24 depuis PO-10** : +N2, +S2→S4)
 
 - **Phase 0 — Audit gate S81 : JOUÉE.** Verdict FAIL levé voie A (`ad53940` +
   `95ff46c`). Baseline figée supra. Carries reroutés A-T.
@@ -201,7 +209,8 @@ Les **4 réserves du critic** (verdict NEEDS-ADJUSTMENT) sont **levées** :
   chacune)* : co-déplacer handler + DTO + tests (module ~7915 l, jamais orphelin) ;
   route inchangée dans `build_router` ; golden Phase M vert post-split ; cible
   http.rs prod < ~2500 l ; long tail (feed/search/preview/canary/kudos/apps)
-  DÉFÉRÉE.
+  DÉFÉRÉE. **[PO-10 : défèrement SUPERSEDÉ — N2 (harness partagé) + S2→S4
+  (long tail) ajoutées, cible ~≤2500 l TOTAL ; cf. plan amendé.]**
   - **N** — shard-session (`2154-2509`, 6 handlers) → `shard_session_http_api.rs`.
   - **O** — seed (`2489-3263`) → `seed_api.rs`.
   - **P** — frost (`3559-3722`, 4 handlers) → `frost_api.rs`.
@@ -256,6 +265,9 @@ Les **4 réserves du critic** (verdict NEEDS-ADJUSTMENT) sont **levées** :
   2 livrables ancre+worker conçus ensemble ; clôture PO-1=B = (c) live PASS exigée.
 - **D3 — Split http.rs** incrémental borné, 1 domaine = 1 phase (N→S, 6 domaines) ;
   golden Phase M AVANT ; long tail différée. Cible http.rs prod < ~2500 l.
+  **[Clauses « long tail différée » + « cible prod » SUPERSEDÉES par PO-10
+  (2026-07-15) : N2 + S2→S4 ajoutées, cible http.rs ~≤2500 l TOTAL — le coeur de
+  D3 (incrémental, golden-gardé, 1 domaine = 1 phase) reste gelé.]**
 - **D4 — Gate machine d'invariance pour TOUT refacto** : fmt --check + clippy
   --all-targets -D warnings + nextest count >= baseline (Win 2095/Docker 2099, 0
   baisse) + web vitest 412 + operator 201 + 0 route path + 0 bump wire + golden
