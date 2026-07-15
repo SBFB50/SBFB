@@ -457,7 +457,11 @@ Sections canoniques (pattern Sprint 6 audit_findings) :
    base
 3. **Verdict global** — PASS / CONDITIONAL PASS / FAIL
 4. **Une section par track** avec son verdict (PASS /
-   CONCERN / FAIL) et sa liste de findings
+   CONCERN / FAIL) et sa liste de findings — chaque P2/P3
+   PERSISTÉ avec ≥1 ligne de prose descriptive (substance +
+   fichier:ligne), jamais un ID nu (amendement S82 Phase J :
+   la prose des P2/P3 de l'audit S81 n'avait jamais été
+   persistée et a dû être re-dérivée 3 fois, Phases H/I/J)
 5. **Findings list sorted by severity** — table récap P0 →
    P3
 6. **Commits fix attendus** — si verdict CONDITIONAL PASS,
@@ -674,6 +678,37 @@ sinon consigne `N-A-no-benchmark`. Le vocabulaire de mesure est standard
 pour que les baselines restent comparables dans le temps et qu'une
 optimisation future se décide sur des chiffres versionnés, pas sur une
 impression.
+
+**Vocabulaire palier-level de l'agrégat T2 (ratifié S82 Phase J).** Un
+sprint multi-axe consigne son T2 dans UN agrégat
+(`sprint{N}_t2_acceptance.json` — patron d'agrégat unique introduit
+S80, bi-axe depuis S81) : le `status`
+TOP-LEVEL de l'agrégat reste dans le vocabulaire fermé de la table
+ci-dessus (`PASS` / `BLOCK{diagnosis}` / `RIG-ABSENT` /
+`N-A-no-cross-machine-feature`), mais chaque PALIER interne porte son
+propre `status` qui admet trois valeurs additionnelles (source :
+contrat in-artifact `sprint81_t2_acceptance.json` champ `contract`,
+introduit S81 Phase K) : (a) `ACTED{evidence}` — l'obligation de preuve
+du palier est acquittée par une évidence committée NOMMÉE (test
+hermétique fail-closed, palier live frère) plutôt que par un re-run ;
+statut sanctionné au preflight de la phase de wrap-up, le champ
+`evidence` adjacent est obligatoire ; (b) `MIXED` — palier de
+RÉFÉRENCE (ex. baseline pré-bump) dont les sous-paliers portent des
+verdicts divergents : ancre différentielle, pas une porte à passer, sa
+`note` énumère honnêtement les sous-statuts ; (c) `NOT-RUN` — palier
+jamais exécuté à cette baseline : une absence honnête, jamais un échec
+masqué ni un verdict d'échec (définition dérivée de l'usage S81 — le
+contrat in-artifact liste le token sans le formuler). Troisième
+couche : les entrées `per_test` À L'INTÉRIEUR d'un palier utilisent le
+vocabulaire nextest brut `PASS` / `FAIL{cause}` — des résultats de
+suite, pas des verdicts de palier. Les trois couches ne se mélangent
+jamais : top-level (table T2 supra, seul vocabulaire que lisent le
+hook lightcheck Check 10 et le check top-level de l'audit) /
+palier-level (ce paragraphe) / per_test (nextest). L'agent audit
+Track J lit les statuts palier-level dans l'agrégat ; leur définition
+canonique vit ici. Comme pour T3, la mécanique palier-level n'est PAS
+encore reflétée comme clause dédiée dans
+`prompts/agent/audit-gate-checks.md` (P3-suivi, non bloquant).
 
 Chaque phase respecte une discipline stricte :
 

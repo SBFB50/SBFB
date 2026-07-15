@@ -151,6 +151,35 @@ completude (credits Fable 5 epuises) — cf. §Track A et §Completude.
   transparents, les deux rounds bruts committes.
 - Findings : S81-F-1 (P2), S81-F-2 (P2), S81-F-3 (P2), S81-F-4 (P3), S81-F-5 (P3).
 
+> **Note (S82 Phase J, 2026-07-15).** La prose per-item de S81-F-1..5
+> n'a jamais ete persistee : seuls les IDs existent (3e occurrence de
+> la classe prose-non-persistee — cf. notes Track C [Phase H, supra]
+> et Track H [Phase I, infra] ; cause racine commune : cet audit n'a
+> detaille que les 4 P1). Grep `S81-F-` sur tout .planning = 6 hits,
+> tous ID-nu ou routage-ledger, 0 prose descriptive — la synthese
+> track-level ci-dessus (48/48 artefacts, Verdict unique PASS,
+> authenticite Codex J/K) existe en revanche et CORROBORE la
+> re-derivation. Disposition Phase J : passe d'hygiene fichiers-review
+> RE-DERIVEE (methode Track F `audit-gate-checks.md:114-131`) sur les
+> 16 review.md S81 archives (v2.1) + les 9 review.md S82 (a-i) : les
+> 25 portent chacun UN SEUL `## Verdict` committe = `## Verdict: PASS`
+> (0 PASS-PENDING final) ; triplets complets (S81 48/48 + 2 .txt
+> support Phase B ; S82 27/27 + 2 fichiers support acceptance/ledger
+> legitimes) ; `## Codex reconciliation` present partout ;
+> authenticite Codex J/K conforme (`## Verdict global` = phrasing
+> d'output brut Codex, pas un header de gate). Anomalies residuelles
+> OBSERVEES, benignes, hors gate, dans fichiers ARCHIVES (registre
+> fige, non reecrit — RECORDED-NOT-FIXED) : (a)
+> sprint81_phase_b_review.md porte DEUX `## Codex reconciliation`
+> (:506 placeholder pre-Codex non retire + :517 reelle) ; (b)
+> sprint81_phase_a_review.md:12 garde un header secondaire
+> `## Conclusion (pré-Codex) : PASS-PENDING` (le Verdict final :139
+> est conforme) ; (c) titres H1 heterogenes entre phases
+> (cosmetique) ; (d) titre a3_review « Phase A3a » = split A3a/A3b
+> documente au preflight (PLAN-ADAPT), triplet coherent — PAS un
+> drift. **S81-F-1/F-2/F-3 (P2) + S81-F-4/F-5 (P3) REQUALIFIES CLOSED
+> sans edit.** Detail : `sprint82_phase_j_preflight.md`.
+
 ---
 
 ## Track G — Carry-Overs
@@ -217,6 +246,34 @@ completude (credits Fable 5 epuises) — cf. §Track A et §Completude.
   (`e7ff73c` : directive PO, slug, gate CLI 0.144.1).
 - Findings : S81-I-1 (P2), S81-I-2 (P2), S81-I-3 (P3).
 
+> **Note (S82 Phase J, 2026-07-15).** La prose per-item de S81-I-2 n'a
+> jamais ete persistee (seul l'ID existe ; I-3 a un embryon dans
+> l'en-tete `Diff:` du present fichier :6) — meme classe
+> prose-non-persistee que Tracks C/H/F. RE-DERIVATION Track I
+> (`audit-gate-checks.md:162-179`) sur `61412bb..8b3590c` : le « Fond
+> PROPRE » de la synthese supra est CONFIRME — 17/17 commits de phase
+> portent les 9 headers canoniques + `## Codex verification`, 0 emoji,
+> 0 merge, 0 amend ; G8 present 16/17 (15 PLAN-ADAPT + J `43623a5`
+> DESIGN-CONFLICT→arbitrage PO Option B ; le 17e `58cef6d`
+> [dispositions review Codex de Phase I] porte `## G8 traceability`
+> sans token frais et herite du preflight parent `bb6c4f9` — pattern
+> legitime d'un commit de dispositions). **S81-I-2 REQUALIFIE
+> CLOSED-consigne** : 0 defaut dur ; 2 observations soft consignees
+> SANS elire une prose canonique unique (l'intention originale est
+> irrecouvrable) : (a) Phase I livree en 2 commits sujet-Phase-I
+> (`bb6c4f9` feat + `58cef6d` dispositions post-commit) ; (b)
+> monotonie 15/17 PLAN-ADAPT, auto-escaladee par les bodies eux-memes
+> (`23f3be8` 2e consecutif → `efb9667` 5e) — signal deja absorbe par
+> le kickoff S82 (re-derivation d'emblee). **S81-I-3 CLOSED** :
+> l'ecart 25-vs-24 commits = pure convention de borne —
+> `git rev-list --count 61412bb..8b3590c` = 24 (borne basse EXCLUE)
+> vs 25 en incluant le commit d'ACTIVATION `61412bb` (kickoff+plan
+> S81) ; 0 merge, 0 commit perdu, la plage `..` exclusive de l'audit
+> est correcte. S81-I-1 deja resolu voie A `ad53940` (correction au
+> row Track I de `sprint82_audit_plan.md`). Passe immuable : aucun
+> commit amende — les observations se consignent. Detail :
+> `sprint82_phase_j_preflight.md`.
+
 ---
 
 ## Track J — Testability
@@ -227,6 +284,42 @@ completude (credits Fable 5 epuises) — cf. §Track A et §Completude.
   (10/10 artefacts), top-level status=PASS ; b3_p2_quorum PASS.
 - Defaut de CONSIGNATION sur un point (S81-J-1).
 - Findings : S81-J-1 (P1), S81-J-2 (P2), S81-J-3 (P2), S81-J-4 (P2), S81-J-5 (P3).
+
+> **Note (S82 Phase J, 2026-07-15).** La prose per-item de
+> S81-J-3/J-4/J-5 n'a jamais ete persistee (IDs supra + tables + un
+> gloss d'une ligne `sprint81_verification.md:294-295`) — meme classe
+> prose-non-persistee que Tracks C/H/F/I. RE-DERIVATION Track J
+> (`audit-gate-checks.md:181-217`) sur le corpus reel. **S81-J-3 (P2)
+> SOLDE par ratification** : le vocabulaire palier-level T2
+> `ACTED{evidence}` / `MIXED` / `NOT-RUN` (contrat in-artifact
+> `sprint81_t2_acceptance.json:6` ; 3 ACTED + 1 MIXED dans l'agregat,
+> NOT-RUN dans `sprint81_t2_baseline_098.json:54`) est desormais
+> defini au canon README §4 — paragraphe dedie, miroir du patron
+> d'amendement T3 Phase B ; ACTED/MIXED repris du contrat verbatim,
+> NOT-RUN derive fidelement de l'usage (le contrat listait le token
+> sans le formuler). L'agregat compte 13 paliers (11 transport + 2
+> sharding) — le « 10/10 paliers » de verification.md:290-291
+> comptait vraisemblablement les 10 artefacts externes references,
+> pas les paliers. **S81-J-4
+> (P2) SOLDE** : couche token foldee dans J-3 ; residuel reel = les
+> chemins in-artifact `.planning/active/sprint81_t2_*.json` ne
+> resolvent plus post-archivage (les 10 artefacts vivent en
+> archive/v2.1/) — ACCEPT-DOCUMENTED P3 : archivage attendu, 0 perte
+> de preuve, `scripts/acceptance/.b3_quorum_k.json` resout toujours ;
+> l'agregat archive n'est pas reecrit (registre fige). **S81-J-5 (P3)
+> SOLDE** : le corpus S81 est propre — verification §Acceptance
+> emploie le vocab ferme COMPLET (T1 :267, T2 :288), 0 verdict
+> `DIFFERE-*` employe (le seul token concret du corpus reviews S81,
+> `sprint81_phase_k_review.md:359` `DIFFERE-materiel`, est une
+> meta-reference a l'anti-pattern interdit) ; residuel de
+> classe LIVE = tokens nus « T1 = N-A » / « T2 = N/A » dans des
+> bodies S82 deja committes (passe immuable) → hygiene going-forward :
+> les futurs bodies ecrivent les formes completes
+> `N-A-no-frontend-change` / `N-A-no-cross-machine-feature`. Rappel
+> 0-perdu : S81-J-1 (P1) resolu voie A `ad53940` (`## Acceptance`
+> verification :258) ; S81-J-2 (P2) ROUTED (PARTIAL) — fichier
+> calibre Phase C `2931b82`, run reel >=1 du a Phase T (PO-4=C),
+> jamais full-CLOSED ici. Detail : `sprint82_phase_j_preflight.md`.
 
 ---
 

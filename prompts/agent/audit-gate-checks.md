@@ -287,46 +287,46 @@ Verdict: **PASS | CONDITIONAL PASS | FAIL**
 ## Track A — Suites
 - Rust nextest: <count> (plan: <count>)
 - Vitest: <count> (plan: <count>)
-- Findings: <list or none>
+- Findings: <list — each P2/P3 with >=1 line of descriptive prose (see Rules), or none>
 
 ## Track B — Security
 - Patterns scanned: <count>
-- Findings: <list or none>
+- Findings: <list — each P2/P3 with >=1 line of descriptive prose (see Rules), or none>
 
 ## Track C — Patterns
 - PATTERNS.md alignment: <status>
 - Tech debt: <items created/resolved>
-- Findings: <list or none>
+- Findings: <list — each P2/P3 with >=1 line of descriptive prose (see Rules), or none>
 
 ## Track D — Scope
 - Scope cuts verified: <count>/<total>
-- Findings: <list or none>
+- Findings: <list — each P2/P3 with >=1 line of descriptive prose (see Rules), or none>
 
 ## Track E — Tests Delta
 - Announced: +<N> Rust, +<N> Vitest
 - Observed: +<N> Rust, +<N> Vitest
-- Findings: <list or none>
+- Findings: <list — each P2/P3 with >=1 line of descriptive prose (see Rules), or none>
 
 ## Track F — Review Files
 - Phases: <count>
 - Reviews present: <count>/<count>
 - Codex reviews present: <count>/<count>
-- Findings: <list or none>
+- Findings: <list — each P2/P3 with >=1 line of descriptive prose (see Rules), or none>
 
 ## Track G — Carry-Overs
 - Items carried: <count>
 - 3-report escalations: <count>
-- Findings: <list or none>
+- Findings: <list — each P2/P3 with >=1 line of descriptive prose (see Rules), or none>
 
 ## Track H — HARDENING
 - Pre-requirements checked: <status>
 - Zone rouge status: <status>
-- Findings: <list or none>
+- Findings: <list — each P2/P3 with >=1 line of descriptive prose (see Rules), or none>
 
 ## Track I — Meta-Process
 - Phase commits: <count>
 - Body format: <compliant count>/<total>
-- Findings: <list or none>
+- Findings: <list — each P2/P3 with >=1 line of descriptive prose (see Rules), or none>
 
 ## Track J — Testability
 - T1 E2E spec present (web/e2e/*.spec.ts): <yes/no/N-A-no-frontend-change>
@@ -334,14 +334,14 @@ Verdict: **PASS | CONDITIONAL PASS | FAIL**
 - T2 acceptance JSON status: <PASS/BLOCK/RIG-ABSENT/N-A-no-cross-machine-feature/absent>
 - DIFFERE-* prose verdict detected: <yes/no>
 - Cross-machine convergence test + b3 PASS (if applicable): <yes/no/N-A>
-- Findings: <list or none>
+- Findings: <list — each P2/P3 with >=1 line of descriptive prose (see Rules), or none>
 
 ## Track K — Docs-Contract Closure
 - New frontier primitives shipped (actor test): <list or none>
 - GUIDE + llms.txt index the new frontiers: <yes/no/N-A-no-new-frontier>
 - N-A-no-new-frontier consigned in verification.md (if none): <yes/no/N-A>
 - Per-phase generated étiquettes on frontier commits: <ok/missing list>
-- Findings: <list or none>
+- Findings: <list — each P2/P3 with >=1 line of descriptive prose (see Rules), or none>
 
 ## Summary
 
@@ -366,6 +366,12 @@ Verdict: **PASS | CONDITIONAL PASS | FAIL**
   reviews (opinion-first avoids anchoring bias).
 - Do not soften findings to avoid conflict. A P1 is a P1.
 - Every finding must cite file:line or commit SHA.
+- Every P2/P3 finding must be PERSISTED in the findings file with at
+  least one line of descriptive prose (substance + file:line) — never a
+  bare ID in a `Findings:` list. Rationale: the S81 audit detailed only
+  its 4 P1s; every P2/P3 prose had to be RE-DERIVED from the corpus in
+  S82 (Tracks C/H/F/I/J across Phases H/I/J — three occurrences of the
+  same prose-never-persisted class; amendment S82 Phase J).
 - Exhaustive negative evidence is required for a clean track; do not write
   "no findings" without listing what was checked.
 - The audit is retrospective. Do not fix code; document what needs fixing.
