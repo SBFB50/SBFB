@@ -58,6 +58,8 @@ mod shard_session_http_api;
 mod shell_api;
 mod storage_api;
 mod tasks_api;
+#[cfg(test)]
+mod test_support;
 #[cfg(unix)]
 mod uds_server;
 mod validator_loop;

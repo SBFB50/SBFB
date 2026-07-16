@@ -346,6 +346,11 @@ pub(crate) async fn shard_session_drop_shard(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::body::to_bytes;
+    use axum::http::{Method, Request};
+    use tower::ServiceExt;
+
+    use crate::test_support::{build_test_router, mk_state_with_mode};
 
     #[test]
     fn shard_session_response_pins_empty_envelope() {
@@ -495,5 +500,98 @@ mod tests {
         let serialized = json.to_string();
         assert!(!serialized.contains(&hex::encode(worker_a.public_bytes())));
         assert!(!serialized.contains(&hex::encode(head.public_bytes())));
+    }
+
+    #[tokio::test]
+    async fn shard_session_routes_noop_in_duress() {
+        // Sprint 81 Phase I: never sign a compute group, a session
+        // manifest, or a RunProof under the fake keypair — group, mount
+        // and generate short-circuit to a plausible benign reply BEFORE
+        // any signing or dialing (mirror of seed_request_peer_noop_in_duress).
+        let state = mk_state_with_mode(nexus_core_rs::IdentityMode::Duress).await;
+
+        // group → {minted:false}, no signature minted.
+        let resp = build_test_router(Arc::clone(&state))
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/daemon/shard-session/group")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::json!({"group_id": "g", "members": []}).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let json: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 1024).await.unwrap()).unwrap();
+        assert_eq!(json["minted"], false, "duress must not mint a group");
+
+        // mount → {mounted:false}, before placement / manifest signing /
+        // any readiness dial. The body must be a VALID MountSessionRequest
+        // (the Json extractor runs before the handler), so mint a real
+        // signed group with a throwaway keypair.
+        let head = nexus_core_rs::crypto::KeyPair::generate();
+        let worker = nexus_core_rs::crypto::KeyPair::generate();
+        let group = crate::shard_session::mint_compute_group(
+            &head,
+            "duress-group",
+            1,
+            &[worker.public_bytes()],
+        )
+        .expect("group mints");
+        let worker_id = iroh::EndpointId::from_bytes(&worker.public_bytes()).expect("valid key");
+        let body = serde_json::json!({
+            "session_id": "duress-session",
+            "group": group,
+            "workers": [{
+                "addr": iroh::EndpointAddr::new(worker_id),
+                "vram_free_bytes": 1000,
+            }],
+            "model": { "total_layers": 8, "quantized_vram_bytes": 1500 },
+        });
+        let resp = build_test_router(Arc::clone(&state))
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/daemon/shard-session/mount")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let json: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 1024).await.unwrap()).unwrap();
+        assert_eq!(json["mounted"], false, "duress must not mount a session");
+        assert!(
+            state.shard_sessions.status_data("duress-session").is_none(),
+            "duress must not populate the registry"
+        );
+
+        // generate → {accepted:false}, before any RunProof signing.
+        let resp = build_test_router(Arc::clone(&state))
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/daemon/shard-session/duress-session/generate")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::json!({"prompt": "p"}).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let json: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 1024).await.unwrap()).unwrap();
+        assert_eq!(
+            json["accepted"], false,
+            "duress must not drive a generation"
+        );
     }
 }
