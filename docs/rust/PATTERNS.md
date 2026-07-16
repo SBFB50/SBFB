@@ -1477,9 +1477,13 @@ topic's difficulty bar.
 
 **Two sides wired at one entry point each :**
 
-- **Publish** — `crates/nexus-shell-daemon/src/http.rs ::
-  publish_project` now calls `wrap_payload_with_pow(&state,
-  &payload)` (same file). The helper reads the shared policy
+- **Publish** — every outbound announce goes through
+  `wrap_payload_with_pow(&state, &payload)` in
+  `crates/nexus-shell-daemon/src/http.rs`; its callers are
+  `deploy.rs :: publish_announcement` (the canonical project-announce
+  path `publish_project` routes through, Remediation #8) and
+  `publish_api.rs :: build_sign_announce_directory` (directory
+  announce, ex-`http.rs` S82 Phase S). The helper reads the shared policy
   (`Arc<RwLock<RelayPowPolicy>>`), asks the
   `PowSolveCache` for a live proof keyed by the curator topic id,
   and `PowEnvelope::encode`s `[u32 BE proof_len][proof bytes]
@@ -3432,7 +3436,7 @@ Observed live at the S75-G acceptance and re-observed at the S81 flip
 (S81-G-3): the signed `NodeDirectory` of a node that only SEEDS someone
 else's app advertises `catalog_len:0`. This is NOT a bug. The catalog is
 built exclusively from `own_entries(&my_node_id)` (fn
-`build_sign_announce_directory` in daemon `http.rs`; `own_entries` in
+`build_sign_announce_directory` in daemon `publish_api.rs`; `own_entries` in
 `browse.rs` filters direct entries on `node_id == my_node_id`) — apps the
 node itself published. A voluntarily-seeded distant app keeps the AUTHOR's
 `node_id` and is never a direct entry (test

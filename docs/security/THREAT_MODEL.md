@@ -1036,7 +1036,7 @@ Constat (acceptance live S75-G, re-observe au flip S81, S81-G-3) :
 l'annuaire signe d'un noeud qui SEEDE l'app d'autrui sans l'avoir
 publiee reste `catalog_len:0`. C'est PAR CONSTRUCTION : le catalogue
 est bati exclusivement depuis `own_entries(&my_node_id)`
-(`build_sign_announce_directory` dans `http.rs` ; `own_entries` dans
+(`build_sign_announce_directory` dans `publish_api.rs` ; `own_entries` dans
 `browse.rs` filtre sur `node_id == my_node_id`) — une app
 volontairement seedee garde le node_id de l'AUTEUR et n'est jamais un
 direct-entry (test `seed_voluntary_directory_only_app`). Semantique de

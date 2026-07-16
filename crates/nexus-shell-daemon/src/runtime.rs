@@ -1513,7 +1513,7 @@ fn spawn_gossip_and_boot_seed_driver(
             // (build/sign/store + one gossip emit) and must not wait
             // behind the seed acquisition's network budgets — closing
             // the discovery window is the very point of the re-emit.
-            if crate::http::reannounce_directory_at_boot(&boot_driver_state).await {
+            if crate::publish_api::reannounce_directory_at_boot(&boot_driver_state).await {
                 info!("producer node directory re-announced at boot");
             }
             // Sprint 82 Phase A: hold the shared lock across the driver so a

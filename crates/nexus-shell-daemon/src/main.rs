@@ -51,6 +51,7 @@ mod logging;
 mod named_pipe_server;
 mod noop_identity;
 mod panic;
+mod publish_api;
 mod quarantine_api;
 mod result_sync;
 mod runtime;

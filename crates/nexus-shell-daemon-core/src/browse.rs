@@ -601,7 +601,7 @@ impl BrowseAggregator {
     /// self-spoof never lands here; (2) the authoring route additionally requires
     /// that the node actually HOLDS the entry's archive blob locally
     /// (content-addressing = the ownership truth, verrou 4) and caps the catalog
-    /// before signing. See `http::publish_directory`.
+    /// before signing. See `publish_api::publish_directory`.
     pub fn own_entries(&self, my_node_id: &str) -> Vec<BrowseEntry> {
         let mut out: Vec<BrowseEntry> = self
             .direct_entries

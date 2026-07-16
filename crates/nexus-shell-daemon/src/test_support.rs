@@ -570,10 +570,11 @@ async fn golden_http_curators_domain() {
     .await;
 }
 
-/// Publish domain — includes `publish_blob`, which sits ~2000
-/// lines away from `publish_project`/`publish_directory` in the
-/// current tree (scattered domain), so the net covers all three
-/// entry points. The `publish-blob` hash is the BLAKE3 of the
+/// Publish domain — the three entry points (`publish_project`,
+/// `publish_blob`, `publish_directory`) are co-located in
+/// `publish_api.rs` (S82 Phase S; they were scattered across
+/// `http.rs` when this net was laid), and the net still covers
+/// all three. The `publish-blob` hash is the BLAKE3 of the
 /// fixed two-byte body `{}` — content-addressed, deterministic.
 /// `directory/publish` echoes node identity + a node-specific
 /// catalog archive: those fields are redacted as volatile.
