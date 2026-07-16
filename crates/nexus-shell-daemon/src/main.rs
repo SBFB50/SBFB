@@ -38,6 +38,7 @@ mod diagnostic_api;
 mod dispatch_loop;
 mod feed_sync;
 mod files;
+mod frost_api;
 mod health_api;
 mod http;
 mod invite_api;
