@@ -932,15 +932,17 @@ runtime layer.
 
 8. **G-3 — Daemon HTTP DTOs sans `#[serde(deny_unknown_fields)]`** —
    CLOSED Sprint 8 Phase A (commit `d321021`).
-   `crates/nexus-shell-daemon/src/http.rs` now stamps
-   `#[serde(deny_unknown_fields)]` on `SubscribeCuratorRequest`
-   (line 162), `SubscriptionsResponse` (line 173),
-   `CuratorsListResponse` (line 180), and `BrowseListResponse`
-   (line 201). A POST body that carries an unknown field is now
+   The daemon HTTP layer now stamps
+   `#[serde(deny_unknown_fields)]` on `SubscribeCuratorRequest`,
+   `SubscriptionsResponse` and `CuratorsListResponse` (all three in
+   `crates/nexus-shell-daemon/src/curators_api.rs` since the Sprint 82
+   Phase R split), and on `BrowseListResponse` (stays in
+   `crates/nexus-shell-daemon/src/http.rs`). A POST body that carries
+   an unknown field is now
    rejected by axum at deserialization time with HTTP 422 instead
    of being silently ignored — defense in depth against future
    schema drift between the shell and the daemon. Test:
-   `http::tests::subscribe_rejects_extra_fields`.
+   `curators_api::tests::subscribe_rejects_extra_fields`.
    Audit reference: `.planning/sprint7_audit_findings.md` §G-3.
 
 #### A-3 cross-language curator fixture — CLOSED Sprint 8 Phase A

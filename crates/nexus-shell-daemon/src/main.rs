@@ -34,6 +34,7 @@ mod cli;
 mod consent;
 mod contributor_api;
 mod coordinator_api;
+mod curators_api;
 mod deploy;
 mod diagnostic_api;
 mod dispatch_loop;

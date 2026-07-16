@@ -1174,7 +1174,7 @@ for the shell web to display "default curators" in the Curators
 page.
 
 Files: `config.rs` (CuratorConfig), `runtime.rs` (auto-subscribe
-loop), `http.rs` (GET /default-curators), coordinator `daemon.py`
+loop), `curators_api.rs` (GET /default-curators), coordinator `daemon.py`
 (proxy), `deploy/config.toml.example`.
 
 ### P20 — Browse → full-screen app rendering via `/browse/:projectId`

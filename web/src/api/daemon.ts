@@ -99,7 +99,7 @@ export type CuratorListEntry = z.infer<typeof CuratorListEntrySchema>;
 
 /**
  * Mirrors the daemon's `GET /curators` response
- * (`CuratorsListResponse` in `nexus-shell-daemon/src/http.rs`).
+ * (`CuratorsListResponse` in `nexus-shell-daemon/src/curators_api.rs`).
  */
 export const DaemonCuratorsResponseSchema = z
   .object({
