@@ -401,7 +401,7 @@ pub fn validate_tolerant_quorum_shard(
 /// crate** — the invariant "no path persists `result_text` without the
 /// output guardrail" is closed at the API level (Sprint 73 Phase A, D5).
 /// The two network ingress points run the split explicitly with the
-/// guardrail in between (`http.rs` `coordinator_submit_result`,
+/// guardrail in between (`coordinator_api.rs` `coordinator_submit_result`,
 /// `validator_loop`). Used only by this module's unit tests of the
 /// verification + quorum logic.
 #[cfg(test)]
@@ -418,7 +418,7 @@ impl ResultValidator {
     /// In-process validation **and** persistence WITHOUT the output
     /// guardrail — test-only (see [`ResultValidator`]). Exercises the
     /// verification + quorum logic; the guardrail is a daemon-layer
-    /// concern covered in `http.rs` / `validator_loop.rs` tests.
+    /// concern covered in `coordinator_api.rs` / `validator_loop.rs` tests.
     pub fn validate(
         &self,
         entry: &ResultEntry,
@@ -445,7 +445,7 @@ mod tests {
 
     /// In-process pre+post composition used by the verification/quorum
     /// unit tests below. The output guardrail is a daemon-layer concern
-    /// exercised in `http.rs` / `validator_loop.rs`; these tests focus on
+    /// exercised in `coordinator_api.rs` / `validator_loop.rs`; these tests focus on
     /// signature/status/quorum + persistence, so they mirror the
     /// pre-Sprint-73 `validate_result` ergonomics.
     fn validate_result(

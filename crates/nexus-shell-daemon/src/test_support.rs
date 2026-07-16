@@ -815,3 +815,26 @@ pub(crate) async fn ingest_remote_directory(
         .await
         .expect("directory must ingest through the real gate")
 }
+
+/// Minimal valid task submission (promoted in Sprint 82 Phase Q:
+/// consumed by both the migrated coordinator_api tests and the staying
+/// http.rs tasks_api tests).
+pub(crate) fn make_test_submission() -> nexus_coordinator_rs::types::TaskSubmission {
+    nexus_coordinator_rs::types::TaskSubmission {
+        project_id: "test-project".into(),
+        task_type: "analysis".into(),
+        prompt: "Analyze this".into(),
+        system_prompt: String::new(),
+        model: "llama3".into(),
+        priority: 5,
+        parent_task_id: String::new(),
+        metadata: std::collections::BTreeMap::new(),
+        is_open_source: false,
+        estimated_watts: 0,
+        estimated_vram_mb: 0,
+        estimated_hours: 0.0,
+        redundancy_factor: 1,
+        verifiable: false,
+        required_runtime: None,
+    }
+}

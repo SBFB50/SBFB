@@ -3575,7 +3575,7 @@ agreement patterns (§P60.2 exact-match, §P53 quorum):
    it as a plausibility-check, never as an anti-Sybil defense (THREAT_MODEL §15.3).
 2. **Centralize the clamp at the single credit chokepoint**, not at each call
    site, so a new caller cannot bypass it. The two prod sites
-   (`validator_loop.rs`, `http.rs`) just forward `entry.payload.*`.
+   (`validator_loop.rs`, `coordinator_api.rs`) just forward `entry.payload.*`.
 3. **The bounding input must be REAL end-to-end.** A latent producer bug is the
    trap: the worker hardcoded `generation_time_ms: 0`, which (with the `max(1)`
    floor) collapsed every honest credit > the per-ms ceiling to a flat value —
