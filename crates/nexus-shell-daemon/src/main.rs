@@ -51,6 +51,7 @@ mod panic;
 mod quarantine_api;
 mod result_sync;
 mod runtime;
+mod seed_api;
 mod seed_protocol;
 mod seed_registry;
 mod shard_session;

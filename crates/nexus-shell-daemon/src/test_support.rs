@@ -18,10 +18,10 @@ use axum::Router;
 use axum::body::to_bytes;
 use axum::http::{Method, Request, StatusCode};
 use axum::middleware;
-use nexus_core_rs::{KeyPair, PowSolveCache, create_node};
+use nexus_core_rs::{KeyPair, Node, PowSolveCache, create_node};
 use nexus_shell_daemon_core::auth::AuthState;
 use nexus_shell_daemon_core::blob_serve::BlobServeCache;
-use nexus_shell_daemon_core::browse::BrowseAggregator;
+use nexus_shell_daemon_core::browse::{BrowseAggregator, BrowseEntry};
 use nexus_shell_daemon_core::iroh_runtime::CuratorRuntime;
 use tokio::sync::RwLock;
 use tower::ServiceExt;
@@ -693,4 +693,125 @@ async fn golden_http_spa_fallback() {
         "<!doctype html><div id=root></div>",
         "[golden:spa_root] body drifted"
     );
+}
+
+// ---------------------------------------------------------------
+// Shared cross-domain test fixtures (promoted in Sprint 82 Phase O:
+// consumed by both the migrated seed_api tests and staying http.rs
+// fork/browse tests).
+// ---------------------------------------------------------------
+
+pub(crate) fn own_browse_entry(project_id: &str, name: &str, owner: Option<String>) -> BrowseEntry {
+    BrowseEntry {
+        project_id: project_id.into(),
+        node_id: owner,
+        project_name: name.into(),
+        category: "tools".into(),
+        description: "fixture".into(),
+        curator_pubkey: String::new(),
+        curator_name: "Self-published".into(),
+        source: nexus_shell_daemon_core::browse::BrowseSource::Direct,
+        status: nexus_shell_daemon_core::browse::BrowseStatus::Reachable,
+        last_probed_at: None,
+        archive_ticket: None,
+        archive_hash: Some("ab".repeat(32)),
+        repo_url: None,
+        provenance_hash: None,
+        is_open_source: false,
+    }
+}
+
+pub(crate) fn catalog_app(
+    project_id: &str,
+    archive_hash: &str,
+    name: &str,
+) -> nexus_core_rs::CatalogApp {
+    nexus_core_rs::CatalogApp {
+        project_id: project_id.into(),
+        archive_hash: archive_hash.into(),
+        project_name: name.into(),
+        category: "tools".into(),
+        description: "fixture".into(),
+    }
+}
+
+/// Helper: create a minimal zip archive in memory.
+pub(crate) fn make_zip(files: &[(&str, &[u8])]) -> Vec<u8> {
+    use std::io::Write;
+    let buf = Vec::new();
+    let cursor = std::io::Cursor::new(buf);
+    let mut writer = zip::ZipWriter::new(cursor);
+    let options =
+        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+    for (name, data) in files {
+        writer.start_file(*name, options).unwrap();
+        writer.write_all(data).unwrap();
+    }
+    writer.finish().unwrap().into_inner()
+}
+
+/// POST a forked workspace's zip to `/api/v1/deploy-workspace` and return the
+/// HTTP status. Mirrors `publish_app` but for the local-redeploy path.
+pub(crate) async fn deploy_workspace_app(
+    state: &Arc<DaemonHttpState>,
+    name: &str,
+    zip: Vec<u8>,
+) -> StatusCode {
+    let uri = format!(
+        "/api/v1/deploy-workspace?project_name={}&category=tools&description=forked",
+        name.replace(' ', "%20")
+    );
+    build_test_router(Arc::clone(state))
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri(uri)
+                .body(axum::body::Body::from(zip))
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+        .status()
+}
+
+/// Sign a directory under `kp` (the anchor identity, possibly never
+/// dialable), host its blob on `host`, and ingest it into `state`'s
+/// curator runtime through the REAL subscription-gated path (subscribe +
+/// announcement + blob fetch + signature/revision verify).
+pub(crate) async fn ingest_remote_directory(
+    state: &Arc<DaemonHttpState>,
+    host: &Node,
+    kp: &KeyPair,
+    catalog: Vec<nexus_core_rs::CatalogApp>,
+    revision: u64,
+) -> nexus_core_rs::NodeDirectoryEntry {
+    let mut dir = nexus_core_rs::NodeDirectory::new(kp.public_bytes(), revision);
+    dir.catalog = catalog;
+    let entry = nexus_core_rs::NodeDirectoryEntry::sign(dir, kp).expect("sign directory");
+    let body = serde_json::to_vec(&entry).unwrap();
+    let blobs_host = nexus_core_rs::BlobsClient::new(host.blobs_store());
+    let blob_hash = blobs_host.add_bytes(&body).await.unwrap();
+    let host_addr = nexus_core_rs::DiscoveryClient::new(host.endpoint())
+        .my_endpoint_addr()
+        .await
+        .expect("host must expose an address");
+    let ticket = iroh_blobs::ticket::BlobTicket::new(
+        host_addr,
+        iroh_blobs::Hash::from_bytes(blob_hash),
+        iroh_blobs::BlobFormat::Raw,
+    )
+    .to_string();
+    let ann = nexus_shell_daemon_core::iroh_runtime::NodeDirectoryAnnouncement::new(
+        kp.public_bytes(),
+        ticket,
+    );
+    state
+        .curator_runtime
+        .subscribe(&hex::encode(kp.public_bytes()))
+        .expect("subscribe to the anchor");
+    state
+        .curator_runtime
+        .process_directory_announcement_bytes(&ann.to_bytes().unwrap(), &state.node)
+        .await
+        .expect("directory must ingest through the real gate")
 }

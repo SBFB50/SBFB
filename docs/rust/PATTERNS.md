@@ -4150,7 +4150,7 @@ Logged by `sprint77_audit_findings.md` (Cas A audit gate, 11-track Workflow).
   the blake3 anti-crowding sampling was applied to the WORKER shard-placement tail
   (`placement.rs:309-350`), NOT to the SEEDER dial-set the S75/S76 carry originally
   named. `seed_registry.rs:331 seeders_recent` still does plain `ids.sort()`
-  (lexicographic), capped in `directory_pull_providers` (`http.rs:1709-1743`, whose
+  (lexicographic), capped in `directory_pull_providers` (`http.rs:directory_pull_providers`, whose
   own comment still says "carried to the S76 audit"). Availability-only (BLAKE3
   content-addressing keeps integrity intact — a crowding Sybil costs failed dials,
   never wrong bytes), so NOT P0/P1. Fix: track SEEDER-DIAL-TAIL explicitly in the

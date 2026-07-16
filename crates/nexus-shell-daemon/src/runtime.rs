@@ -1520,7 +1520,7 @@ fn spawn_gossip_and_boot_seed_driver(
             // concurrent re-drive-on-ingest cannot double-announce.
             let pinned = {
                 let _guard = seed_driver_lock.lock().await;
-                crate::http::run_boot_seed_driver(&boot_driver_state, &configured).await
+                crate::seed_api::run_boot_seed_driver(&boot_driver_state, &configured).await
             };
             if pinned > 0 {
                 info!(
@@ -2470,7 +2470,7 @@ pub(crate) async fn maybe_redrive_seed_on_ingest(
                 // Serialize against the boot driver / a prior pass so the
                 // `was_already_announced` read-before-write cannot double-emit.
                 let _guard = lock.lock().await;
-                let pinned = crate::http::run_boot_seed_driver(&state, &configured).await;
+                let pinned = crate::seed_api::run_boot_seed_driver(&state, &configured).await;
                 if pinned > 0 {
                     info!(pinned, "boot seed driver re-driven on directory ingest");
                 }
