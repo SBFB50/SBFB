@@ -614,7 +614,7 @@ export const addAnchor = subscribeCurator;
  * Mirrors `nexus_coordinator_rs::search::SearchResult`.
  *
  * The seven base columns plus the Sprint 73 Phase D provenance
- * triplet. The Rust `search_handler` (`nexus-shell-daemon/src/http.rs`)
+ * triplet. The Rust `search_handler` (`nexus-shell-daemon/src/search_api.rs`)
  * serialises every key unconditionally — the four provenance fields
  * come through as JSON `null` (NOT absent) for non-release ops and
  * pre-M17 index rows. They are therefore modelled as `.nullable()`,

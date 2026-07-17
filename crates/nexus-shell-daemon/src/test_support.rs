@@ -839,3 +839,67 @@ pub(crate) fn make_test_submission() -> nexus_coordinator_rs::types::TaskSubmiss
         required_runtime: None,
     }
 }
+
+// ---------------------------------------------------------------
+// Shared cross-domain test fixtures (promoted in Sprint 82 Phase S3:
+// consumed by the migrated search_api/preview_api tests and by the
+// staying http.rs deploy/browse-card/fork tests).
+// ---------------------------------------------------------------
+
+pub(crate) fn make_test_zip() -> Vec<u8> {
+    use std::io::Write;
+    let mut buf = std::io::Cursor::new(Vec::new());
+    {
+        let mut zw = zip::ZipWriter::new(&mut buf);
+        let opts = zip::write::SimpleFileOptions::default();
+        zw.start_file("index.html", opts).unwrap();
+        zw.write_all(b"<html><body>test</body></html>").unwrap();
+        zw.finish().unwrap();
+    }
+    buf.into_inner()
+}
+
+/// Publish an app through the real `POST /api/daemon/publish` handler.
+pub(crate) async fn publish_app(
+    state: &Arc<DaemonHttpState>,
+    name: &str,
+    category: &str,
+    desc: &str,
+) -> StatusCode {
+    let body = serde_json::json!({
+        "project_name": name,
+        "category": category,
+        "description": desc,
+    });
+    build_test_router(Arc::clone(state))
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/daemon/publish")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+        .status()
+}
+
+/// Search through the real `GET /api/daemon/search` handler; returns `total`.
+pub(crate) async fn search_total(state: &Arc<DaemonHttpState>, q: &str) -> u64 {
+    let uri = format!("/api/daemon/search?q={}", q.replace(' ', "%20"));
+    let resp = build_test_router(Arc::clone(state))
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri(uri)
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let json: serde_json::Value =
+        serde_json::from_slice(&to_bytes(resp.into_body(), 16384).await.unwrap()).unwrap();
+    json["total"].as_u64().unwrap()
+}
