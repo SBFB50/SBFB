@@ -21,8 +21,14 @@
       "note": "S81-G-1 (D12) closed BY STORE CLASS: PC standalone migrated-sibling-observed (then rule-4 hygiene applied after capture); PC/VPS local-worker recreate-fresh/absent by construction (t2_h:48 claim corrected); Mac functional-by-construction (host cold — proof on file b3_p2_quorum PASS 2026-07-11 under the 1.0.1 lock); consent L4 descent applied on PC, deferred on Mac (host down), both consigned"
     },
     "push_gate_po4c": {
-      "status": "NOT-RUN",
-      "note": "sequenced AFTER the Phase T commit (outgoing actions, each PO-confirmed): staging branch + rust-ci 3-OS dispatch (known risk: macos-14 watcher class) -> grouped push -> Woodpecker/codeberg + integration-nightly dispatch + junit download (closes S81-J-2). NOT-RUN here is honest sequencing, not an omission — the gate outcome is audited by sprint83_audit_plan.md Track CI"
+      "status": "PASS",
+      "note": "PLAYED 2026-07-17 post-commit, full sequence PO-ratified then PO-arbitrated: [1] staging branch ci/s82-tip pushed; [2] rust-ci run 29598778694 = fmt+windows+ubuntu GREEN (first green GHA ubuntu since 2026-05 — Phase C GTK fix proven on a real runner), clippy RED on a runner-toolchain drift (rust 1.97 new lint useless_borrows_in_formatting, single site) -> fixed dd857d9 (PO choice: 1-char fix), macos-14 RED = pre-existing watcher class -> PO ARBITRATION: leg NON-BLOCKING, routed S83; [3] re-run 29601766920 = clippy+fmt+windows+ubuntu GREEN; [4] GROUPED PUSH: origin/master c899d54->dd857d9 (48 commits) + codeberg/master f4b4600->dd857d9; [5] Woodpecker pipeline #38: ALL heavy steps GREEN (rust fmt/clippy/test/doctest + full frontend — first green since the GTK era), spdx-check step RED on a runner-environment glitch (both flagged blobs PROVEN compliant: git show line-1 tags, auth.rs unchanged since S16 and green on pipeline #37 with identical content, tag matches in the exact bash:5 image by hand — routed S83 as env-glitch P3, docs-gates steps skipped downstream); [6] integration-nightly dispatch run 29603133484 = SUCCESS, junit artefact downloaded and READABLE (testsuites tests=10 failures=0 errors=0) -> S81-J-2 CLOSED with machine-readable proof",
+      "runs": {
+        "rust_ci_round1": "29598778694",
+        "rust_ci_round2": "29601766920",
+        "integration_nightly": "29603133484",
+        "woodpecker_pipeline": "38"
+      }
     }
   },
   "invariance_gate_d4": {

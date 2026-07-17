@@ -263,6 +263,16 @@ cat .planning/active/sprint82_t2_benchmarks.json        # BLOCK{rig} honnête (P
 - [x] `sprint83_audit_plan.md` écrit (routage P2/P3 des 24 phase-reviews).
 - [x] Working tree : les 3 fichiers hors-phase PO (blueprint modifié +
   2 untracked `workflow_*`) EXCLUS du staging.
-- [ ] **Gate push groupé PO-4=C** (post-commit, actions sortantes à confirmer
-  PO) : branche staging + rust-ci 3-OS → push master → Woodpecker/codeberg +
-  nightly junit. Le push est LA seule condition restante du DoD.
+- [x] **Gate push groupé PO-4=C JOUÉ 2026-07-17** (séquence ratifiée PO puis
+  arbitrée) : rust-ci runs 29598778694 + 29601766920 — fmt/clippy/windows/
+  ubuntu VERTS (1er ubuntu GHA vert depuis 2026-05, fix GTK Phase C prouvé ;
+  clippy réparé `dd857d9`, drift toolchain 1.97) ; **macos-14 rouge =
+  ARBITRAGE PO leg non-bloquant** (classe watcher pré-existante, routée
+  S83) ; **PUSH GROUPÉ : origin c899d54→dd857d9 (48 commits) + codeberg
+  f4b4600→dd857d9** ; Woodpecker #38 : steps lourds TOUS VERTS
+  (rust+frontend), step spdx-check rouge = glitch env runner (les 2 blobs
+  flaggés PROUVÉS conformes — tags ligne 1 au commit, auth.rs inchangé
+  depuis S16 et vert au #37 à contenu identique, pipeline re-testée à la
+  main dans l'image bash:5 exacte = MATCH ; routé S83 P3) ;
+  **integration-nightly run 29603133484 SUCCESS + junit lisible (10 tests /
+  0 failure) → S81-J-2 CLOSED**. Sprint 82 FERMÉ.
