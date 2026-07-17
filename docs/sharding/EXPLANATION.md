@@ -57,8 +57,9 @@ Deux signatures Ed25519, deux responsabilités distinctes :
   `participants` = qui a réellement calculé, et le fingerprint d'activation N0
   du dernier step). Depuis S81 I/J c'est le **driver** (la tête qui a piloté la
   génération) qui le signe — un self-claim non-répudiable pour le driver, pas
-  une vérification indépendante. Les preuves signées **par worker** distant sont
-  re-routées **S82**.
+  une vérification indépendante. Les preuves signées **par worker** distant ont
+  été différées par **S82** (sprint dette docs-contrat, D6) vers le slot
+  rig-chaud tracé en roadmap v5.
 
 **La frontière est une auto-attestation.** Une signature valide ne prouve **pas**
 que le calcul est correct — seulement *qui* a parlé. Tant qu'un vérificateur
@@ -82,7 +83,8 @@ vérification** *hors-bande* (jamais transportée sur le data-plane ; dérivée 
 `RunProof` signés après coup). Chaque étage est aujourd'hui une **primitive
 câblée et testée hermétiquement** ; l'orchestrateur qui exécute la génération
 réelle et signe le `RunProof` DRIVER est **livré (S81 I/J)** — les preuves
-signées PER-WORKER des shards distants restent re-routées **S82**.
+signées PER-WORKER des shards distants restent différées (**S82** les a
+re-routées vers le slot rig-chaud, D6).
 
 - **N0 — empreinte TOPLOC.** Un *commitment* BLAKE3 32 octets du top-k du dernier
   hidden state. Il **détecte un swap** de modèle ou de quantification (un worker
@@ -113,14 +115,15 @@ signées PER-WORKER des shards distants restent re-routées **S82**.
 chaque shard** aujourd'hui : les primitives sont câblées et testées, et
 l'émission signée du `RunProof` DRIVER est **livrée (S81 I/J)** — mais le
 re-exec GPU réel, le transport du sketch complet hors du slot 32 octets et les
-preuves per-worker sont re-routés **S82**. Le chemin de
+preuves per-worker restent différés (**S82**, sprint dette docs-contrat, les a
+re-routés vers le slot rig-chaud). Le chemin de
 résultat *live* reste le **quorum exact-match sur `result_text`, INCHANGÉ**.
 L'incitation est du **kudos non-monétaire** (réputation) : il n'y a **aucune
 défense anti-vérificateur-paresseux** et **jamais** de slash/bond/burn (interdit
 par décision PO). La garantie cryptographique forte (N4 zkML) est **hors-scope
 S77**. La mitigation SI-5 (padding constant-rate contre le side-channel de
 latence) dérive du benchmark réel — la baseline existe depuis S81 J, le padding
-lui-même est re-routé **S82**.
+lui-même reste différé (re-routé par **S82** vers le slot rig-chaud).
 
 ## Posture de sécurité
 

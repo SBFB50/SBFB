@@ -87,11 +87,45 @@ P1 sharding S77 RIG-ABSENT est **CLOSED**, la feature sort de PROVISIONAL ;
 binding loaded-stage ↔ manifeste signé livré Phase K). **Viewer fondation +
 Aperçu scellé/Proof Card → S82** (sous réserve de l'arbitrage slot C9,
 BLOQUANT : slot S82 = workflow-engine vs Viewer vs dette docs-contract, à
-RE-CONFIRMER PO au wrap-up S81 — pas encore tranché). **Borne pre-launch TRACÉE** : la politique « wire modifiable
+RE-CONFIRMER PO au wrap-up S81 — pas encore tranché). **[SUPERSEDED
+2026-07-17, S82 Phase T : C9 a été tranché PO 2026-07-11 — slot S82 = dette
+docs-contrat + refacto (ratifié PO-9) ; Viewer et workflow-engine sont
+décalés vers de futurs slots tracés, cf. bloc LIVRAISON S82 ci-dessous.]**
+**Borne pre-launch TRACÉE** : la politique « wire modifiable
 librement avant v1.0 » ne couvre PAS le store on-disk iroh-docs/blobs déjà
 déployé (ancre VPS) — la migration redb 2→4 est one-way, rollback = restore
 tar + redeploy 0.98 (DEUX gestes, `docs/release/STORE_MIGRATION_OPS.md`).
 Détail : `sprint81_verification.md`.
+
+**LIVRAISON 2026-07-17 (S82 Phase T) — S82 DONE : dette docs-contrat +
+refactorisation ; slots décalés TRACÉS non-perdus** : l'arbitrage C9
+(PO 2026-07-11, ratifié PO-9) a donné le slot S82 à la **dette docs-contrat
++ refacto** — Phase 0 (audit gate S81 FAIL levé voie A) + 24 phases A→T :
+boot-SEED OVERDUE 3/3 fermé (re-drive-on-ingest ancre + catch-up `task:`
+worker cold-boot, T2 live PASS `sprint82_t2_bootseed.json`) ; benchmarks
+standards sharding (canon T3 ratifié, artefact honnête BLOCK{rig}) ; CI
+restaurée (GHA GTK + Woodpecker + integration-nightly calibré) ;
+multi_daemon relay-gated 6/6 ; ledgers réconciliés + zombies purgés (D9) ;
+PROMISE_RE élargi ; schémas request-body shard-session (2 snapshots
+drift-gatés + tables SPEC §6.1, D8) ; hickory 0.24→0.26 (4 RUSTSEC clos) ;
+`DaemonRuntime::start()` décomposé ; **série split http.rs N→S4 TERMINÉE
+(13130→1513 l, PO-10 « S82 = une fin », 12 modules domaine, golden 9/9,
+routes 89==89, ±0 test)** ; clôture docs-contrat Phase T (index 3
+request-bodies, LOOPBACK §3 verrou D7 représentatif, CLAUDE.md CI
+réconcilié, migration stores worker redb 2→4 vérifiée 3 nœuds PAR CLASSE
+de store — Mac : preuve fonctionnelle committée, observation différée).
+**Slots décalés explicitement TRACÉS (rien n'est perdu)** :
+(1) **workflow-engine** — futur slot dédié ; le staging
+`.planning/research/sprint82_workflow_engine/` est SUPERSEDED (Phase E) et
+ses faits vérifiés sont à RE-VALIDER à l'activation ;
+(2) **Viewer fondation + Aperçu scellé/Proof Card** — futur slot (l'entrée
+« Viewer → S82 » du bloc S81 ci-dessus est SUPERSEDED) ;
+(3) **reprise arc front Factory Operator** — l'arc inachevé (87 fichiers)
+reste parqué sur `wip/factory-front-arc-post-s82`, review + Codex groupés
+DUS à la reprise (rebase conflit attendu `provider_router.rs`, PO-6) ;
+(4) **sharding feature/hardening** (per-worker proofs, dispute arbitration,
+tuning seuils, R-J-6, F2 KV-cache, SI-12) — slot rig-chaud (D6).
+Détail : `sprint82_verification.md`.
 
 ---
 

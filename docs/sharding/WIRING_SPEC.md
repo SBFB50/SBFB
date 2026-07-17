@@ -31,7 +31,8 @@ repo files > .planning/active/ > commits > prompts > chat
 > `shard_session.rs`) and the driver-signed `RunProof` emission are live —
 > benchmark PASS on the real 2-machine rig
 > (`sprint81_t2_j_shard_inference.json`). Still PROVISIONAL: per-worker
-> proof emission + dispute arbitration (routed S82) — mark only THOSE
+> proof emission + dispute arbitration (deferred by S82 — the docs-contract
+> sprint, D6 — to the rig-chaud slot, roadmap v5) — mark only THOSE
 > clauses accordingly.
 
 > **Cardinal caveat — admission ≠ confidentialité.** Group admission is
@@ -50,7 +51,8 @@ Three actors, one private compute group:
 - **Worker** — a node admitted to the `ComputeGroup` allowlist that executes one
   contiguous layer block; since S81 K it also ATTESTS its loaded stage at
   stage-link establishment. The signed `RunProof` of a run is emitted by the
-  session DRIVER (S81 I/J); per-worker proofs are routed S82.
+  session DRIVER (S81 I/J); per-worker proofs are deferred to the rig-chaud
+  slot (S82/D6).
 - **Observer** — any loopback caller reading aggregate session status; sees a
   `member_count`, never an identity.
 
@@ -132,8 +134,9 @@ Each step lists **source_ref** (`path:Symbol`, grep-resolvable) · **signed?** �
   and `activation_fingerprint` binds the LAST step's N0 TOPLOC commitment.
   The driver's proof covers the run it DROVE — it is a self-claim, not an
   independent verification. **Per-worker** RunProofs from remote shards need a
-  control-plane return channel and are routed S82: mark any "each worker emits
-  its own signed proof" claim PROVISIONAL until then.
+  control-plane return channel and were deferred by S82 (D6) to the rig-chaud
+  slot: mark any "each worker emits its own signed proof" claim PROVISIONAL
+  while that slot has not shipped.
 
 ### OBSERVE — read-only aggregate status
 - source_ref `crates/nexus-shell-daemon/src/shard_session_http_api.rs:shard_session_response` (body),

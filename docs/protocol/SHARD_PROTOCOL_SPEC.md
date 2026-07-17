@@ -9,7 +9,8 @@ closing the S77 `RIG-ABSENT` carry. Sprint 81 Phase K added the
 **stage attestation** (loaded-stage ↔ signed-manifest binding, §5.2).
 The feature is live-proven on the operator rig; graded verification
 beyond the driver's signed RunProof (per-worker proofs, dispute
-arbitration) is routed S82.
+arbitration) was deferred by S82 (the docs-contract sprint, D6) to the
+rig-chaud slot tracked in roadmap v5.
 **Versioning regime:** pre-v1.0 **raw-op additive**. Every signed
 payload pins its `*_FORMAT_VERSION` at `1`; the five `DOMAIN_*_V1`
 families and the `sbfb/shard/1` ALPN are brand-new, so introducing them
@@ -53,7 +54,8 @@ not by each remote worker: it attests the run the driver measured
 (`participants` names who actually executed, `activation_fingerprint`
 binds the last step's N0 commitment) — a self-claim, non-repudiable for
 the driver, never an independent verification. Per-worker signed proofs
-need a control-plane return channel and are routed S82. Neither
+need a control-plane return channel and are deferred to the rig-chaud
+slot (S82/D6). Neither
 signature attests that the computation is **correct**. Graded
 verification (N0 TOPLOC → N1 VRF
 spot-check → N2 tolerant redundancy → N3 commit-reveal/SENTINEL) raises
@@ -72,7 +74,7 @@ as another. The five families of this subsystem:
 |---|---|---|
 | Compute group allowlist | `nexus-compute-group-v1` | initiator |
 | Sharded-session manifest | `nexus-shard-plan-v1` | initiator |
-| Run proof | `nexus-run-proof-v1` | session driver (S81 I/J); per-worker = S82 |
+| Run proof | `nexus-run-proof-v1` | session driver (S81 I/J); per-worker = deferred (rig-chaud slot) |
 | VRF spot-check draw (N1) | `nexus-vrf-draw-v1` | verifier |
 | Activation commit-reveal (N3) | `nexus-activation-commit-v1` | worker |
 

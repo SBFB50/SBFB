@@ -16,7 +16,8 @@
   **livré (S81 Phase I)** en surface **opérateur** (routes loopback
   `/api/daemon/shard-session/*`), et le **benchmark live 2 machines** a **PASS**
   (S81 Phase J). Depuis S81 Phase K, chaque stage-link exige l'**attestation du
-  stage chargé** (fail-closed). **Reste ouvert (carry S82) :** les preuves
+  stage chargé** (fail-closed). **Reste ouvert (différé par S82 — sprint dette
+  docs-contrat — vers le slot rig-chaud, roadmap v5) :** les preuves
   signées **per-worker** des shards distants + l'**arbitrage de litige in-vivo**
   (le RunProof actuel est celui du DRIVER, un self-claim — pas une vérification
   indépendante).
@@ -52,7 +53,11 @@ Le panneau reste un **texte explicatif** ; l'orchestrateur derrière est **livr�
 depuis S81 Phase I** en surface **opérateur** (routes loopback
 `/api/daemon/shard-session/*` : mint du groupe signé, mount — placement +
 signature du `ShardedSessionManifest` `nexus-shard-plan-v1` + readiness
-barrier —, drive, résultat ; cf. `SHARD_PROTOCOL_SPEC.md` §6). Côté protocole,
+barrier —, drive, résultat ; cf. `SHARD_PROTOCOL_SPEC.md` §6). Les corps de
+requête exacts de ces routes — `ShardGroupMintRequest`, `MountSessionRequest`,
+`ShardGenerateRequest` (S82 G) — sont spécifiés dans les tables de
+`SHARD_PROTOCOL_SPEC.md` §6.1 et résumés dans [`REFERENCE.md`](./REFERENCE.md).
+Côté protocole,
 rien à câbler dans une app : l'initiation est une action **privilégiée du
 nœud**, pas une méthode bridge.
 

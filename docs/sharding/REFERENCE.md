@@ -38,7 +38,7 @@ decoders accept a range).
 |---|---|---|
 | Compute-group allowlist | `nexus-compute-group-v1` | initiator |
 | Sharded-session manifest | `nexus-shard-plan-v1` | initiator |
-| Run proof | `nexus-run-proof-v1` | session driver (S81 I/J); per-worker = S82 |
+| Run proof | `nexus-run-proof-v1` | session driver (S81 I/J); per-worker = deferred (rig-chaud slot) |
 | VRF spot-check draw (N1) | `nexus-vrf-draw-v1` | verifier |
 | Activation commit-reveal (N3) | `nexus-activation-commit-v1` | worker |
 
@@ -58,13 +58,24 @@ are integers (no floats in signed payloads — see [`EXPLANATION.md`](./EXPLANAT
 | `RunProof` | `version: u16`, `worker_pubkey: [u8;32]`, `session_id: String`, `model_digest: [u8;32]`, `prompt_profile_hash: [u8;32]`, `activation_fingerprint: [u8;32]` (N0; 32 zeros = not provided), `metrics: RunMetrics`, `participants: Vec<[u8;32]>` | yes | `nexus-run-proof-v1` |
 | `ShardSessionView` | `session_id: String`, `member_count: usize`, `rtt_frontier_ms: Option<u64>` (aggregate transport measurement, S81 I) | no (observed DTO) | — |
 | `ShardSessionStatusResponse` | `found: bool`, `session: Option<ShardSessionView>` | no (observed DTO) | — |
+| `ShardSessionResultView` | `session_id: String`; always-serialized measurements, `null` until a drive completes: `result_text`, `ttft_s`, `toks_per_s`, `tokens`, `run_proof` (driver signature hex), `rtt_frontier_ms`; S82 B standard benchmark metrics: `ttft_ms`, `tpot_ms`, `itl_p50_ms`, `itl_p95_ms`, `decode_milli_tokens_per_sec`; `worker_drop_count: u32`, `failure: Option<String>` | no (observed DTO) | — |
+| `ShardSessionResultResponse` | `found: bool`, `result: Option<ShardSessionResultView>` (key always present, `null` on miss) | no (observed DTO) | — |
+| `ShardGroupMintRequest` | `group_id: String`, `members: Vec<String>` (lowercase-hex worker pubkeys; the head is added automatically), `revision: Option<u64>` (defaults to 1) | no (request body, S82 G) | — |
+| `MountSessionRequest` | `session_id: String`, `group: ComputeGroupEntry` (signed envelope), `workers: Vec<ShardWorkerSpec>`, `model: ShardModelSpec`, `readiness_deadline_ms` / `hop_deadline_ms: Option<u64>` — **NOT schematised** (embeds the signed envelope + `iroh::EndpointAddr`); field table in the machine spec §6.1 | no (request body, S82 G) | — |
+| `ShardGenerateRequest` | `session_id: Option<String>` (redundant echo — the PATH id is authoritative, a disagreeing body id is rejected with 400), `prompt: String`, `max_tokens: Option<u32>` | no (request body, S82 G) | — |
 
 The control-plane DTO `ShardSessionView` exposes `session_id`,
 `member_count` and `rtt_frontier_ms` (an aggregate transport measurement,
 S81 Phase I), never a `worker_pubkey`/`initiator` (privacy whitelist,
 THREAT_MODEL §16 SI-3/SI-4). `ShardSessionStatusResponse.session` is always
 serialized (`null` when absent) so the front Zod `.strict()` envelope parses an
-empty result as success, not a transport error.
+empty result as success, not a transport error. The two request-body DTOs
+`ShardGroupMintRequest` / `ShardGenerateRequest` are schematised
+(drift-gated snapshots `shard_group_mint_request.schema.json` /
+`shard_generate_request.schema.json`, S82 Phase G); `MountSessionRequest` is
+deliberately not — the exact field tables for all three POST bodies live in
+the machine spec
+[`SHARD_PROTOCOL_SPEC.md`](../protocol/SHARD_PROTOCOL_SPEC.md) §6.1.
 
 ## Data plane — ALPN `sbfb/shard/1`
 
@@ -95,14 +106,16 @@ can never produce a payload its own peers would reject.
 `SHARD_GROUP_ID_MAX` (manifest) and `COMPUTE_GROUP_ID_MAX` (`ComputeGroup`) are
 two **distinct** constants that happen to share the value 128.
 
-## Verification thresholds (S82-pending tuning)
+## Verification thresholds (tuning pending — rig-chaud slot)
 
 These are the **current calibration** of the graded-verification ladder. They
-are documented for the implementer, but the values are **S82-pending tuning**:
-they were chosen from the source papers, not yet re-calibrated on the real
-two-machine rig. The live benchmark itself EXISTS since S81 Phase J
-(`sprint81_t2_j_shard_inference.json`, PASS — the re-calibration baseline);
-the tuning pass on it is routed S82.
+are documented for the implementer, but the values remain **S82-pending tuning**
+in the sense minted at S77: chosen from the source papers, never re-calibrated
+on the real two-machine rig. The re-calibration baseline EXISTS since S81
+Phase J (`sprint81_t2_j_shard_inference.json`, PASS) and S82 Phase B added the
+standard-metrics artefact (`sprint82_t2_benchmarks.json`, an honest
+`BLOCK{rig}`); the tuning pass itself was deferred by S82 (the docs-contract
+sprint, D6) to the rig-chaud slot tracked in roadmap v5.
 
 | Stage | Constant | Value | Source |
 |---|---|---|---|

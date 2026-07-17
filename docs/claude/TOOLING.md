@@ -288,8 +288,10 @@ bloquants.
 **Regle retiree 2026-04-15** : `sbfb-project-announcement-repo-url`
 produisait 6 faux positifs sur code correct (guard clauses HTTP +
 builders chaines avec `with_provenance_hash` intermediaire). Le
-coordinator Python + la validation daemon-side (http.rs:483-494)
-enforcent deja la coherence. Documentee en TODO dans `.semgrep/sbfb.yml`
+coordinator Python de l'epoque (purge S50-51) puis la validation
+daemon-side (`publish_api.rs`, garde `is_open_source` =>
+`provenance_hash`+`repo_url` — re-pointee S82 T, ex-http.rs pre-split)
+enforcaient/enforcent deja la coherence. Documentee en TODO dans `.semgrep/sbfb.yml`
 pour reouverture si flow analyzer Rust disponible (Creusot/Kani).
 
 ### 3.3 TDD Guard (optionnel, opt-in)

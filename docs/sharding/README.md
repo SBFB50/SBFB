@@ -24,8 +24,9 @@ drive HUB, decode loop, `RunProof` driver signé en production) et le
 CodeLlama-34B éclaté RTX 5080-CUDA + Mac M2-Metal, 16 tokens greedy
 déterministes, `sprint81_t2_j_shard_inference.json`). Depuis S81 Phase K,
 chaque stage-link d'une session réelle exige l'**attestation du stage
-chargé** (binding loaded-stage ↔ manifeste signé, fail-closed). Restent
-re-routés S82 : preuves per-worker, arbitrage de litige in-vivo, tuning des
+chargé** (binding loaded-stage ↔ manifeste signé, fail-closed). Différés par
+S82 (sprint dette docs-contrat, D6) vers le slot rig-chaud tracé en
+roadmap v5 : preuves per-worker, arbitrage de litige in-vivo, tuning des
 seuils sur rig.
 
 Concrètement : le **contrat wire** et les **primitives** décrits ici sont
@@ -61,7 +62,7 @@ l'incitation : voir le modèle de menace,
 | **Explication** | [`EXPLANATION.md`](./EXPLANATION.md) | comprendre *comment ça marche* (pipeline-parallel, signatures, vérification graduée) | humain |
 | **Guide pratique** | [`HOW_TO_WIRE.md`](./HOW_TO_WIRE.md) | *comment câbler un projet* du protocole (rôles START / JOIN / OBSERVE) | humain |
 | **Référence** | [`REFERENCE.md`](./REFERENCE.md) | les types wire, caps et seuils exacts (jumeau humain des schémas générés) | humain + agent |
-| **Tutoriel** | _(différé — candidat S82+)_ | un walkthrough end-to-end runnable | — |
+| **Tutoriel** | _(différé — slot futur)_ | un walkthrough end-to-end runnable | — |
 
 > **Pourquoi pas encore de tutoriel ?** Un tutoriel promet un parcours qui
 > *marche du premier coup*. L'orchestrateur de session in-vivo est livré et

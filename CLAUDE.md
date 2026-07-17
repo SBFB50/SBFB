@@ -165,7 +165,7 @@ Runtime isolation roadmap dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
 ## Etat actuel
-- **Sprints 0-77 CLOSED + S79-S81 DONE** (S78 différé Factory-first puis
+- **Sprints 0-77 CLOSED + S79-S82 DONE** (S78 différé Factory-first puis
   **ABSORBÉ par S81 Phases I/J**) (Arc 3.5 Factory Complete Vision
   **6/6 COMPLET** ; S77 = **sharding pipeline** LIVRE — coeur teste
   hermetiquement [primitives wire C, placement Parallax D, routing+churn E,
@@ -192,9 +192,35 @@ Runtime isolation roadmap dans
   per-worker operator-corroborated, contrat de provenance dans l'agrégat) + THREAT
   v17 + clôture docs-contrat + §P73 (K). 0 bump wire SBFB (byte-identique aux 2 bornes),
   0 dep runtime, iroh STRICTEMENT SEUL, migration one-way (rollback = DEUX
-  gestes), upgrade ≠ Gate 1 (R-iroh-audit P0 INCHANGÉ). Prochain : audit
-  gate S81 = Phase 0 de S82 (`sprint82_audit_plan.md` — escalade BLOQUANTE
-  boot-SEED OVERDUE 3/3) ; slot S82 = workflow-engine (arbitrage PO C9).
+  gestes), upgrade ≠ Gate 1 (R-iroh-audit P0 INCHANGÉ).
+  **S82 DONE — dette docs-contrat + refactorisation** (arbitrage C9 PO
+  2026-07-11 : workflow-engine et Viewer DÉCALÉS vers de futurs slots
+  tracés, PO-9 ; amendement in-sprint PO-10 « S82 = une fin ») : Phase 0
+  audit gate S81 FAIL levé voie A (`ad53940`+`95ff46c`) + **24 phases
+  A→T**. Livré : boot-SEED OVERDUE 3/3 FERMÉ (re-drive-on-ingest +
+  catch-up worker, T2 live PASS `sprint82_t2_bootseed.json`, A) ;
+  benchmarks standards sharding + canon T3 (artefact honnête BLOCK{rig},
+  B) ; CI restaurée (GTK + integration-nightly calibré, C) + multi_daemon
+  6/6 (D) ; ledgers réconciliés D9 + staging workflow-engine SUPERSEDED
+  (E) ; PROMISE_RE élargi (F) ; schémas request-body shard-session +
+  census DOMAIN 25 frozen (G) ; doc-dette C/H/I/J + vocab T2 palier
+  ACTED/MIXED/NOT-RUN ratifié (H-J) ; hickory 0.24→0.26, 4 RUSTSEC clos
+  (K) ; `start()` décomposé (L) ; golden net 9 tests §P75 (M) ; **série
+  split http.rs N→S4 TERMINÉE : 13130→1513 l (−11617), 12 modules
+  domaine, golden 9/9 à chaque split, routes 89==89, ±0 test EXACT,
+  critère machine PO-10 PASS** ; clôture T (index frontière Phase G +
+  anchors discriminants, LOOPBACK §3 verrou D7 `inventory_policy`
+  représentatif 27/89 CLOSED-BY-POLICY, re-route « routed S82 »→slot
+  rig-chaud, roadmap v5 amendé + 3 slots décalés tracés, migration
+  stores worker redb 2→4 vérifiée 3 nœuds PAR CLASSE de store
+  `sprint82_t2_store_migration.json` D12 [Mac : preuve fonctionnelle
+  committée, observation on-disk différée hôte froid ; consents L4 : PC
+  redescendu, Mac différé]) ⇒ **gate push groupé PO-4=C séquencé
+  POST-commit** (NOT-RUN au commit T ; 3 verts + push = actions sortantes
+  à confirmer PO, lecture bi-temporelle à ratifier à l'exécution).
+  Prochain : audit gate S82 = Phase 0 de
+  S83 (`sprint83_audit_plan.md`) ; slots candidats S83+ : workflow-engine
+  / Viewer fondation / reprise arc front (cf. roadmap v5 bloc S82).
   **S79 DONE — capacité Factory « app-authoring »** (anime.js 4.5.0 + daisyUI
   5.5.23 maîtrisés dans le process Factory) : 8 phases feature A-H + Phase I
   docs-contract closure. Knowledge packs versionnés blake3 + prompt-kind
@@ -391,15 +417,33 @@ Runtime isolation roadmap dans
   Arc 3.5 Factory Complete Vision **6/6 COMPLET**.
   S69 audit PASS (0 P0, 0 P1, 3 P2, 2 P3) — `c6c135f`.
   P2P valide cross-machine : LAN Win↔Mac, WAN dev↔VPS Helsinki.
-  CI : Woodpecker ci.sbfb.world operationnel (fmt/clippy/`cargo test`
-  workspace + doctest / web unit+build+size / operator tsc+lint / gates
-  docs). **GHA « CI » ROUGE depuis 2026-05** (deps GTK absentes du runner
-  -> `glib-sys` build-fail : les steps clippy + operator vitest + E2E
-  Playwright n'aboutissent pas). Consequence : les E2E Playwright (web +
-  operator) et les vitest operator ne tournent dans AUCUN CI distant —
-  reparation routee S82 (audit S81-A3-2 / S81-J-2).
-- **~2730 tests total** (2095 Rust nextest Windows natif 0-skip /
-  2099 canonique Docker Linux [+4 `#[cfg(unix)]`] / 412 Vitest `web/` /
+  CI (réconcilié S82 Phase T à l'état réel — l'ancien claim « Woodpecker
+  operationnel » était STALE) : AVANT le push groupé S82, la vérité
+  distante est ROUGE PARTOUT. GHA sur origin/master (`c899d54`,
+  2026-07-03) : « CI » et « Rust CI » rouges (ubuntu = GTK absent ->
+  `glib-sys` build-fail ; **macos-14 = classe fs-watcher/hot-reload : 10
+  tests uniques TRY-2-FAIL (20 lignes, récap dupliqué), reproduite sur 2
+  runs master (28661119376 head c899d54 + 28592686238 head d8246bd) —
+  NON traitée par S82, routée
+  `sprint83_audit_plan.md`** ; windows VERT sur ces runs) ;
+  « Mirror to Codeberg » rouge (authentification Codeberg CASSÉE : le job
+  masque un token non-vide mais le push échoue en auth — re-provisionner
+  le secret = action manuelle PO settings GitHub) ->
+  **Woodpecker ci.sbfb.world AVEUGLE**
+  (codeberg/master gelé à `f4b4600`, 2026-06-25) ; supply-chain /
+  canary-monthly / Build worker binaries rouges ; deploy.yml
+  startup-failure 0s à chaque push (trigger workflow_dispatch seul).
+  Réparations DANS les commits S82 (poussées au gate Phase T) : Phase C
+  `2931b82` installe GTK (ci.yml + rust-ci.yml + Woodpecker) + calibre
+  integration-nightly (slow-timeout K-R-13, save-if master-only K-R-14) ;
+  Phase K `713f0fa` ferme 4 RUSTSEC (supply-chain attendu vert au push).
+  Les E2E Playwright (web + operator) et les vitest operator sont câblés
+  GHA ci.yml (+ vitest operator aussi Woodpecker) et redeviennent
+  effectifs dès que les runners repassent au vert. integration-nightly
+  n'existait pas sur origin -> 1er run réel = gate push Phase T
+  (PO-4=C : rust-ci 3-OS sur le tip + Woodpecker + run nightly junit).
+- **~2743 tests total** (2108 Rust nextest Windows natif 0-skip /
+  2112 canonique Docker Linux [+4 `#[cfg(unix)]`] / 412 Vitest `web/` /
   44+2skip E2E web hermetique (`test:e2e` ; 2 skip env-gated @shard/@compute ;
   isolation fix S81-A3-1 : app-authoring seede en dernier via projet Playwright
   `dependencies`) / **201 Vitest factory-operator
@@ -408,12 +452,15 @@ Runtime isolation roadmap dans
   verts ; les tests iroh-networked `multi_daemon`+`cross_daemon_blob`+
   `blob_serve_coep` (6) sont env-INSTABLES en Docker-on-Windows (reseau
   hote parfois degrade : verts au run J 10/07, rouges au run K 11/07 ;
-  toujours verts sur Win natif + le CI Linux Woodpecker `cargo test`
-  workspace — pas GHA, rouge env) ; **classe
+  toujours verts sur Win natif — le témoin distant Woodpecker est gelé
+  depuis 2026-06-25, cf. bloc CI ci-dessus) ; **classe
   env voisine S80** : les tests HTTP loopback `operator_server` depassent
   30s sous Docker-on-Windows (verts <1s natif) → toujours passer
   `SBFB_TEST_HTTP_TIMEOUT_SECS=120` au run `sbfb-ci` local (echappatoire
   documentee `crates/sbfb-factory/tests/operator_server.rs`).
+  S82 delta : +13 Rust Win (2095→2108 : A +2, B +1, C +0, D +1, M +9
+  golden ; splits N..S4 **±0 EXACT**) / +13 Docker (2099→2112) / Vitest
+  web 412 + operator 201 + E2E inchangés.
   S81 delta : +81 Rust Win (2014→2095 : A..J +70, K +11 [K-1/K-2 +9 +
   2 fixes review/Codex : validation digest anti-panic + collision echo]) /
   +81 Docker (2018→2099) / Vitest web 411→412 / operator 201 + E2E 10

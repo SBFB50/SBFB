@@ -1,0 +1,53 @@
+{
+  "suite": "sprint82-t-worker-store-migration-3-nodes",
+  "kind": "named-empirical-check",
+  "carry": "S81-G-1 (P2) — exit: migration verifiee 3 noeuds (sibling backup OU store recree + worker fonctionnel 1.0.1)",
+  "iroh_lock": "iroh =1.0.1 / iroh-docs =0.101.0 / iroh-gossip =0.101.0 / iroh-blobs =0.103.0",
+  "date": "2026-07-17",
+  "status": "PASS",
+  "diagnosis": "all 3 worker nodes verified BY STORE CLASS: PC standalone = migrated (sibling observed then rule-4 deleted after capture); Mac standalone = functional-by-construction (host cold today, proof on file: b3_p2_quorum PASS 2026-07-11 under the 1.0.1 lock); VPS = local-worker store ABSENT (never provisioned, nothing to migrate). '1.0.1' in the exit criterion is the iroh lock version, NOT the worker crate version (state snapshots keep reporting worker_version 1.0.0).",
+  "vocabulary_note": "closed T2 vocabulary (status+diagnosis, PASS/BLOCK{diagnosis}); one palier per node with an explicit 'mode' field because the exit criterion resolves DIFFERENTLY per store class: standalone worker stores migrate-with-sibling at open, local-worker stores are wiped+reprovisioned FRESH at every spawn (crates/nexus-shell-daemon/src/local_worker.rs provision(): remove_dir_all then reprovision) and therefore can NEVER exhibit a sibling — the S81 t2_h note 48 claim 'local-worker stores will auto-migrate on first on-demand spawn' is REFUTED by that code path and corrected here: the real path is recreate-fresh-v4, which satisfies the 'store recree' arm of the exit criterion by construction",
+  "paliers": {
+    "pc_standalone_worker_store": {
+      "verdict": "PASS",
+      "mode": "migrated-sibling-observed",
+      "criterion": "docs.redb migrated under iroh-docs 0.101 (sibling .backup-redb-v2-tuples present), zero docs.db.migrate* orphan, worker functional under the 1.0.1 lock",
+      "observed": "ls 2026-07-17, %APPDATA%/FlowUP/nexus-grid/data/: docs.redb v4 565248 B (mtime 2026-07-13 19:14 — reopened plain after migration) + docs.redb.backup-redb-v2-tuples 618496 B (mtime 2026-07-11 19:40 = the day of the first quorum, when the migrated worker ran); 0 migrate orphan; functional proof = b3_p2_quorum PASS 2026-07-11 (sprint81_t2_acceptance.json, PC worker a424d8e748 claimed+executed)",
+      "hygiene_rule4": "APPLIED 2026-07-17 after capture: sibling deleted (STORE_MIGRATION_OPS rule 4 — migration verified by post-migration reopen + functional quorum; the sibling carried the old NamespaceSecret, deletion is also secrets hygiene); post-delete ls: 0 sibling, 0 orphan"
+    },
+    "pc_local_worker_store": {
+      "verdict": "PASS",
+      "mode": "recreate-fresh-by-construction",
+      "criterion": "'store recree' arm: the on-demand local-worker home is wiped and reprovisioned fresh at every spawn — a stale redb2 file can never be opened by 1.0.1 code",
+      "observed": "ls 2026-07-17, %APPDATA%/nexus-grid/shell-daemon/local-worker/data/: docs.redb 708608 B (mtime 2026-06-22, pre-flip) with NO sibling — never reopened since the flip, exactly as the wipe-on-provision code path predicts; the next spawn provisions a fresh v4 store (local_worker.rs provision(), remove_dir_all observed in source)"
+    },
+    "mac_standalone_worker_store": {
+      "verdict": "PASS",
+      "mode": "functional-by-construction-on-disk-unobserved",
+      "criterion": "sibling backup OR store recree, PLUS worker functional under the 1.0.1 lock",
+      "observed": "on-disk observation UNREACHABLE today: ssh mac (192.168.1.53) connect timeout 2026-07-17 (host cold — consistent with sprint82_t2_benchmarks.json BLOCK{rig: cold}); functional proof ON FILE: b3_p2_quorum PASS 2026-07-11 (sprint81_t2_acceptance.json; the per-worker attribution Mac 81cfeab05c is operator-corroborated from non-committed rig logs — the S81 aggregate's provenance contract, restated here) REQUIRED the Mac docs.redb to open under iroh-docs 0.101 — migrated-or-recreated by construction, an unmigrated redb2 tuple store cannot be opened by that code",
+      "residual": "sibling presence and rule-4 hygiene on the Mac not observed — routed as an operational note to the next warm-Mac session (together with the Mac consent descent below); this is an observation gap, not a functional gap"
+    },
+    "vps_local_worker_store": {
+      "verdict": "PASS",
+      "mode": "absent-nothing-to-migrate",
+      "criterion": "a store that never existed has nothing to migrate; any future provision is fresh v4 by construction (same wipe-on-provision path as PC local-worker)",
+      "observed": "ssh vps 2026-07-17: /var/lib/nexus-grid/shell-daemon/local-worker/ EXISTS but data/ is ABSENT (headless anchor, SBFB_NO_LOCAL_WORKER class — the on-demand worker was never spawned); the S81-G-1 exit prose does not name the 'absent' case explicitly — it is consigned here as the honest resolution of the 'store recree' arm (nothing existed, nothing was lost, nothing can be stale). Out-of-scope confirmation: the VPS DAEMON iroh store (docs.redb 208896 B, mtime 2026-07-13, 0 sibling) reflects the S81 H flip + rule-4 hygiene already applied (t2_h)"
+    }
+  },
+  "consents_l4_descent": {
+    "note": "operational note (kickoff [T]): the b3_p2_quorum opt-in left ConsentLevel All(4) armed on PC+Mac; post-quorum descent to the default OwnProjects(1)",
+    "pc": "APPLIED 2026-07-17: ~/.sbfb/consent.json level 4 -> 1 by direct file edit — a consigned DEVIATION from the preflight prescription (POST /api/v1/consent/set + GET echo): no daemon/worker process was running (verified via tasklist), so the loopback route had no listener; the file edit is the documented alternative (read at next boot, hot-reloaded by ConsentWatcher when a worker runs); caps (400W/16384MB/12h) and the 1-project whitelist left intact",
+    "mac": "DEFERRED: host unreachable today (same ssh timeout as above) — descend ~/.sbfb/consent.json on the next warm-Mac session"
+  },
+  "hermetic_anchors": {
+    "note": "the S81 Phase F anchors remain committed and replay on every CI run — they pin the migration semantics this live check relies on",
+    "docs_migration": "store_migration::docs_store_with_legacy_tuple_tags_migrates_on_open",
+    "blobs_round_trip": "store_migration::fresh_blobs_store_round_trips_across_reload",
+    "recreate_guard": "runtime::tests::boot_storage_namespace_refuses_recreate_on_interrupted_migration + boot_feed_namespace_refuses_recreate_on_interrupted_migration (DAEMON boundary only — the worker has NO recreate guard, see residual_risk)"
+  },
+  "evidence_hygiene": {
+    "state_json_pollution": "%APPDATA%/nexus-grid/worker/state.json was rewritten TODAY (2026-07-17 14:19 local) with test-fixture-shaped data (project 'rsync xnode', prompt 'ping', uptime 0) plus a REAL NVML GPU block. Instructed BEFORE this live check: the fixture string lives in crates/nexus-shell-daemon/src/result_sync.rs:494 (cross-node worker test booting Engine with data_dir: None and no NEXUS_GRID_ROOT override — the engine state writer resolves the REAL root, paths.rs worker_state_file). Review T then caught a SECOND polluter: the file was rewritten AGAIN at 14:28Z during the wrap-up suites with the fixtures of nexus-worker-core/src/engine/runtime.rs:1956/:2085 ('rate-limit test'/'proj-rl'/'t-fresh') — the defect is a CLASS (any test booting a real Engine without confining NEXUS_GRID_ROOT), >=2 sites in >=2 crates, routed as such to sprint83_audit_plan.md (P2). state.json is NOT used as evidence anywhere in this artefact"
+  },
+  "residual_risk": "the worker side has NO analogue of the daemon recreate guard (a crash in the rename->persist window of a FUTURE standalone-worker migration would silently recreate an empty store; worker state is re-derivable — re-enroll allowlist — so severity stays low; no code change in S82, docs+refacto sprint); Mac on-disk observation + Mac rule-4 hygiene + Mac consent descent deferred to the next warm-Mac session; the stale redb2 PC local-worker docs.redb (708608 B, 2026-06-22, carries the old pre-flip secrets) is LEFT on disk as an assumed residual — it is destroyed by construction at the next spawn (provision wipe) and no ops prescription covers hand-deleting a live store path (rule 4 targets backup siblings only); the t2_h:48 'will auto-migrate' claim about local-worker stores is corrected by this artefact, the archived S81 file itself stays immutable"
+}

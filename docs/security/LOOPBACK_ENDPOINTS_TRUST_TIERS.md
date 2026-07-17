@@ -1,7 +1,8 @@
 ---
 written: 2026-04-20  # S22 hors-sprint post Phase B `e9530c2`
-last_validated: 2026-07-14  # S82 Phase I : passe de fidélité doc-dette sécurité (re-dérivation Track H S81, S81-H-2) — §3 row quarantine qualifiée au chemin réel `/api/v1/quarantine/{row_id}/flush` ; §3 row `/generate` bornée « session réelle » (K-R-7) ; §3.1 ancres numériques périmées re-ancrées SYMBOLE (`auth_required`, `CorsLayer::new()`/`is_loopback_origin`, `const SENSITIVE_ACTIONS`, gate `is_sensitive`→`sse_gate`, dispatch `target.run`, port Serve `default_value_t = 3001` — classe pointeur-qui-pourrit, root-cause S82 Phase H). Précédent 2026-07-11 S81 Phase K : trigger re-fired post-G par les 5 routes shard-session Phase I (`bb6c4f9` 2026-07-10 > solde G 2026-07-08) — §3 indexe les 6 lignes `/api/daemon/shard-session/*` (la GET S77 heritee + 5 neuves I ; group/mount = candidats T1, actions signantes). Precedent 2026-07-08 S81 Phase G (LOT-LOOPBACK-DOC, audit S80 H-1/2/3) : §3.1 revalide — +2 routes lecture S80 (GET /api/git/diff, GET /api/gates), double transport bearer header + cookie sbfb_operator HttpOnly (bootstrap GET /?token, S80 A), description terminal/ws corrigee (PTY live interactif S80 D, plus « lecture cast »). Precedent 2026-06-03 S73 Phase A : §2.1 portee daemon+Operator + §3 GET /result reordonne + §8.1 couverture Operator (P2-TIER-MODEL, P2-RESULT-TEXT-GUARDRAIL-ORDER)
+last_validated: 2026-07-17  # S82 Phase T : D7 — périmètre §3 verrouillé REPRÉSENTATIF (champ `inventory_policy` dédié ci-dessous) + micro-fix ancre NetworkProvider (« §3 ligne 55 » → row par path, classe pointeur-qui-pourrit). Précédent 2026-07-14 S82 Phase I : passe de fidélité doc-dette sécurité (re-dérivation Track H S81, S81-H-2) — §3 row quarantine qualifiée au chemin réel `/api/v1/quarantine/{row_id}/flush` ; §3 row `/generate` bornée « session réelle » (K-R-7) ; §3.1 ancres numériques périmées re-ancrées SYMBOLE (`auth_required`, `CorsLayer::new()`/`is_loopback_origin`, `const SENSITIVE_ACTIONS`, gate `is_sensitive`→`sse_gate`, dispatch `target.run`, port Serve `default_value_t = 3001` — classe pointeur-qui-pourrit, root-cause S82 Phase H). Précédent 2026-07-11 S81 Phase K : trigger re-fired post-G par les 5 routes shard-session Phase I (`bb6c4f9` 2026-07-10 > solde G 2026-07-08) — §3 indexe les 6 lignes `/api/daemon/shard-session/*` (la GET S77 heritee + 5 neuves I ; group/mount = candidats T1, actions signantes). Precedent 2026-07-08 S81 Phase G (LOT-LOOPBACK-DOC, audit S80 H-1/2/3) : §3.1 revalide — +2 routes lecture S80 (GET /api/git/diff, GET /api/gates), double transport bearer header + cookie sbfb_operator HttpOnly (bootstrap GET /?token, S80 A), description terminal/ws corrigee (PTY live interactif S80 D, plus « lecture cast »). Precedent 2026-06-03 S73 Phase A : §2.1 portee daemon+Operator + §3 GET /result reordonne + §8.1 couverture Operator (P2-TIER-MODEL, P2-RESULT-TEXT-GUARDRAIL-ORDER)
 status: design-only T1/T2 (implementation S22 Phase F wrap-up + extension S25/S28/LT-4) ; §3.1 Operator = IMPLEMENTE+DURCI S71 C (`a0337c6`) ; Operator place dans le tier-model formel §2.1/§8.1 (S73 Phase A)
+inventory_policy: representative-locked  # D7 (S82 Phase T, Day-0 gelée) : la table §3 est un inventaire tier-target REPRÉSENTATIF, verrouillé — JAMAIS exhaustif (29 rows = 27 route-paths distincts représentés [le path `/api/v1/consent/set` porte 2 rows escalade/other, et la row `/canary/cosign` est un endpoint FUTUR LT-4 absent du routeur] sur 89 routes réelles du routeur ; count vérifiable `grep -c ".route(" crates/nexus-shell-daemon/src/http.rs`). Critère d'inclusion d'une row : tout endpoint dont le tier CIBLE est ≠ T0, plus un représentant par famille de justification T0 (lecture seule, mutation locale duress-no-op, rate-limité). Familles non-T0 couvertes : T1 action non-réversible (deploy), T1 escalade privilège (consent/set escalade), T1 defense-in-depth header (feed/insert), T1 perte d'évidence (quarantine flush), T2 destructif terminal (panic/wipe), T2 engagement crypto futur (canary/cosign LT-4), T1 action signante d'autorité (directory/publish, seed/request, shard-session group/mount). Le garde-fou est INCRÉMENTAL : trigger « Nouveau endpoint loopback risky ajoute daemon » ci-dessous (déjà re-fired S81 G et S81 K) + trigger Operator §3.1. L'écart ~62 paths non listés est un choix de POLITIQUE (S82-DC-LOOPBACK-INVENTORY-EXHAUSTIVE = CLOSED-BY-POLICY, accept-and-close), pas un oubli ; §3.1 Operator est couvert par le même verrou.
 triggers_revalidate:
   - "microsoft/sudo new elevation mode release"
   - "Nouveau endpoint loopback risky ajoute daemon"
@@ -60,6 +61,12 @@ gate applicatif `SENSITIVE_ACTIONS` (§3.1, G2), pas par un tier de
 confiance OS. Sa couverture threat model est tracée séparément en §8.1.
 
 ## 3. Inventaire endpoints loopback actuels + tier cible
+
+> **Périmètre : inventaire représentatif verrouillé** (D7, S82 Phase T) — voir
+> le champ `inventory_policy` du front-matter. Une absence dans cette table
+> n'implique pas qu'un endpoint soit hors-scope sécurité : les 89 routes
+> réelles vivent dans `build_router`/`authed_routes` (`http.rs`), et tout
+> NOUVEL endpoint risky déclenche le trigger de revalidation.
 
 | Endpoint | Origine | Tier actuel | Tier cible | Justification cible |
 |---|---|---|---|---|
@@ -160,7 +167,7 @@ par un gate biométrique OS.
 
 **NetworkProvider S72 (anticipation ProviderRouter)** : le bras
 `Network` du ProviderRouter S72 (`provider_router.rs`) est un **client
-sortant** de `POST /api/v1/tasks/submit` (daemon, §3 ligne 55, tier T0,
+sortant** de `POST /api/v1/tasks/submit` (daemon, §3 row `POST /api/v1/tasks/submit`, tier T0,
 déjà inventorié + rate-limité S21) — **pas une nouvelle surface
 entrante**. Le dispatch réseau S72 reste dans la frontière loopback
 durcie ; le gate `SENSITIVE_ACTIONS` reste AVANT dispatch quel que soit

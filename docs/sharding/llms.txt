@@ -10,7 +10,8 @@
 > `RunProof`, `crates/nexus-shell-daemon/src/shard_session.rs`), the stage
 > attestation (S81 K, loaded-stage <-> signed manifest) and the live
 > 2-machine benchmark are delivered; per-worker proof emission + dispute
-> arbitration remain routed **S82**.
+> arbitration were deferred by **S82** (the docs-contract sprint, D6) to the
+> rig-chaud slot tracked in roadmap v5.
 >
 > **Truth Stack** (trust the higher rank on conflict):
 > `repo files > .planning/active/ > commits > prompts > chat`. A fact absent from
@@ -34,7 +35,7 @@
 ## Control plane + front
 
 - [shard_session.rs](../../crates/nexus-shell-daemon/src/shard_session.rs): the in-vivo orchestrator (S81 I) — mount barrier, HUB drive, decode loop, gated `ShardSessionRegistry`, stage attestation (S81 K).
-- [shard_session_http_api.rs](../../crates/nexus-shell-daemon/src/shard_session_http_api.rs): the 6 `/api/daemon/shard-session/*` route handlers (S82 N split out of `http.rs`; the routes stay registered in `http.rs` `build_router`/`authed_routes`) (status body + privacy projection `crates/nexus-shell-daemon/src/shard_session_http_api.rs:shard_session_response` — aggregate `member_count` only, never a `worker_pubkey`/`initiator`); write/drive routes specified in `docs/protocol/SHARD_PROTOCOL_SPEC.md` §6.
+- [shard_session_http_api.rs](../../crates/nexus-shell-daemon/src/shard_session_http_api.rs): the 6 `/api/daemon/shard-session/*` route handlers (S82 N split out of `http.rs`; the routes stay registered in `http.rs` `build_router`/`authed_routes`) (status body + privacy projection `crates/nexus-shell-daemon/src/shard_session_http_api.rs:shard_session_response` — aggregate `member_count` only, never a `worker_pubkey`/`initiator`); write/drive routes specified in `docs/protocol/SHARD_PROTOCOL_SPEC.md` §6; request bodies (S82 G): `crates/nexus-core-rs/src/schemas/shard.rs:ShardGroupMintRequest` + `crates/nexus-core-rs/src/schemas/shard.rs:ShardGenerateRequest` (schematised, drift-gated) and `crates/nexus-shell-daemon/src/shard_session.rs:MountSessionRequest` (table-documented only), exact field tables in SPEC §6.1.
 - [daemon.ts](../../web/src/api/daemon.ts): front wrapper `web/src/api/daemon.ts:getShardSession`.
 - [protocol.ts](../../web/src/bridge/protocol.ts): the bridge whitelist `web/src/bridge/protocol.ts:BridgeMethodSchema` — a closed enum of app-facing methods, none a shard method.
 
@@ -57,4 +58,4 @@
 
 - [THREAT_MODEL.md](../security/THREAT_MODEL.md): §16 — graded verification N0-N3, SI-1..SI-11, the cardinal "admission ≠ confidentialité" caveat.
 - [PATTERNS.md](../rust/PATTERNS.md): §P64-69 shard wire / verification patterns.
-- [Generated schemas](../../crates/nexus-core-rs/src/schemas/shard.rs): `schema_for!` definitions co-located with the wire types; emitted `*.schema.json` next to them.
+- [Generated schemas](../../crates/nexus-core-rs/src/schemas/shard.rs): `schema_for!` definitions co-located with the wire types; emitted `*.schema.json` next to them — including the request-body snapshots `shard_group_mint_request.schema.json` + `shard_generate_request.schema.json` (S82 G). `MountSessionRequest` is deliberately NOT schematised (it embeds the signed `ComputeGroupEntry` envelope + `iroh::EndpointAddr`); its contract is the SPEC §6.1 table.

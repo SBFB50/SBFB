@@ -95,6 +95,23 @@ anchor_present "web/src/api/daemon.ts" "getShardSession"
 anchor_present "docs/protocol/SHARD_PROTOCOL_SPEC.md" "ShardGroupMintRequest"
 anchor_present "docs/protocol/SHARD_PROTOCOL_SPEC.md" "MountSessionRequest"
 anchor_present "docs/protocol/SHARD_PROTOCOL_SPEC.md" "ShardGenerateRequest"
+# S82 Phase T — the index layer (agent llms.txt + human REFERENCE and
+# HOW_TO_WIRE) must ALSO cite the 3 request bodies. ROW/ENTRY-level
+# anchors (not bare names) for llms + REFERENCE, so deleting the indexed
+# Types-table row or the llms entry FAILS the gate even while the name
+# survives elsewhere in prose (Codex T round-1 catch); HOW_TO_WIRE holds
+# its only mention in the §START renvoi, so the bare name IS the entry.
+# Without these anchors the "3 docs gates exit 0" machine criterion is
+# non-discriminant: it was green before the index existed.
+anchor_present "docs/sharding/llms.txt" "request bodies (S82 G):"
+anchor_present "docs/sharding/llms.txt" "shard_group_mint_request.schema.json"
+anchor_present "docs/sharding/llms.txt" "shard_generate_request.schema.json"
+anchor_present "docs/sharding/REFERENCE.md" '| `ShardGroupMintRequest` |'
+anchor_present "docs/sharding/REFERENCE.md" '| `MountSessionRequest` |'
+anchor_present "docs/sharding/REFERENCE.md" '| `ShardGenerateRequest` |'
+anchor_present "docs/sharding/HOW_TO_WIRE.md" "ShardGroupMintRequest"
+anchor_present "docs/sharding/HOW_TO_WIRE.md" "MountSessionRequest"
+anchor_present "docs/sharding/HOW_TO_WIRE.md" "ShardGenerateRequest"
 
 # ── (2) honesty-gate ─────────────────────────────────────────────────
 require_marker() { # file marker label

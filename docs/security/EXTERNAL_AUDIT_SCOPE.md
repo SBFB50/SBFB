@@ -29,10 +29,10 @@ T0-T5).
 
 | Primitive | Usage | Crate/module | Fichiers cles |
 |---|---|---|---|
-| Ed25519 (RFC 8032) | Keypair identity, canary signing, DelegationCert, ProvenanceRecord, AgeWitness, ContributorAttestation | `ed25519-dalek 2.1` | `crates/nexus-core-rs/src/crypto.rs`, `canonical.rs` |
+| Ed25519 (RFC 8032) | Keypair identity, canary signing, DelegationCert, ProvenanceRecord, AgeWitness, ContributorAttestation | `ed25519-dalek 2.2` (lock 2.2.0) | `crates/nexus-core-rs/src/crypto.rs`, `canonical.rs` |
 | AES-256-GCM | Keystore encryption at rest | `aes-gcm 0.10` | `crates/nexus-core-rs/src/keystore.rs` |
 | Argon2id | KEK derivation from passphrase | `argon2 0.5` | `crates/nexus-core-rs/src/keystore.rs` |
-| FROST Ed25519 (RFC 9591) | Warrant canary threshold signing K-of-N | `frost-ed25519 2.1` (ZF, ToB 2023 audit) | `crates/nexus-core-rs/src/canary.rs` |
+| FROST Ed25519 (RFC 9591) | Warrant canary threshold signing K-of-N | `frost-ed25519 3.0` (ZF, ToB 2023 audit ; re-pointé S82 T, lock 3.0.0) | `crates/nexus-shell-daemon-core/src/canary/` (`frost.rs`, `dkg.rs`, `signer.rs`) |
 | HMAC-SHA256 | Watermark PRF (SynthID-inspired green-list bias) | `hmac 0.12` + `sha2 0.10` | `crates/nexus-worker-core/src/llm/watermark.rs` |
 | BLAKE3 | Content-addressed hashing (blob integrity, re-run sampling) | `blake3 1.5` | `crates/nexus-worker-core/src/engine/runtime.rs` |
 | Hashcash PoW | Anti-Sybil gossip admission cost | custom impl | `crates/nexus-core-rs/src/pow.rs` |

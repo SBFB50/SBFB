@@ -27,7 +27,8 @@
 // Authority: this file is rank-1 (a repo file). It proves the SIGNING PRIMITIVE
 // round-trips. In-vivo driver-signed proof emission and the generation-piloting
 // orchestrator shipped in S81 I/J (`shard_session.rs`); per-worker proof emission
-// stays routed S82 (see `docs/sharding/WIRING_SPEC.md` and THREAT_MODEL §16).
+// stays deferred — S82 (the docs-contract sprint, D6) re-routed it to the
+// rig-chaud slot (see `docs/sharding/WIRING_SPEC.md` and THREAT_MODEL §16).
 
 use nexus_core_rs::{
     KeyPair, KvCachePolicy, RunMetrics, RunProof, RunProofEntry, ShardAssignment, ShardPlan,

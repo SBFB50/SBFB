@@ -1,0 +1,41 @@
+{
+  "suite": "sprint82-t2-aggregate",
+  "kind": "aggregate",
+  "date": "2026-07-17",
+  "iroh_lock": "iroh =1.0.1 / iroh-docs =0.101.0 / iroh-gossip =0.101.0 / iroh-blobs =0.103.0",
+  "contract": "single aggregate (S80 precedent, S81 shape), closed vocabulary PASS / BLOCK{diagnosis} / RIG-ABSENT / NOT-RUN / ACTED{evidence} / MIXED (ratified at canon README section 4 by S82 Phase J, 57e19ad). ACTED statuses below were sanctioned at the Phase T preflight (wf_818d5f99-6aa): the palier's proof obligation is discharged by named committed evidence rather than a wrap-up re-run.",
+  "status": "PASS",
+  "diagnosis": "S82 T2 obligations PASS: boot-SEED live re-play (c) PASS (Phase A artefact) + worker store migration verified on 3 nodes by store class (Phase T artefact). The benchmark palier is the distinct T3 tier, rig-gated by construction: its honest committed artefact is BLOCK{rig: cold} (never RIG-ABSENT — the rig was engaged for Phase A), accepted by PO-2. Refacto phases (L..S4) are T2 = N-A by type (invariance gate D4 is their proof: counts 2108/2112 exact, routes 89==89, goldens 9/9).",
+  "paliers": {
+    "bootseed_live_replay": {
+      "status": "ACTED",
+      "evidence": ".planning/active/sprint82_t2_bootseed.json — status PASS (fix = Phase A 19b92e6; the live-run artefact itself was committed by the acceptance chore 34550c1; PO-1=B exit (c): live re-play under 30s after the re-drive-on-ingest + cold-boot catch-up fix; the OVERDUE 3/3 escalation S81-G-ESC-1 closed with proof, not a 4th dry report)"
+    },
+    "benchmarks_standard_t3": {
+      "status": "ACTED",
+      "evidence": ".planning/active/sprint82_t2_benchmarks.json — honest BLOCK{rig: cold} (Phase B 1670251, T3 tier ratified at canon by the same sprint; TTFT/TPOT/ITL additive fields live in ShardSessionResultView, 0 wire bump; the tuning pass on these metrics is deferred to the rig-chaud slot, D6)"
+    },
+    "worker_store_migration_3_nodes": {
+      "status": "PASS",
+      "artefact": ".planning/active/sprint82_t2_store_migration.json",
+      "note": "S81-G-1 (D12) closed BY STORE CLASS: PC standalone migrated-sibling-observed (then rule-4 hygiene applied after capture); PC/VPS local-worker recreate-fresh/absent by construction (t2_h:48 claim corrected); Mac functional-by-construction (host cold — proof on file b3_p2_quorum PASS 2026-07-11 under the 1.0.1 lock); consent L4 descent applied on PC, deferred on Mac (host down), both consigned"
+    },
+    "push_gate_po4c": {
+      "status": "NOT-RUN",
+      "note": "sequenced AFTER the Phase T commit (outgoing actions, each PO-confirmed): staging branch + rust-ci 3-OS dispatch (known risk: macos-14 watcher class) -> grouped push -> Woodpecker/codeberg + integration-nightly dispatch + junit download (closes S81-J-2). NOT-RUN here is honest sequencing, not an omission — the gate outcome is audited by sprint83_audit_plan.md Track CI"
+    }
+  },
+  "invariance_gate_d4": {
+    "note": "the refacto axis proof (not a palier): run at Phase T wrap-up",
+    "nextest_win": "2108/2108, 0 skip",
+    "nextest_docker": "2112 run, 2 known-class flakes (sigint/running_json family under load), both solo re-runs PASS",
+    "vitest_web": "412",
+    "e2e_web": "44 passed / 2 skipped (env-gated @shard @compute), EXIT=0 — recorded because web/src/api/daemon.ts was touched by R/S3 (comment-only re-points; S81-J-1 lesson: no comment-only exemption)",
+    "vitest_operator": "201",
+    "e2e_operator": "10/10",
+    "http_rs_lines": 1513,
+    "routes": 89,
+    "goldens": "9/9 (golden_http_* family, test_support.rs)",
+    "docs_gates": "3/3 exit 0 (sharding + frontier + factory), re-run after every Phase T doc edit; 9 NEW row/entry-level discriminating anchors added by Phase T (hardened after Codex round 1: deleting the indexed table row or llms entry now fails the gate even while the bare name survives in prose)"
+  }
+}

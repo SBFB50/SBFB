@@ -4310,3 +4310,36 @@ phase that shipped it.
    store write. Grep for "read once at startup" consumers before assuming a
    DB update has any live effect; the hermetic test asserts the CHANNEL
    boundary (command emitted), the live palier proves convergence.
+
+## §P75 — Sprint 82: golden HTTP characterization for behavior-preserving splits (Phase M, the N→S4 net)
+
+When a monolithic HTTP surface is split module-by-module, a **golden
+characterization suite** locks the observable identity of the router BEFORE
+any move and stays green across every split commit:
+
+1. **One golden per domain minimum — sampler, not census.** 9 `golden_http_*`
+   tests covered the ~24 handlers moved by N→S4 (>=1 per split domain). The
+   golden is a refactor-detection net, not a spec: routing/status/shape
+   identity is the contract, exhaustiveness is not (M-2, accepted).
+2. **Redaction allowlist, minimal-observed.** Volatile fields are redacted by
+   NAME through one `golden_redact` const allowlist — populate it from the
+   OBSERVED volatile fields only (`node_id`, `revision`, `archive_hash`),
+   never a speculative broad list: the tighter the allowlist, the more drift
+   the net still catches. Known residuals — global-by-name masking (M-1) and
+   type-drift masking on redacted fields (M-4) — are inherent to
+   golden-with-volatile-fields: bounded, documented, not fixable without
+   reintroducing the instability the redaction removes.
+3. **Prove the net on unchanged HEAD.** A golden suite is trustworthy only
+   after 2+ consecutive green runs on the SAME commit (fresh state each run) —
+   a flaky net is worse than no net.
+4. **Order-insensitivity comes from `serde_json::Value` equality** (`Map
+   PartialEq` is key-order-insensitive under both serde_json backends); do NOT
+   recursively sort keys. Observed literal oracles stay literal (e.g. the
+   BLAKE3 of the exact posted body): an observed content-addressed constant is
+   an oracle, not a magic number (README §6.9).
+5. **The net never lives inside the file it protects.** The golden family +
+   shared harness moved OUT of `http.rs` into `test_support.rs` (Phase N2)
+   before the splits it guards.
+
+Minted Phase M (`29a9255`), exercised green across the 10 split commits N→S4
+(routes 89==89, moved bodies token-identical, Codex-corroborated).
