@@ -284,7 +284,7 @@ impl DaemonRuntime {
                 return Err(anyhow!(
                     "daemon already running (pid {}, node_id {}, port {}); stop it first or delete {} if the process is known-dead",
                     pid,
-                    &state.node_id,
+                    state.node_id,
                     state.api_port,
                     opts.paths.running_json.display()
                 ));
