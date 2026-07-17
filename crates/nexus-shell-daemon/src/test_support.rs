@@ -698,8 +698,8 @@ async fn golden_http_spa_fallback() {
 
 // ---------------------------------------------------------------
 // Shared cross-domain test fixtures (promoted in Sprint 82 Phase O:
-// consumed by both the migrated seed_api tests and staying http.rs
-// fork/browse tests).
+// consumed by the migrated seed_api/publish_api/browse_api tests and
+// by the staying http.rs fork/pull-resolution tests).
 // ---------------------------------------------------------------
 
 pub(crate) fn own_browse_entry(project_id: &str, name: &str, owner: Option<String>) -> BrowseEntry {
