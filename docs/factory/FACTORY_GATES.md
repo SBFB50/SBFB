@@ -187,7 +187,7 @@ self-check clean-only ne prouve que « le harnais tourne », pas « il detecte �
 `{status, blob_serve_csp_equals_contract, clean_clean, dirty_detected, …}` ;
 **PASS** exige CSP-servie == contrat **ET** clean propre **ET** dirty detectee.
 L'egalite CSP-servie == `nexus_core_rs::csp::BLOB_SERVE_CSP` a deux temoins : un
-nextest Rust byte-exact (`http.rs`, 200 **et** 404, fermant le trou substring/
+nextest Rust byte-exact (`blob_serve_http.rs`, 200 **et** 404, fermant le trou substring/
 presence anterieur) et la comparaison cote E2E (client Playwright `request`) dans
 T1 (mirroir `csp-contract.json` ; les sous-tests clean/dirty, eux, rejouent dans
 l'iframe navigateur reelle). **Filet, pas preuve totale** : `blockedURI` est caviarde a

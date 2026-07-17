@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! Fairness diagnostic endpoint (Sprint 44 Phase B, port of diagnostic.py).
+//! Diagnostic HTTP endpoints.
 //!
-//! Exposes Gini coefficient, top-5% share, and worker churn rate
-//! computed from the kudos ledger.
+//! Fairness (Sprint 44 Phase B, port of diagnostic.py): Gini
+//! coefficient, top-5% share and worker churn rate computed from the
+//! kudos ledger. Neighborhood snapshot (Sprint 23 Phase E, moved here
+//! from `http.rs` in Sprint 82 Phase S4): the node's own id plus the
+//! subscribed curator pubkeys — the peers this daemon actively tracks.
 
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -12,6 +15,7 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use nexus_coordinator_rs::fairness;
+use serde::{Deserialize, Serialize};
 use tracing::debug;
 
 use crate::http::DaemonHttpState;
@@ -112,9 +116,44 @@ pub async fn fairness_metrics(State(state): State<Arc<DaemonHttpState>>) -> impl
         .into_response()
 }
 
+/// Body of `GET /diagnostic/neighborhood`. Sprint 23 Phase E.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NeighborhoodResponse {
+    pub node_id: String,
+    pub peers: Vec<String>,
+}
+
+/// `GET /diagnostic/neighborhood` — Sprint 23 Phase E. Returns the
+/// node's own ID and the peer pubkeys currently in the daemon's
+/// observable neighborhood. iroh exposes no DHT routing-table
+/// enumeration (re-checked against 1.0.1 at the S81 Phase C bump:
+/// only per-peer `Endpoint::remote_info(EndpointId)` exists — the
+/// `remote_info_iter` once expected "post-0.98" never landed), so
+/// the observable neighborhood is the set of subscribed curator
+/// pubkeys — the peers this daemon actively tracks via gossip.
+pub(crate) async fn diagnostic_neighborhood(
+    State(state): State<Arc<DaemonHttpState>>,
+) -> impl IntoResponse {
+    debug!("GET /diagnostic/neighborhood");
+    let peers = state.curator_runtime.subscribed_pubkeys_hex();
+    (
+        StatusCode::OK,
+        Json(NeighborhoodResponse {
+            node_id: state.node_id.clone(),
+            peers,
+        }),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::body::to_bytes;
+    use axum::http::{Method, Request};
+    use tower::ServiceExt;
+
+    use crate::test_support::*;
 
     #[test]
     fn day_secs_correct() {
@@ -126,5 +165,137 @@ mod tests {
         let val = 0.12345_f64;
         let rounded = (val * 10000.0).round() / 10000.0;
         assert!((rounded - 0.1235).abs() < 1e-10);
+    }
+
+    // ---------------------------------------------------------
+    // Sprint 23 Phase E: diagnostic neighborhood endpoint
+    // ---------------------------------------------------------
+
+    #[tokio::test]
+    async fn diagnostic_neighborhood_returns_own_node_id_and_empty_peers() {
+        let state = mk_state().await;
+        let expected_node_id = state.node_id.clone();
+        let app = build_test_router(Arc::clone(&state));
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/daemon/diagnostic/neighborhood")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = to_bytes(resp.into_body(), 4096).await.unwrap();
+        let neighborhood: NeighborhoodResponse = serde_json::from_slice(&body).unwrap();
+        assert_eq!(neighborhood.node_id, expected_node_id);
+        assert!(
+            neighborhood.peers.is_empty(),
+            "fresh node should have no known peers"
+        );
+    }
+
+    // --- diagnostic_api.rs (1 route) ---
+
+    #[tokio::test]
+    async fn diagnostic_fairness_ok() {
+        let app = build_test_router(mk_state().await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/diagnostic/fairness")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(body["worker_count"], 0);
+    }
+
+    #[tokio::test]
+    async fn diagnostic_fairness_ema_on_nonempty_ledger() {
+        let state = mk_state().await;
+        {
+            let db = state.coordinator_db.lock().unwrap();
+            nexus_coordinator_rs::kudos_ledger::credit(&db, "p1", "w1", "t1", 100, 1_000).unwrap();
+            nexus_coordinator_rs::kudos_ledger::credit(&db, "p1", "w2", "t2", 100, 1_000).unwrap();
+        }
+        let app = build_test_router(state);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/diagnostic/fairness")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(body["worker_count"], 2);
+        let gini = body["gini"].as_f64().unwrap();
+        assert!(
+            gini < 0.01,
+            "two equal-contribution workers must have near-zero Gini (got {gini})"
+        );
+    }
+
+    // --- Debt item 5: diagnostic error propagation ---
+
+    #[tokio::test]
+    async fn diagnostic_fairness_returns_500_on_corrupted_db() {
+        let state = mk_state().await;
+        {
+            let db = state.coordinator_db.lock().unwrap();
+            db.execute_batch_raw("DROP TABLE IF EXISTS kudos")
+                .expect("drop kudos table");
+        }
+        let app = build_test_router(state);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/diagnostic/fairness")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert!(body["error"].as_str().unwrap().contains("kudos_entries"));
+    }
+
+    #[tokio::test]
+    async fn diagnostic_fairness_returns_500_on_poisoned_mutex() {
+        let state = mk_state().await;
+        let db_arc = Arc::clone(&state.coordinator_db);
+        let _ = std::thread::spawn(move || {
+            let _guard = db_arc.lock().unwrap();
+            panic!("intentional poison");
+        })
+        .join();
+        assert!(state.coordinator_db.lock().is_err());
+
+        let app = build_test_router(state);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/diagnostic/fairness")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
     }
 }

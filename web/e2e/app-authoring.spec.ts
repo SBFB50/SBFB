@@ -25,7 +25,7 @@
  * header == the single-source contract (`csp-contract.json`, machine mirror of
  * `nexus_core_rs::csp::BLOB_SERVE_CSP`) — the browser-side witness of
  * `blob_serve_csp_equals_contract`, complementing the Rust byte-exact test in
- * `http.rs::blob_serve_csp_header_byte_exact_matches_contract`.
+ * `blob_serve_http.rs::blob_serve_csp_header_byte_exact_matches_contract`.
  *
  * Hermetic-only: in external-daemon mode (`SBFB_E2E_BASE_URL`, the compute
  * flagship) the daemon has its own apps and token, so seeding is skipped.

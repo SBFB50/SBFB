@@ -1,5 +1,6 @@
 # Design durci — capacité Factory anime.js + daisyUI
 
+> **SNAPSHOT HISTORIQUE (S79-era, ancres d'epoque).** Les refs fichier:ligne datent d'avant les splits http.rs S82 N..S4 (middleware CSP + blob-serve vivent depuis dans `blob_serve_http.rs` ; la factorisation CSP recommandee ci-dessous est REALISEE depuis S79-E, source unique `nexus_core_rs::csp`). Document date, non re-pointe (S82 Phase S4).
 > Questions ouvertes résolues par preuve (lecture code réel) ou recommandées. Complète `factory-integration-design.md`.
 
 ## Verdict

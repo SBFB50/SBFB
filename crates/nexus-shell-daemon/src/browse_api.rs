@@ -16,11 +16,11 @@
 //! T0 tier: the routes stay registered in `crate::http::build_router`
 //! inside `authed_routes` (loopback bearer + Host + Origin) and re-point
 //! here by full path; route paths, JSON shapes and status codes are
-//! unchanged. The SHARED test-only `BrowseListResponse` DTO, the
-//! directory-only pull-resolution cluster and the browse-index
-//! chokepoint (`index_browse_entry` / `trustworthy_open_source`) stay in
-//! `http.rs` (multi-domain consumers: `blob_serve`, `seed_api`,
-//! `deploy`, `runtime`).
+//! unchanged. The SHARED test-only `BrowseListResponse` DTO and the
+//! browse-index chokepoint (`index_browse_entry` /
+//! `trustworthy_open_source`) stay in `http.rs` (multi-domain
+//! consumers); the directory-only pull-resolution cluster moved to
+//! `blob_serve_http.rs` with its blob-serve caller (S82 Phase S4).
 
 use std::sync::Arc;
 use std::time::SystemTime;

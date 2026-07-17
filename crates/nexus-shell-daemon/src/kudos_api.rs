@@ -210,6 +210,11 @@ pub async fn contributor_dashboard(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::body::to_bytes;
+    use axum::http::{Method, Request};
+    use tower::ServiceExt;
+
+    use crate::test_support::*;
 
     #[test]
     fn kudos_entry_response_serializes() {
@@ -243,5 +248,152 @@ mod tests {
         assert!(q.worker_node_id.is_none());
         assert_eq!(q.limit, 100);
         assert_eq!(q.offset, 0);
+    }
+
+    // --- kudos_api.rs (2 routes) ---
+
+    #[tokio::test]
+    async fn kudos_entries_empty() {
+        let app = build_test_router(mk_state().await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/kudos/entries")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(body["count"], 0);
+        assert!(body["entries"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn kudos_leaderboard_empty() {
+        let app = build_test_router(mk_state().await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/kudos/proj-test/leaderboard")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(body["count"], 0);
+        assert!(body["leaderboard"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn contributor_dashboard_aggregates_node_credits() {
+        // Sprint 76 Phase E (D4): the /contributor/{node_id} route returns
+        // the node's cross-project standing — mirror of leaderboard but
+        // per-node. Credit one node across two projects, then read it back.
+        let state = mk_state().await;
+        {
+            let db = state.coordinator_db.lock().unwrap();
+            nexus_coordinator_rs::kudos_ledger::credit(&db, "p1", "node-x", "t1", 100, 1_000)
+                .unwrap();
+            nexus_coordinator_rs::kudos_ledger::credit(&db, "p2", "node-x", "t2", 50, 1_000)
+                .unwrap();
+            nexus_coordinator_rs::kudos_ledger::credit(&db, "p1", "node-y", "t3", 10, 1_000)
+                .unwrap();
+        }
+        let app = build_test_router(state);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/contributor/node-x")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(body["worker_node_id"], "node-x");
+        assert_eq!(body["tasks_served"], 2, "node-x served 2 tasks");
+        assert!(body["effective_kudos"].as_u64().unwrap() > 0);
+        assert_eq!(
+            body["per_project"].as_array().unwrap().len(),
+            2,
+            "node-x served 2 distinct projects"
+        );
+    }
+
+    #[tokio::test]
+    async fn contributor_dashboard_empty_for_unknown_node() {
+        let app = build_test_router(mk_state().await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/contributor/nobody")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(body["tasks_served"], 0);
+        assert!(body["per_project"].as_array().unwrap().is_empty());
+    }
+
+    // --- Pagination tests (debt items 2 + 4) ---
+
+    #[tokio::test]
+    async fn kudos_entries_with_limit_offset() {
+        let state = mk_state().await;
+        {
+            let db = state.coordinator_db.lock().unwrap();
+            nexus_coordinator_rs::kudos_ledger::credit(&db, "p1", "w1", "t1", 10, 1_000).unwrap();
+            nexus_coordinator_rs::kudos_ledger::credit(&db, "p1", "w2", "t2", 20, 1_000).unwrap();
+            nexus_coordinator_rs::kudos_ledger::credit(&db, "p1", "w3", "t3", 30, 1_000).unwrap();
+        }
+        let app = build_test_router(Arc::clone(&state));
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/kudos/entries?limit=2&offset=0")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(body["count"], 2);
+        assert_eq!(body["total_count"], 3);
+
+        let app2 = build_test_router(Arc::clone(&state));
+        let resp2 = app2
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/kudos/entries?limit=2&offset=2")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp2.status(), StatusCode::OK);
+        let body2: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp2.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(body2["count"], 1);
+        assert_eq!(body2["total_count"], 3);
     }
 }

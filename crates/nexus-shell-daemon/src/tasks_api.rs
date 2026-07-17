@@ -208,6 +208,11 @@ pub async fn get_task_result(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::body::to_bytes;
+    use axum::http::{Method, Request};
+    use tower::ServiceExt;
+
+    use crate::test_support::*;
 
     #[test]
     fn task_list_query_defaults() {
@@ -239,5 +244,128 @@ mod tests {
         let json = serde_json::to_value(&t).unwrap();
         assert_eq!(json["status"], "pending");
         assert_eq!(json["worker_node_id"], serde_json::Value::Null);
+    }
+
+    // --- tasks_api.rs (2 routes) ---
+
+    #[tokio::test]
+    async fn tasks_list_default() {
+        let app = build_test_router(mk_state().await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/tasks")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(body["count"], 0);
+        assert!(body["tasks"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn tasks_get_not_found_404() {
+        let app = build_test_router(mk_state().await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/tasks/nonexistent-task-id")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    // Sprint 72 Phase D: `/{task_id}/result` is 404 while the task is
+    // pending and returns the human-readable text once completed — the
+    // primitive the Operator network arm polls then fetches.
+    #[tokio::test]
+    async fn task_result_route_404_then_text_on_completed() {
+        let state = mk_state().await;
+        let coord_kp = (*state.pow_keypair).clone();
+        let db_handle = state.coordinator_db.clone();
+
+        let task_id = {
+            let db = db_handle.lock().unwrap();
+            nexus_coordinator_rs::dispatcher::submit_task(&db, &coord_kp, make_test_submission())
+                .expect("submit")
+                .task
+                .task_id
+        };
+
+        let app = build_test_router(state);
+
+        // Pending → 404 (status carried in the error message).
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(format!("/api/v1/tasks/{task_id}/result"))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+
+        // Complete it with a retrievable text.
+        {
+            let db = db_handle.lock().unwrap();
+            db.set_task_result(&task_id, "w1", "sig-hex", "the network reply", 100)
+                .expect("complete");
+        }
+
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(format!("/api/v1/tasks/{task_id}/result"))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(body["status"], "completed");
+        assert_eq!(body["result_text"], "the network reply");
+    }
+
+    #[tokio::test]
+    async fn tasks_list_with_limit() {
+        let state = mk_state().await;
+        let coord_kp = (*state.pow_keypair).clone();
+        {
+            let db = state.coordinator_db.lock().unwrap();
+            nexus_coordinator_rs::dispatcher::submit_task(&db, &coord_kp, make_test_submission())
+                .unwrap();
+            nexus_coordinator_rs::dispatcher::submit_task(&db, &coord_kp, make_test_submission())
+                .unwrap();
+        }
+        let app = build_test_router(Arc::clone(&state));
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/tasks?limit=1")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(body["count"], 1);
     }
 }

@@ -148,6 +148,11 @@ pub async fn envelope(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::body::to_bytes;
+    use axum::http::{Method, Request};
+    use tower::ServiceExt;
+
+    use crate::test_support::*;
 
     #[test]
     fn validate_hex_valid() {
@@ -173,5 +178,100 @@ mod tests {
         };
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("\"verified\":true"));
+    }
+
+    #[tokio::test]
+    async fn contributor_verify_rejects_non_hex_path_params() {
+        let app = build_test_router(mk_state().await);
+        let bad_project = "NOT-HEX";
+        let node_hex = "a".repeat(64);
+        let uri = format!("/api/v1/contributor/verify/{bad_project}/{node_hex}");
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(&uri)
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    // --- contributor_api.rs (2 routes) ---
+
+    #[tokio::test]
+    async fn contributor_project_empty_list() {
+        let app = build_test_router(mk_state().await);
+        let project_id = "a".repeat(64);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(format!("/api/v1/contributor/project/{project_id}"))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(body["count"], 0);
+        assert!(body["contributors"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn contributor_project_invalid_hex_400() {
+        let app = build_test_router(mk_state().await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/contributor/project/not-a-hex")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn contributor_envelope_not_found_404() {
+        let app = build_test_router(mk_state().await);
+        let project_id = "a".repeat(64);
+        let node_id = "b".repeat(64);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(format!(
+                        "/api/v1/contributor/envelope/{project_id}/{node_id}"
+                    ))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn contributor_envelope_invalid_hex_400() {
+        let app = build_test_router(mk_state().await);
+        let valid = "a".repeat(64);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(format!("/api/v1/contributor/envelope/bad-hex/{valid}"))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
 }

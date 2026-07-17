@@ -244,6 +244,11 @@ pub async fn whitelist_remove(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::body::to_bytes;
+    use axum::http::{Method, Request};
+    use tower::ServiceExt;
+
+    use crate::test_support::*;
 
     #[test]
     fn default_consent_level_1() {
@@ -304,5 +309,275 @@ mod tests {
                     <= residual_threats_for_level(level + 1).len()
             );
         }
+    }
+
+    // --- consent.rs (4 routes) ---
+
+    #[tokio::test]
+    async fn consent_get_returns_default_config() {
+        // S81 Phase A4: hermetic — consent routes resolve ~/.sbfb when
+        // sbfb_home is None, so a rig-level consent.json would leak in
+        // (the exact pollution the A3 baseline hit). Pin a tempdir.
+        let tmp = tempfile::tempdir().expect("tmpdir");
+        let app = build_test_router(mk_state_with_sbfb_home(tmp.path().to_path_buf()).await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/consent")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(body["level"], 1);
+    }
+
+    #[tokio::test]
+    async fn consent_set_invalid_level_400() {
+        // S81 Phase A4: hermetic — consent routes resolve ~/.sbfb when
+        // sbfb_home is None, so a rig-level consent.json would leak in
+        // (the exact pollution the A3 baseline hit). Pin a tempdir.
+        let tmp = tempfile::tempdir().expect("tmpdir");
+        let app = build_test_router(mk_state_with_sbfb_home(tmp.path().to_path_buf()).await);
+        let body = serde_json::json!({"level": 0});
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/consent/set")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn consent_set_level_5_400() {
+        // S81 Phase A4: hermetic — consent routes resolve ~/.sbfb when
+        // sbfb_home is None, so a rig-level consent.json would leak in
+        // (the exact pollution the A3 baseline hit). Pin a tempdir.
+        let tmp = tempfile::tempdir().expect("tmpdir");
+        let app = build_test_router(mk_state_with_sbfb_home(tmp.path().to_path_buf()).await);
+        let body = serde_json::json!({"level": 5});
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/consent/set")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn consent_whitelist_add_invalid_node_id_400() {
+        // S81 Phase A4: hermetic — consent routes resolve ~/.sbfb when
+        // sbfb_home is None, so a rig-level consent.json would leak in
+        // (the exact pollution the A3 baseline hit). Pin a tempdir.
+        let tmp = tempfile::tempdir().expect("tmpdir");
+        let app = build_test_router(mk_state_with_sbfb_home(tmp.path().to_path_buf()).await);
+        let body = serde_json::json!({"project_id": "not-valid-hex"});
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/consent/whitelist/add")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn consent_whitelist_add_missing_project_id_422() {
+        // S81 Phase A4: hermetic — consent routes resolve ~/.sbfb when
+        // sbfb_home is None, so a rig-level consent.json would leak in
+        // (the exact pollution the A3 baseline hit). Pin a tempdir.
+        let tmp = tempfile::tempdir().expect("tmpdir");
+        let app = build_test_router(mk_state_with_sbfb_home(tmp.path().to_path_buf()).await);
+        let body = serde_json::json!({});
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/consent/whitelist/add")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    #[tokio::test]
+    async fn consent_whitelist_remove_missing_project_id_422() {
+        // S81 Phase A4: hermetic — consent routes resolve ~/.sbfb when
+        // sbfb_home is None, so a rig-level consent.json would leak in
+        // (the exact pollution the A3 baseline hit). Pin a tempdir.
+        let tmp = tempfile::tempdir().expect("tmpdir");
+        let app = build_test_router(mk_state_with_sbfb_home(tmp.path().to_path_buf()).await);
+        let body = serde_json::json!({});
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/consent/whitelist/remove")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    // --- consent.rs happy path tests (4 routes) ---
+
+    #[tokio::test]
+    async fn consent_set_level_2_returns_200() {
+        let tmp = tempfile::tempdir().expect("tmpdir");
+        let app = build_test_router(mk_state_with_sbfb_home(tmp.path().to_path_buf()).await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/consent/set")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(r#"{"level": 2}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(body["level"], 2);
+    }
+
+    #[tokio::test]
+    async fn consent_get_returns_persisted_level() {
+        let tmp = tempfile::tempdir().expect("tmpdir");
+        let state = mk_state_with_sbfb_home(tmp.path().to_path_buf()).await;
+
+        let app1 = build_test_router(Arc::clone(&state));
+        let resp = app1
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/consent/set")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(r#"{"level": 3}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let app2 = build_test_router(Arc::clone(&state));
+        let resp = app2
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/consent")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(body["level"], 3);
+    }
+
+    #[tokio::test]
+    async fn consent_whitelist_add_returns_200() {
+        let tmp = tempfile::tempdir().expect("tmpdir");
+        let app = build_test_router(mk_state_with_sbfb_home(tmp.path().to_path_buf()).await);
+        let pid = "a".repeat(64);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/consent/whitelist/add")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::json!({"project_id": pid}).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert!(
+            body["allowed_project_ids"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|v| v.as_str() == Some(&pid))
+        );
+    }
+
+    #[tokio::test]
+    async fn consent_whitelist_remove_returns_200() {
+        let tmp = tempfile::tempdir().expect("tmpdir");
+        let state = mk_state_with_sbfb_home(tmp.path().to_path_buf()).await;
+        let pid = "b".repeat(64);
+
+        let app1 = build_test_router(Arc::clone(&state));
+        app1.oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/v1/consent/whitelist/add")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    serde_json::json!({"project_id": pid}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+        let app2 = build_test_router(Arc::clone(&state));
+        let resp = app2
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/consent/whitelist/remove")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::json!({"project_id": pid}).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert!(
+            body["allowed_project_ids"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|v| v.as_str() != Some(&pid))
+        );
     }
 }

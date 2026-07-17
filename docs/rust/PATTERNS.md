@@ -4156,7 +4156,7 @@ Logged by `sprint77_audit_findings.md` (Cas A audit gate, 11-track Workflow).
   the blake3 anti-crowding sampling was applied to the WORKER shard-placement tail
   (`placement.rs:309-350`), NOT to the SEEDER dial-set the S75/S76 carry originally
   named. `seed_registry.rs:331 seeders_recent` still does plain `ids.sort()`
-  (lexicographic), capped in `directory_pull_providers` (`http.rs:directory_pull_providers`, whose
+  (lexicographic), capped in `directory_pull_providers` (`blob_serve_http.rs:directory_pull_providers`, whose
   own comment still says "carried to the S76 audit"). Availability-only (BLAKE3
   content-addressing keeps integrity intact — a crowding Sybil costs failed dials,
   never wrong bytes), so NOT P0/P1. Fix: track SEEDER-DIAL-TAIL explicitly in the
@@ -4193,7 +4193,7 @@ naive-choice trap that would have produced a lying test or a Day-0 break:
    green E2E, not a spec reading.
 2. **Single-source equality, two witnesses.** The served CSP is byte-compared to
    `nexus_core_rs::csp::BLOB_SERVE_CSP`. (a) Rust nextest
-   `http.rs::blob_serve_csp_header_byte_exact_matches_contract` asserts
+   `blob_serve_http.rs::blob_serve_csp_header_byte_exact_matches_contract` asserts
    `served == const` on **200 AND 404** — closing the prior substring
    (`contains("connect-src 'none'")`) / `.is_some()` presence hole (the
    "BLOB_SERVE_CSP tested by substring" gap of `doctrine_contrat_pour_llm`). (b)
@@ -4208,7 +4208,8 @@ naive-choice trap that would have produced a lying test or a Day-0 break:
    `served==contract` AND clean-clean AND dirty-detected; a missing signal is a
    BLOCK to diagnose, never a hollow PASS.
 4. **Seed via `/blob-serve`, NOT `--web-root`.** The CSP middleware is scoped to
-   the `/blob-serve` nest (`http.rs` `blob_serve_csp_middleware`); a fixture posted
+   the `/blob-serve` nest (`blob_serve_http.rs` `blob_serve_csp_middleware`); a fixture
+   posted
    to `web/dist` via `--web-root` (the hermetic shell origin) carries ZERO CSP and
    would test a fictional policy. The spec seeds via `publish-blob` → `publish`
    (real `archive_hash` browse entry, `project_id = blake3(project_name)`) then

@@ -699,7 +699,8 @@ async fn golden_http_spa_fallback() {
 // ---------------------------------------------------------------
 // Shared cross-domain test fixtures (promoted in Sprint 82 Phase O:
 // consumed by the migrated seed_api/publish_api/browse_api tests and
-// by the staying http.rs fork/pull-resolution tests).
+// by the fork/pull-resolution tests (moved to deploy.rs and
+// blob_serve_http.rs in S82 Phase S4).
 // ---------------------------------------------------------------
 
 pub(crate) fn own_browse_entry(project_id: &str, name: &str, owner: Option<String>) -> BrowseEntry {
@@ -818,8 +819,8 @@ pub(crate) async fn ingest_remote_directory(
 }
 
 /// Minimal valid task submission (promoted in Sprint 82 Phase Q:
-/// consumed by both the migrated coordinator_api tests and the staying
-/// http.rs tasks_api tests).
+/// consumed by both the migrated coordinator_api tests and the
+/// tasks_api.rs tests (moved from http.rs in S82 Phase S4).
 pub(crate) fn make_test_submission() -> nexus_coordinator_rs::types::TaskSubmission {
     nexus_coordinator_rs::types::TaskSubmission {
         project_id: "test-project".into(),
@@ -843,7 +844,8 @@ pub(crate) fn make_test_submission() -> nexus_coordinator_rs::types::TaskSubmiss
 // ---------------------------------------------------------------
 // Shared cross-domain test fixtures (promoted in Sprint 82 Phase S3:
 // consumed by the migrated search_api/preview_api tests and by the
-// staying http.rs deploy/browse-card/fork tests).
+// deploy/browse-card/fork tests (moved to deploy.rs and
+// publish_api.rs in S82 Phase S4).
 // ---------------------------------------------------------------
 
 pub(crate) fn make_test_zip() -> Vec<u8> {
@@ -902,4 +904,27 @@ pub(crate) async fn search_total(state: &Arc<DaemonHttpState>, q: &str) -> u64 {
     let json: serde_json::Value =
         serde_json::from_slice(&to_bytes(resp.into_body(), 16384).await.unwrap()).unwrap();
     json["total"].as_u64().unwrap()
+}
+
+// ---------------------------------------------------------------
+// Shared cross-domain test fixture (promoted in Sprint 82 Phase S4:
+// consumed by the migrated deploy.rs and publish_api.rs card tests).
+// ---------------------------------------------------------------
+
+/// GET /api/daemon/browse and return the entries array.
+pub(crate) async fn browse_entries(state: &Arc<DaemonHttpState>) -> Vec<serde_json::Value> {
+    let resp = build_test_router(Arc::clone(state))
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/api/daemon/browse")
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let json: serde_json::Value =
+        serde_json::from_slice(&to_bytes(resp.into_body(), 65536).await.unwrap()).unwrap();
+    json["entries"].as_array().cloned().unwrap_or_default()
 }

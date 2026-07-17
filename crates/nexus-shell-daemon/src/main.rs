@@ -29,6 +29,7 @@
 //! were in the Phase A foundation.**
 
 mod apps;
+mod blob_serve_http;
 mod browse_api;
 mod canary_api;
 mod cli;

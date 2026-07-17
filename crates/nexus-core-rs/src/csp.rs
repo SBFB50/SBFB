@@ -6,7 +6,7 @@
 //! zero drift:
 //!
 //! 1. `nexus-shell-daemon` injects [`BLOB_SERVE_CSP`] at runtime
-//!    (`http.rs` → `blob_serve::BLOB_SERVE_CSP`, re-exported from this
+//!    (`blob_serve_http.rs` → `blob_serve::BLOB_SERVE_CSP`, re-exported from this
 //!    module).
 //! 2. The Factory authoring CSP gate (`sbfb-factory::gates::run_gate_csp_authoring`,
 //!    Sprint 79 Phase E) imports the same const and asserts — via a

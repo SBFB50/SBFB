@@ -11,7 +11,7 @@ mounted session it returns the populated shape.
 GET /api/daemon/shard-session/{id}
 ```
 
-Source: [`../../../crates/nexus-shell-daemon/src/http.rs`](../../../crates/nexus-shell-daemon/src/http.rs)
+Source: [`../../../crates/nexus-shell-daemon/src/shard_session_http_api.rs`](../../../crates/nexus-shell-daemon/src/shard_session_http_api.rs)
 (`shard_session_response` builds the body AND applies the privacy projection —
 aggregate `member_count`, never a `worker_pubkey`/`initiator`; it reads the live
 `ShardSessionRegistry`, S81 Phase I).

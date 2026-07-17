@@ -1396,4 +1396,59 @@ mod tests {
         assert_eq!(ann.project_id, pid, "per-app id on the wire");
         assert_ne!(ann.project_id, ann.node_id, "per-app id is not the node_id");
     }
+
+    #[tokio::test]
+    async fn multiple_apps_get_distinct_browse_cards() {
+        // One node hosting two apps must show TWO distinct Browse cards, keyed by
+        // per-app project_id (blake3(name)). Before the fix both took the node_id
+        // as project_id and the second collapsed onto the first (single card).
+        let state = mk_state().await;
+        assert_eq!(
+            publish_app(&state, "App One", "tools", "first").await,
+            StatusCode::OK
+        );
+        assert_eq!(
+            publish_app(&state, "App Two", "tools", "second").await,
+            StatusCode::OK
+        );
+
+        let entries = browse_entries(&state).await;
+        let ids: std::collections::HashSet<&str> = entries
+            .iter()
+            .filter_map(|e| e["project_id"].as_str())
+            .collect();
+        assert_eq!(
+            ids.len(),
+            2,
+            "two apps -> two distinct cards, not collapsed"
+        );
+        // Each is individually searchable.
+        assert_eq!(search_total(&state, "One").await, 1);
+        assert_eq!(search_total(&state, "Two").await, 1);
+    }
+
+    #[tokio::test]
+    async fn published_app_browse_id_is_blake3_not_node_id() {
+        let state = mk_state().await;
+        assert_eq!(
+            publish_app(&state, "Identity Test", "tools", "x").await,
+            StatusCode::OK
+        );
+        let expected = hex::encode(nexus_core_rs::crypto::blake3_hash(b"Identity Test"));
+        let entries = browse_entries(&state).await;
+        let entry = entries
+            .iter()
+            .find(|e| e["project_name"] == "Identity Test")
+            .expect("published app present in browse");
+        assert_eq!(
+            entry["project_id"].as_str().unwrap(),
+            expected,
+            "browse card id is blake3(project_name)"
+        );
+        assert_ne!(
+            entry["project_id"].as_str().unwrap(),
+            state.node_id,
+            "browse card id is NOT the node_id"
+        );
+    }
 }

@@ -94,6 +94,11 @@ pub async fn get_worker_state(State(_state): State<Arc<DaemonHttpState>>) -> imp
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::body::to_bytes;
+    use axum::http::{Method, Request};
+    use tower::ServiceExt;
+
+    use crate::test_support::*;
 
     #[test]
     fn stale_threshold_is_15() {
@@ -115,5 +120,26 @@ mod tests {
     #[test]
     fn schema_version_is_1() {
         assert_eq!(WORKER_STATE_SCHEMA_VERSION, 1);
+    }
+
+    // --- worker_state_api.rs (1 route) ---
+
+    #[tokio::test]
+    async fn worker_state_returns_200() {
+        let app = build_test_router(mk_state().await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/worker/state")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert!(body.get("running").is_some());
     }
 }

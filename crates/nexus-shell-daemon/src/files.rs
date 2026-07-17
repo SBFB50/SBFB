@@ -187,6 +187,11 @@ pub async fn stream_file(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::body::to_bytes;
+    use axum::http::{Method, Request};
+    use tower::ServiceExt;
+
+    use crate::test_support::*;
 
     #[test]
     fn validate_sha256_valid() {
@@ -235,5 +240,193 @@ mod tests {
         let tmp = std::path::Path::new("/tmp/test-sbfb");
         let dir = files_dir(Some(tmp)).unwrap();
         assert_eq!(dir, tmp.join("files"));
+    }
+
+    // --- files.rs (3 routes) ---
+
+    #[tokio::test]
+    async fn files_manifest_invalid_sha_400() {
+        let app = build_test_router(mk_state().await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/files/not-a-valid-sha/manifest")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn files_manifest_not_found_404() {
+        let app = build_test_router(mk_state().await);
+        let sha = "a".repeat(64);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(format!("/api/v1/files/{sha}/manifest"))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn files_stream_invalid_sha_400() {
+        let app = build_test_router(mk_state().await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/files/bad-sha")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn files_stream_not_found_404() {
+        let app = build_test_router(mk_state().await);
+        let sha = "b".repeat(64);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(format!("/api/v1/files/{sha}"))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn files_upload_too_large_413() {
+        let app = build_test_router(mk_state().await);
+        let big_body = vec![0u8; 50 * 1024 * 1024 + 1];
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/files/upload")
+                    .header("content-type", "application/octet-stream")
+                    .body(axum::body::Body::from(big_body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    }
+
+    // --- files.rs happy path tests (3 routes) ---
+
+    #[tokio::test]
+    async fn files_upload_small_returns_201_with_sha() {
+        let tmp = tempfile::tempdir().expect("tmpdir");
+        let app = build_test_router(mk_state_with_sbfb_home(tmp.path().to_path_buf()).await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/files/upload")
+                    .header("content-type", "text/plain")
+                    .header("x-original-name", "test.txt")
+                    .body(axum::body::Body::from(b"hello world".to_vec()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::CREATED);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(body["sha256"].as_str().unwrap().len(), 64);
+        assert_eq!(body["size"], 11);
+        assert_eq!(body["original_name"], "test.txt");
+    }
+
+    #[tokio::test]
+    async fn files_manifest_after_upload_returns_200() {
+        let tmp = tempfile::tempdir().expect("tmpdir");
+        let state = mk_state_with_sbfb_home(tmp.path().to_path_buf()).await;
+
+        let app1 = build_test_router(Arc::clone(&state));
+        let resp = app1
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/files/upload")
+                    .header("content-type", "text/plain")
+                    .body(axum::body::Body::from(b"manifest test".to_vec()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::CREATED);
+        let upload_body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        let sha = upload_body["sha256"].as_str().unwrap();
+
+        let app2 = build_test_router(Arc::clone(&state));
+        let resp = app2
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(format!("/api/v1/files/{sha}/manifest"))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(body["sha256"].as_str().unwrap(), sha);
+    }
+
+    #[tokio::test]
+    async fn files_stream_after_upload_returns_content() {
+        let tmp = tempfile::tempdir().expect("tmpdir");
+        let state = mk_state_with_sbfb_home(tmp.path().to_path_buf()).await;
+        let content = b"stream test content";
+
+        let app1 = build_test_router(Arc::clone(&state));
+        let resp = app1
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/files/upload")
+                    .body(axum::body::Body::from(content.to_vec()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let upload_body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        let sha = upload_body["sha256"].as_str().unwrap().to_owned();
+
+        let app2 = build_test_router(Arc::clone(&state));
+        let resp = app2
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(format!("/api/v1/files/{sha}"))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body_bytes = to_bytes(resp.into_body(), 4096).await.unwrap();
+        assert_eq!(&body_bytes[..], content);
     }
 }

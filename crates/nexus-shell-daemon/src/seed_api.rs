@@ -19,10 +19,10 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Json, Response};
 use tracing::{debug, info, warn};
 
-use crate::http::{
-    DIRECTORY_PULL_TIMEOUT_SECS, DaemonHttpState, directory_pull_providers,
-    find_directory_app_by_project, mint_blob_ticket,
+use crate::blob_serve_http::{
+    DIRECTORY_PULL_TIMEOUT_SECS, directory_pull_providers, find_directory_app_by_project,
 };
+use crate::http::{DaemonHttpState, mint_blob_ticket};
 
 /// `POST /api/daemon/keep-online` — Sprint 74 Phase D — toggle a self-deployed
 /// app's LOCAL pin. ON re-tags the archive blob (skip-GC) and lets the boot

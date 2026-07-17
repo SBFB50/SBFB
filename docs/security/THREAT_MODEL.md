@@ -16,7 +16,7 @@ pattern OWASP Threat Dragon.
 | **Shell React** | `web/src/` | Browser tab hote, iframe parent |
 | **Shell daemon** | `crates/nexus-shell-daemon*` | Binaire local, P2P, HTTP loopback |
 | **Coordinator** | `crates/nexus-coordinator-rs` | Lib Rust embarquee dans le daemon (DB, dispatcher, validator, kudos — porte de Python S50-S51 ; le handler deploy vit dans le daemon `deploy.rs`) |
-| **Blob-serve** | `crates/nexus-shell-daemon-core/src/blob_serve.rs` (handler route dans le daemon `http.rs`) | Route publique du listener daemon (`public_routes`) ; isolation iframe par origin OPAQUE (sandbox sans allow-same-origin), pas par port separe |
+| **Blob-serve** | `crates/nexus-shell-daemon-core/src/blob_serve.rs` (handler dans le daemon `blob_serve_http.rs`, route cablee dans `http.rs`) | Route publique du listener daemon (`public_routes`) ; isolation iframe par origin OPAQUE (sandbox sans allow-same-origin), pas par port separe |
 | **Worker** | `crates/nexus-worker*` | Binaire GPU, claim-loop, Ollama runtime |
 | **NexusApp iframe** | `packages/nexus-app-*`, apps externes | Contenu untrusted, bridge postMessage |
 | **iroh stack** | `crates/nexus-core-rs` | QUIC, docs, gossip, blobs — iroh =1.0.1 / docs 0.101 / gossip 0.101 / blobs 0.103 (S81) |
@@ -773,7 +773,7 @@ les assets d'une app au moment du **publish** et bloque la publication si elle
 violerait la CSP du bac a sable (`nexus_core_rs::csp::BLOB_SERVE_CSP`, source
 unique). C'est une defense de **nature differente** de la mitigation runtime
 deja modelisee en §5.1 (App iframe) : la CSP runtime, reinjectee par blob-serve
-sur chaque reponse (`http.rs` → `blob_serve::BLOB_SERVE_CSP`), bloque
+sur chaque reponse (`blob_serve_http.rs` → `blob_serve::BLOB_SERVE_CSP`), bloque
 l'exfiltration **a l'execution chez le client** ; le gate publish-time
 **empeche de distribuer** une app non conforme et donne a l'auteur un
 diagnostic immediat. Defense en profondeur — ni l'un ni l'autre n'est suffisant

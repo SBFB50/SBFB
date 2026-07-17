@@ -652,6 +652,11 @@ pub async fn storage_version(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::body::to_bytes;
+    use axum::http::{Method, Request};
+    use tower::ServiceExt;
+
+    use crate::test_support::*;
 
     #[tokio::test]
     async fn test_storage_list_by_prefix() {
@@ -720,5 +725,66 @@ mod tests {
         assert!(!is_tombstone(&serde_json::json!({ "deleted": false })));
         assert!(!is_tombstone(&serde_json::json!({ "title": "hello" })));
         assert!(!is_tombstone(&serde_json::json!(42)));
+    }
+
+    #[tokio::test]
+    async fn storage_join_rejects_non_replicated_app() {
+        let app = build_test_router(mk_state().await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/daemon/storage/join")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        serde_json::to_string(&serde_json::json!({
+                            "app": "unknown-app",
+                            "ticket": "placeholder"
+                        }))
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::BAD_REQUEST,
+            "non-replicated app must be rejected with 400"
+        );
+        let body_bytes = to_bytes(resp.into_body(), 4096).await.unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        let err = body["error"].as_str().unwrap();
+        assert!(
+            err.contains("not a replicated app"),
+            "error must identify the replicated-app guard, got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn storage_set_rate_limited_returns_429() {
+        let state = mk_state().await;
+        let app = build_test_router(Arc::clone(&state));
+
+        for i in 0..15 {
+            let resp = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method(Method::POST)
+                        .uri("/app/test-app/state/key1")
+                        .header("content-type", "application/json")
+                        .body(axum::body::Body::from(
+                            serde_json::to_string(&serde_json::json!({ "v": i })).unwrap(),
+                        ))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            if resp.status() == StatusCode::TOO_MANY_REQUESTS {
+                return;
+            }
+        }
+        panic!("expected at least one 429 TOO_MANY_REQUESTS after 15 rapid writes");
     }
 }

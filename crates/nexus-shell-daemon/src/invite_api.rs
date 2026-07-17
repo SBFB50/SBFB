@@ -256,6 +256,11 @@ pub async fn revoke_invite(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::body::to_bytes;
+    use axum::http::{Method, Request};
+    use tower::ServiceExt;
+
+    use crate::test_support::*;
 
     #[test]
     fn create_invite_body_deserializes_defaults() {
@@ -283,5 +288,90 @@ mod tests {
         assert!(VALID_SCOPES.contains(&"worker"));
         assert!(VALID_SCOPES.contains(&"observer"));
         assert!(!VALID_SCOPES.contains(&"admin"));
+    }
+
+    // --- invite_api.rs (3 routes) ---
+
+    #[tokio::test]
+    async fn invite_create_success() {
+        let app = build_test_router(mk_state().await);
+        let body = serde_json::json!({"scope": "observer"});
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/invite/create")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::CREATED);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        let id = body["id"].as_str().expect("id must be a string");
+        assert!(id.starts_with("inv-"), "invite ID must start with inv-");
+        let parts: Vec<&str> = id.split('-').collect();
+        assert_eq!(parts.len(), 4, "format inv-{{node8}}-{{ts}}-{{seq}}");
+        assert_eq!(body["scope"], "observer");
+        assert!(
+            body["wire"].as_str().unwrap().starts_with("nx1"),
+            "wire must be nx1-encoded"
+        );
+    }
+
+    #[tokio::test]
+    async fn invite_worker_requires_project_doc() {
+        let app = build_test_router(mk_state().await);
+        let body = serde_json::json!({"scope": "worker"});
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/invite/create")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[tokio::test]
+    async fn invite_list_empty() {
+        let app = build_test_router(mk_state().await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/invite")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(body["count"], 0);
+        assert!(body["invites"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn invite_revoke_not_found_404() {
+        let app = build_test_router(mk_state().await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::DELETE)
+                    .uri("/api/v1/invite/nonexistent-id")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     }
 }

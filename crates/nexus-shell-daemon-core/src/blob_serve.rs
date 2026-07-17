@@ -279,7 +279,7 @@ pub fn detect_content_type(filename: &str, data: &[u8]) -> &'static str {
 // gate imports the same single source instead of re-hardcoding the policy.
 // Re-exported here unchanged so the daemon middleware + http layer keep
 // referencing `blob_serve::BLOB_SERVE_CSP` / `_COOP` / `_COEP` with no
-// call-site change (`http.rs:556`). The defense-in-depth rationale lives on
+// call-site change (`blob_serve_http.rs` middleware). The defense-in-depth rationale lives on
 // the const in `nexus_core_rs::csp`.
 pub use nexus_core_rs::csp::{BLOB_SERVE_COEP, BLOB_SERVE_COOP, BLOB_SERVE_CSP};
 

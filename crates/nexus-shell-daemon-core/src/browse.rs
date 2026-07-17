@@ -760,7 +760,7 @@ impl BrowseAggregator {
         // PULL model: an app appears in the index first, then you download it.
         // The front "Download / open" action that drives the pull is **Phase F**.
         // `find_archive_ticket_by_hash` still operates on `direct_entries` only;
-        // the directory-only resolution lives daemon-side (`http.rs`
+        // the directory-only resolution lives daemon-side (`blob_serve_http.rs`
         // `find_directory_app_by_hash` / `find_directory_app_by_project`),
         // because the SeedRegistry providing the fallback seeders is a daemon
         // concern this core crate cannot see.

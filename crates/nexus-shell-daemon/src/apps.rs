@@ -181,6 +181,11 @@ pub async fn get_app(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::body::to_bytes;
+    use axum::http::{Method, Request};
+    use tower::ServiceExt;
+
+    use crate::test_support::*;
     use nexus_shell_daemon_core::browse::{BrowseSource, BrowseStatus};
 
     fn make_entry(id: &str, name: &str, category: &str, open_source: bool) -> BrowseEntry {
@@ -309,5 +314,121 @@ mod tests {
         let json = serde_json::to_value(&resp).unwrap();
         assert_eq!(json["total_count"], 42);
         assert_eq!(json["count"], 0);
+    }
+
+    // --- apps.rs integration tests (2 routes) ---
+
+    #[tokio::test]
+    async fn apps_list_empty_returns_200() {
+        let app = build_test_router(mk_state().await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/apps")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(body["count"], 0);
+    }
+
+    #[tokio::test]
+    async fn apps_list_with_entries_returns_populated() {
+        use nexus_shell_daemon_core::browse::{BrowseEntry, BrowseSource, BrowseStatus};
+        let state = mk_state().await;
+        state.browse_aggregator.add_direct_entry(BrowseEntry {
+            project_id: "a".repeat(64),
+            node_id: None,
+            project_name: "Test App".into(),
+            category: "test".into(),
+            description: "A test app".into(),
+            curator_pubkey: "b".repeat(64),
+            curator_name: "Test Curator".into(),
+            source: BrowseSource::Direct,
+            status: BrowseStatus::Unknown,
+            last_probed_at: None,
+            archive_ticket: None,
+            archive_hash: Some("c".repeat(64)),
+            repo_url: None,
+            provenance_hash: None,
+            is_open_source: false,
+        });
+        let app = build_test_router(Arc::clone(&state));
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/apps")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(body["count"], 1);
+        assert_eq!(body["apps"][0]["project_name"], "Test App");
+    }
+
+    #[tokio::test]
+    async fn apps_get_by_id_returns_detail() {
+        use nexus_shell_daemon_core::browse::{BrowseEntry, BrowseSource, BrowseStatus};
+        let state = mk_state().await;
+        let pid = "d".repeat(64);
+        state.browse_aggregator.add_direct_entry(BrowseEntry {
+            project_id: pid.clone(),
+            node_id: None,
+            project_name: "Detail App".into(),
+            category: "test".into(),
+            description: "Detailed".into(),
+            curator_pubkey: "e".repeat(64),
+            curator_name: "Curator".into(),
+            source: BrowseSource::Direct,
+            status: BrowseStatus::Unknown,
+            last_probed_at: None,
+            archive_ticket: None,
+            archive_hash: None,
+            repo_url: Some("https://example.com/repo".into()),
+            provenance_hash: None,
+            is_open_source: true,
+        });
+        let app = build_test_router(Arc::clone(&state));
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(format!("/api/v1/apps/{pid}"))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(resp.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(body["project_name"], "Detail App");
+        assert_eq!(body["is_open_source"], true);
+    }
+
+    #[tokio::test]
+    async fn apps_get_unknown_id_returns_404() {
+        let app = build_test_router(mk_state().await);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/apps/nonexistent")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     }
 }
