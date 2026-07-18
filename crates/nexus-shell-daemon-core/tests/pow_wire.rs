@@ -217,7 +217,10 @@ fn subscribe_with_per_topic_override_applied() {
 #[test]
 fn policy_hot_reload_on_file_change_detected() {
     let dir = tempdir().unwrap();
-    let path = dir.path().join("relay_pow_policy.toml");
+    // S83 A1 (carry 3): canonical base so macOS FSEvents' /private/var
+    // path matches the watched path (dunce, not std::fs → no Windows \\?\).
+    let base = dunce::canonicalize(dir.path()).expect("canonicalize tempdir");
+    let path = base.join("relay_pow_policy.toml");
     fs::write(&path, "default_difficulty = 10").unwrap();
     let watcher = PowPolicyWatcher::spawn(path.clone()).expect("spawn");
     let shared = watcher.shared();

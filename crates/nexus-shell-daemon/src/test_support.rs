@@ -242,7 +242,7 @@ pub(crate) fn build_test_router_with_web_root(
 /// a node-specific catalog). Strictly the OBSERVED volatile
 /// set — keeping the allowlist minimal means a real drift on
 /// any other field still fails the golden.
-const GOLDEN_VOLATILE_FIELDS: &[&str] = &["node_id", "revision", "archive_hash"];
+const GOLDEN_VOLATILE_FIELDS: &[&str] = &["node_id", "revision", "archive_hash", "took_ms"];
 
 const GOLDEN_REDACTED: &str = "<VOLATILE>";
 
@@ -389,7 +389,283 @@ async fn golden_http_public_tier() {
     .await;
 }
 
-/// Shard-session domain (split target: 6 loopback handlers).
+// =============================================================
+// Sprint 83 Phase A1 (carry 6) — the 8 remaining 0-golden families.
+// Each case pins the EMPTY-NODE contract (`mk_state()` = a fresh
+// node with no feed, no anchor, no seeders): the vast majority
+// answer the empty/404/absent path, which is exactly the surface
+// a fresh install exposes. Captured by executing the surfaces
+// against `build_test_router` (injected loopback token), never
+// hand-derived. NOT the populated path — see the per-case notes.
+// =============================================================
+
+/// Browse aggregate on a fresh node: empty entry list.
+#[tokio::test]
+async fn golden_http_browse() {
+    golden_run(&[GoldenCase {
+        name: "browse_empty",
+        method: Method::GET,
+        uri: "/api/daemon/browse",
+        json_body: None,
+        want_status: 200,
+        want_headers: &[("content-type", "application/json")],
+        want_body: GoldenBody::Json(serde_json::json!({ "entries": [] })),
+    }])
+    .await;
+}
+
+/// `browse/pull` accepts a (degenerate default) request and enqueues
+/// it — on an empty node there is no provider to dial, but the
+/// handler's contract is "accepted → requested:true", not the pull
+/// outcome (which is asynchronous and off the response path).
+#[tokio::test]
+async fn golden_http_browse_pull() {
+    golden_run(&[GoldenCase {
+        name: "browse_pull_accepts",
+        method: Method::POST,
+        uri: "/api/daemon/browse/pull",
+        json_body: Some(serde_json::json!({})),
+        want_status: 200,
+        want_headers: &[("content-type", "application/json")],
+        want_body: GoldenBody::Json(serde_json::json!({ "requested": true })),
+    }])
+    .await;
+}
+
+/// Subscribed node directories on a fresh node: both lists empty.
+#[tokio::test]
+async fn golden_http_nodes() {
+    golden_run(&[GoldenCase {
+        name: "nodes_empty",
+        method: Method::GET,
+        uri: "/api/daemon/nodes",
+        json_body: None,
+        want_status: 200,
+        want_headers: &[("content-type", "application/json")],
+        want_body: GoldenBody::Json(serde_json::json!({ "nodes": [], "observed": [] })),
+    }])
+    .await;
+}
+
+/// Feed read surface on a fresh node: cursor at origin, no entries.
+#[tokio::test]
+async fn golden_http_feed_domain() {
+    golden_run(&[
+        GoldenCase {
+            name: "feed_cursor_origin",
+            method: Method::GET,
+            uri: "/api/daemon/feed/cursor",
+            json_body: None,
+            want_status: 200,
+            want_headers: &[("content-type", "application/json")],
+            want_body: GoldenBody::Json(serde_json::json!({
+                "last_seq": 0,
+                "last_entry_hash": null
+            })),
+        },
+        GoldenCase {
+            name: "feed_entries_empty",
+            method: Method::GET,
+            uri: "/api/daemon/feed/entries",
+            json_body: None,
+            want_status: 200,
+            want_headers: &[("content-type", "application/json")],
+            want_body: GoldenBody::Json(serde_json::json!({ "entries": [], "count": 0 })),
+        },
+    ])
+    .await;
+}
+
+/// Search: the axum query rejection when `q` is missing (400 plain
+/// text) and the empty-index answer for a present query (`took_ms`
+/// is a timing field, redacted via `GOLDEN_VOLATILE_FIELDS`).
+#[tokio::test]
+async fn golden_http_search_domain() {
+    golden_run(&[
+        GoldenCase {
+            name: "search_missing_q",
+            method: Method::GET,
+            uri: "/api/daemon/search",
+            json_body: None,
+            want_status: 400,
+            want_headers: &[("content-type", "text/plain; charset=utf-8")],
+            want_body: GoldenBody::Text("Failed to deserialize query string: missing field `q`"),
+        },
+        GoldenCase {
+            name: "search_empty_index",
+            method: Method::GET,
+            uri: "/api/daemon/search?q=nothing",
+            json_body: None,
+            want_status: 200,
+            want_headers: &[("content-type", "application/json")],
+            want_body: GoldenBody::Json(serde_json::json!({
+                "results": [],
+                "total": 0,
+                "took_ms": 0
+            })),
+        },
+    ])
+    .await;
+}
+
+/// Proof card for an unknown project: 404 with a JSON error (a
+/// fictitious id must not panic — it maps cleanly to not-found).
+#[tokio::test]
+async fn golden_http_proof_card() {
+    golden_run(&[GoldenCase {
+        name: "proof_card_unknown",
+        method: Method::GET,
+        uri: "/api/daemon/proof-card/deadbeef",
+        json_body: None,
+        want_status: 404,
+        want_headers: &[("content-type", "application/json")],
+        want_body: GoldenBody::Json(serde_json::json!({ "error": "project not found" })),
+    }])
+    .await;
+}
+
+/// `preview/load` hashes the (degenerate default) preview request;
+/// the hash is a deterministic function of that fixed input, so it
+/// is pinned literally (not node-dependent — proven stable by
+/// `golden_families_stable` re-running against a fresh node).
+#[tokio::test]
+async fn golden_http_preview_load() {
+    golden_run(&[GoldenCase {
+        name: "preview_load_default",
+        method: Method::POST,
+        uri: "/api/v1/preview/load",
+        json_body: Some(serde_json::json!({})),
+        want_status: 200,
+        want_headers: &[("content-type", "application/json")],
+        want_body: GoldenBody::Json(serde_json::json!({
+            "hash": "6e46dd10defc9b56c29a6ec56b508c21f54c08192194e4df25bf36f0c9c3c279"
+        })),
+    }])
+    .await;
+}
+
+/// Provenance for an unknown project: 200 with the `absent` record
+/// (a fictitious id must not panic — provenance is simply absent).
+#[tokio::test]
+async fn golden_http_provenance() {
+    golden_run(&[GoldenCase {
+        name: "provenance_absent",
+        method: Method::GET,
+        uri: "/api/v1/project/deadbeef/provenance",
+        json_body: None,
+        want_status: 200,
+        want_headers: &[("content-type", "application/json")],
+        want_body: GoldenBody::Json(serde_json::json!({
+            "status": "absent",
+            "verified": false,
+            "record": null,
+            "provenance_hash": null
+        })),
+    }])
+    .await;
+}
+
+/// ±0 EXACT determinism oracle (§P75 pt3): each family is replayed
+/// against TWO independently-built fresh nodes and the redacted
+/// bodies must be byte-identical. This catches any hidden volatile
+/// field NOT in `GOLDEN_VOLATILE_FIELDS` whose value DIFFERS between
+/// the two fresh nodes (a per-run nonce, a node-identity leak). It is
+/// one layer of three — the explicit allowlist and the per-family
+/// exact-value goldens are the others — so a coarse clock that reads
+/// identically in two near-simultaneous runs is caught by the
+/// explicit `took_ms` allowlisting, not by this oracle alone.
+/// Distinct from the per-family goldens above, which pin the exact
+/// contract; this pins run-to-run STABILITY.
+#[tokio::test]
+async fn golden_families_stable() {
+    // Request shapes only — the expected values are the per-family
+    // goldens' job; here we assert run1 == run2 on a fresh node each.
+    let probes: &[(&str, Method, &str, Option<serde_json::Value>)] = &[
+        ("browse", Method::GET, "/api/daemon/browse", None),
+        (
+            "browse_pull",
+            Method::POST,
+            "/api/daemon/browse/pull",
+            Some(serde_json::json!({})),
+        ),
+        ("nodes", Method::GET, "/api/daemon/nodes", None),
+        ("feed_cursor", Method::GET, "/api/daemon/feed/cursor", None),
+        (
+            "feed_entries",
+            Method::GET,
+            "/api/daemon/feed/entries",
+            None,
+        ),
+        ("search_noq", Method::GET, "/api/daemon/search", None),
+        (
+            "search_q",
+            Method::GET,
+            "/api/daemon/search?q=nothing",
+            None,
+        ),
+        (
+            "proof_card",
+            Method::GET,
+            "/api/daemon/proof-card/deadbeef",
+            None,
+        ),
+        (
+            "preview_load",
+            Method::POST,
+            "/api/v1/preview/load",
+            Some(serde_json::json!({})),
+        ),
+        (
+            "provenance",
+            Method::GET,
+            "/api/v1/project/deadbeef/provenance",
+            None,
+        ),
+    ];
+
+    async fn hit(
+        app: &Router,
+        method: &Method,
+        uri: &str,
+        body: &Option<serde_json::Value>,
+    ) -> (u16, String) {
+        let mut builder = Request::builder().method(method.clone()).uri(uri);
+        let b = match body {
+            Some(j) => {
+                builder = builder.header("content-type", "application/json");
+                axum::body::Body::from(serde_json::to_vec(j).unwrap())
+            }
+            None => axum::body::Body::empty(),
+        };
+        let resp = app.clone().oneshot(builder.body(b).unwrap()).await.unwrap();
+        let status = resp.status().as_u16();
+        let bytes = to_bytes(resp.into_body(), 1 << 20).await.unwrap();
+        // Redact volatile fields when the body is JSON; leave plain
+        // text (axum rejections) as-is.
+        let canon = match serde_json::from_slice::<serde_json::Value>(&bytes) {
+            Ok(mut v) => {
+                golden_redact(&mut v);
+                serde_json::to_string(&v).unwrap()
+            }
+            Err(_) => String::from_utf8_lossy(&bytes).into_owned(),
+        };
+        (status, canon)
+    }
+
+    let app1 = build_test_router(mk_state().await);
+    let app2 = build_test_router(mk_state().await);
+    for (name, method, uri, body) in probes {
+        let run1 = hit(&app1, method, uri, body).await;
+        let run2 = hit(&app2, method, uri, body).await;
+        assert_eq!(
+            run1, run2,
+            "[golden-stable:{name}] response drifted run-to-run on a fresh node \
+             (a volatile field is missing from GOLDEN_VOLATILE_FIELDS)"
+        );
+    }
+}
+
+/// Shard-session golden domain: 6 loopback handlers (post-split S82).
 #[tokio::test]
 async fn golden_http_shard_session_domain() {
     golden_run(&[

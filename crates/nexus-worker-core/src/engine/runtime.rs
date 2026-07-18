@@ -110,6 +110,21 @@ pub struct EngineBoot {
     /// `~/.sbfb/` and (b) rewrite the file to trigger hot-reload
     /// without racing the operator's config.
     pub rate_limit_policy_path_override: Option<PathBuf>,
+    /// Sprint 83 Phase A1 (TEST-ISOLATION, carry 5): override for the
+    /// state-writer flush destination, DECLARED AT BOOT. `None` (the
+    /// prod default) resolves at flush time to
+    /// [`crate::paths::worker_state_file`] — which, when
+    /// `NEXUS_GRID_ROOT` is unset, is the developer's real data dir
+    /// (`<data>/nexus-grid/worker/state.json`). Any test that boots
+    /// AND runs an engine (so `flush_state_snapshot` fires) MUST set
+    /// this to a tempdir path, otherwise it clobbers that live file
+    /// and races other tests under `cargo test` shared-process. Making
+    /// the override a boot field (not a post-construction mutator that
+    /// is easy to forget — `set_state_flush_path` had 0 callers) is
+    /// the confinement: the destination is decided where the engine is
+    /// declared. Per-Engine, never the process-global env (parallel-safe,
+    /// unlike `NEXUS_GRID_ROOT` under P2-A-1 shared-process).
+    pub state_flush_path_override: Option<PathBuf>,
 }
 
 impl EngineBoot {
@@ -125,6 +140,7 @@ impl EngineBoot {
             llm_override: None,
             sbfb_home_override: None,
             rate_limit_policy_path_override: None,
+            state_flush_path_override: None,
         }
     }
 }
@@ -255,6 +271,7 @@ impl Engine {
             llm_override,
             sbfb_home_override,
             rate_limit_policy_path_override,
+            state_flush_path_override,
         } = boot;
 
         info!(
@@ -545,7 +562,7 @@ impl Engine {
             completed_task_ids: HashSet::new(),
             boot_time: SystemTime::now(),
             last_task: None,
-            state_flush_path_override: None,
+            state_flush_path_override,
             consent: consent_handle,
             usage: usage_handle,
             rate_limiter,
@@ -1598,11 +1615,16 @@ mod tests {
         );
     }
 
-    async fn build_engine_with_stub_ollama() -> Engine {
+    async fn build_engine_with_stub_ollama() -> (Engine, tempfile::TempDir) {
         let worker_config = WorkerConfig::default();
         let keypair = KeyPair::generate();
         let allowlist = Allowlist::open_in_memory().unwrap();
 
+        // TEST-ISOLATION (S83 A1 carry 5): confine the state flush to a
+        // tempdir the caller keeps alive (returned as a guard), so a
+        // consumer that runs the engine never clobbers the real
+        // `worker_state_file()`.
+        let state_tmp = tempfile::tempdir().expect("state tempdir");
         let boot = EngineBoot {
             worker_config: worker_config.clone(),
             keypair,
@@ -1611,13 +1633,55 @@ mod tests {
             llm_override: Some(Box::new(StubBackend::new())),
             sbfb_home_override: None,
             rate_limit_policy_path_override: None,
+            state_flush_path_override: Some(state_tmp.path().join("worker").join("state.json")),
         };
-        Engine::new(boot).await.expect("engine boots")
+        (Engine::new(boot).await.expect("engine boots"), state_tmp)
+    }
+
+    #[tokio::test]
+    async fn test_engine_confined_root() {
+        // TEST-ISOLATION (S83 A1 carry 5): an engine booted with a
+        // `state_flush_path_override` flushes THERE and never to the real
+        // `worker_state_file()` a co-running test would clobber. Drives the
+        // private `flush_state_snapshot` directly (no full run loop needed).
+        let state_tmp = tempfile::tempdir().expect("state tempdir");
+        let dest = state_tmp.path().join("worker").join("state.json");
+        let boot = EngineBoot {
+            worker_config: WorkerConfig::default(),
+            keypair: KeyPair::generate(),
+            allowlist: Allowlist::open_in_memory().unwrap(),
+            data_dir: None,
+            llm_override: Some(Box::new(StubBackend::new())),
+            sbfb_home_override: None,
+            rate_limit_policy_path_override: None,
+            state_flush_path_override: Some(dest.clone()),
+        };
+        let engine = Engine::new(boot).await.expect("engine boots");
+
+        // The confined destination is under the tempdir and is NOT the
+        // real worker state file (when it resolves on this platform).
+        assert!(
+            dest.starts_with(state_tmp.path()),
+            "dest must be under the tempdir"
+        );
+        assert_ne!(
+            Some(dest.clone()),
+            crate::paths::worker_state_file(),
+            "the confined dest must differ from the real worker_state_file()"
+        );
+
+        // Drive one flush: it must land in the confined path (state_writer
+        // creates the `worker/` parent), proving the override wins.
+        engine.flush_state_snapshot();
+        assert!(
+            dest.exists(),
+            "flush must write the confined state.json at {dest:?}"
+        );
     }
 
     #[tokio::test]
     async fn engine_boots_in_idle_state_and_exposes_node_id() {
-        let engine = build_engine_with_stub_ollama().await;
+        let (engine, _state_tmp) = build_engine_with_stub_ollama().await;
         assert_eq!(engine.state_rx().borrow().label(), "idle");
         assert!(!engine.node_id().is_empty());
         engine
@@ -1632,7 +1696,7 @@ mod tests {
     // multi_thread matches prod (worker binary). See PATTERNS §P54.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn engine_applies_start_event_on_run() {
-        let mut engine = build_engine_with_stub_ollama().await;
+        let (mut engine, _state_tmp) = build_engine_with_stub_ollama().await;
         // Cancel the shutdown mechanism before run: hold a
         // sender, send right away so the loop exits on the
         // first select poll.
@@ -1694,6 +1758,9 @@ mod tests {
             })
             .unwrap();
 
+        // TEST-ISOLATION (S83 A1 carry 5): this test runs the engine
+        // (flushes), so confine the state destination to a tempdir.
+        let state_tmp = tempfile::tempdir().expect("state tempdir");
         let boot = EngineBoot {
             worker_config,
             keypair,
@@ -1702,6 +1769,7 @@ mod tests {
             llm_override: Some(Box::new(StubBackend::new())),
             sbfb_home_override: None,
             rate_limit_policy_path_override: None,
+            state_flush_path_override: Some(state_tmp.path().join("worker").join("state.json")),
         };
         let mut engine = Engine::new(boot).await.expect("engine boots");
 
@@ -1774,6 +1842,9 @@ mod tests {
             llm_override: Some(Box::new(StubBackend::new())),
             sbfb_home_override: None,
             rate_limit_policy_path_override: None,
+            // Boot-only test: never runs the engine, so no flush fires
+            // and the prod `None` resolution is never reached.
+            state_flush_path_override: None,
         };
         let engine = Engine::new(boot).await.expect("engine boots");
 
@@ -1860,6 +1931,9 @@ mod tests {
             llm_override: Some(Box::new(StubBackend::new())),
             sbfb_home_override: Some(sbfb_tmp.path().to_path_buf()),
             rate_limit_policy_path_override: None,
+            // TEST-ISOLATION (S83 A1 carry 5): reuse the sbfb tempdir
+            // for a confined state flush (this test runs the engine).
+            state_flush_path_override: Some(sbfb_tmp.path().join("worker").join("state.json")),
         };
         let mut engine = Engine::new(boot).await.expect("engine boots");
 
@@ -1967,13 +2041,16 @@ mod tests {
         // Consent L4 so the filter admits any project id (the test
         // project id has nothing to do with the worker node id).
         let sbfb_tmp: TempDir = tempfile::tempdir().unwrap();
+        // S83 A1 (carry 3): canonical base so the policy watcher's macOS
+        // FSEvents /private/var path matches (dunce, not std::fs → no \\?\).
+        let sbfb_base = dunce::canonicalize(sbfb_tmp.path()).expect("canonicalize tempdir");
         let mut consent = ConsentConfig::default_for("rate-limit-test");
         consent.level = ConsentLevel::All;
         consent
             .save_atomic(&sbfb_tmp.path().join("consent.json"))
             .unwrap();
 
-        let policy_path = sbfb_tmp.path().join("rate_limit_policy.toml");
+        let policy_path = sbfb_base.join("rate_limit_policy.toml");
         std::fs::write(&policy_path, policy_toml).unwrap();
 
         let boot = EngineBoot {
@@ -1984,6 +2061,9 @@ mod tests {
             llm_override: Some(Box::new(StubBackend::new())),
             sbfb_home_override: Some(sbfb_tmp.path().to_path_buf()),
             rate_limit_policy_path_override: Some(policy_path.clone()),
+            // TEST-ISOLATION (S83 A1 carry 5): confined state flush;
+            // `sbfb_tmp` is returned to the caller so it stays alive.
+            state_flush_path_override: Some(sbfb_tmp.path().join("worker").join("state.json")),
         };
         let engine = Engine::new(boot).await.expect("engine boots");
 
@@ -2472,7 +2552,7 @@ burst_multiplier = 1.0
     // multi_thread matches prod (worker binary). See PATTERNS §P54.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn engine_shuts_down_gracefully() {
-        let mut engine = build_engine_with_stub_ollama().await;
+        let (mut engine, _state_tmp) = build_engine_with_stub_ollama().await;
         let tx = engine.take_shutdown_sender().unwrap();
         let rx = engine.state_rx();
         let handle = tokio::spawn(async move { engine.run_until_shutdown().await });

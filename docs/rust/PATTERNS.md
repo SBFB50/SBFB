@@ -3945,10 +3945,16 @@ additive §P64). Cross-ref: §P68 (placement), §P69 (routing/churn), THREAT_MOD
 4. **Sybil-tail sampling is deterministic, non-lexicographic.** When more workers
    than slots crowd the tail, selection is `blake3(session_id || pubkey)` ordered
    (anti lexicographic-crowding, reproducible: `sampling_key`/`select_candidates`
-   in `placement.rs`) — this closes the WORKER-PLACEMENT Sybil tail only
-   *(scope re-anchored S82 Phase H: the SEEDER dial-set — `seeders_recent`,
-   `crates/nexus-shell-daemon/src/seed_registry.rs` — still sorts
-   lexicographically; the S75 seeder-tail carry stays OPEN)*.
+   in `placement.rs`) — this closes the WORKER-PLACEMENT Sybil tail. The SAME
+   doctrine now also closes the SEEDER dial-set *(S83 Phase A1, CARRY-1 below)*:
+   `seeders_recent` (`crates/nexus-shell-daemon/src/seed_registry.rs`) orders by
+   `blake3(project ‖ archive ‖ seeder_id)` (unit-separated `0x1f`) instead of
+   `ids.sort()`, so a low-hex-prefix Sybil can no longer crowd the capped
+   `directory_pull_providers` head. It is a MIRROR of `sampling_key`, not a
+   single-source reuse: the seeder context is `(project, archive)` over `String`
+   hex ids, distinct from placement's `(session_id, [u8;32] pubkey)`, so a shared
+   primitive would need generalising (noted as an out-of-budget refactor). Reorder
+   ONLY — every resident id is still returned (best-effort contract intact).
 
 Internal types are non-wire (placement is a computation). 0 bump wire, no-float.
 Cross-ref: §P67 (data-plane), §P69 (routing), `sprint77_phase_d_preflight.md`.
@@ -4151,17 +4157,18 @@ Logged by `sprint77_audit_findings.md` (Cas A audit gate, 11-track Workflow).
   not a false-green — but §P69 lacks the explicit "not-yet-wired (S78 carry)"
   disclaimer that §P67 point 3 applies correctly. Fix: mark the perf-map
   republish + ingest gate as an S78 seam. Doc-only, 0 code.
-- **CARRY-1 (P2) — SEEDER-DIAL-TAIL residual (SYBIL-SEEDER-TAIL mis-credited).**
-  §P68 point 4 + `sprint78_audit_plan.md §3` declare "SYBIL-SEEDER-TAIL clos", but
-  the blake3 anti-crowding sampling was applied to the WORKER shard-placement tail
+- **CARRY-1 (P2) — SEEDER-DIAL-TAIL residual (SYBIL-SEEDER-TAIL mis-credited). CLOSED S83 Phase A1.**
+  §P68 point 4 + `sprint78_audit_plan.md §3` had declared "SYBIL-SEEDER-TAIL clos", but
+  the blake3 anti-crowding sampling had been applied to the WORKER shard-placement tail
   (`placement.rs:309-350`), NOT to the SEEDER dial-set the S75/S76 carry originally
-  named. `seed_registry.rs:331 seeders_recent` still does plain `ids.sort()`
-  (lexicographic), capped in `directory_pull_providers` (`blob_serve_http.rs:directory_pull_providers`, whose
-  own comment still says "carried to the S76 audit"). Availability-only (BLAKE3
-  content-addressing keeps integrity intact — a crowding Sybil costs failed dials,
-  never wrong bytes), so NOT P0/P1. Fix: track SEEDER-DIAL-TAIL explicitly in the
-  S78 ledger, OR re-scope §P68 to "closes the WORKER-PLACEMENT Sybil tail only",
-  OR apply the same `blake3(context||pubkey)` sampling to `seeders_recent`.
+  named. Resolution (the third option): `seed_registry.rs seeders_recent` now orders by
+  `blake3(project ‖ 0x1f ‖ archive ‖ 0x1f ‖ seeder_id)` instead of `ids.sort()`
+  (context-scoped so a pre-mined id cannot win for every project at once), and
+  `directory_pull_providers` (`blob_serve_http.rs`) consumes that order. Test:
+  `dial_set_sampling_distribution` (non-lexicographic, reproducible, context-scoped,
+  no id dropped). Availability-only (BLAKE3 content-addressing kept integrity intact
+  throughout — a crowding Sybil costs failed dials, never wrong bytes), so it was
+  never P0/P1.
 - **HARD-2 (P2) — TEST-ISOLATION-SBFB-HOME (pre-existing, not an S77 regression).**
   The e2e daemon-spawn tests (`nexus-shell-daemon/tests/e2e.rs`, last touched
   Sprint 10, 0 S77 delta) set `.env("NEXUS_GRID_ROOT", tmp)` but NEVER `SBFB_HOME`,
@@ -4343,3 +4350,18 @@ any move and stays green across every split commit:
 
 Minted Phase M (`29a9255`), exercised green across the 10 split commits N→S4
 (routes 89==89, moved bodies token-identical, Codex-corroborated).
+
+**Sprint 83 Phase A1 extension (carry 6 — closing the 0-golden families).** The
+S82 net sampled the SPLIT domains; 8 handler families that existed but were
+never split (`browse`, `browse/pull`, `nodes`, `feed/cursor`+`feed/entries`,
+`search`, `proof-card`, `preview/load`, `provenance`) still had 0 golden. A1
+adds one `golden_http_*` per family — each pinning the EMPTY-NODE contract
+(list-empty / 400-missing-`q` / 404 / `absent`), NOT the populated path, with a
+per-case comment so a future reader does not mistake a fresh-install surface for
+the peopled one — plus one determinism oracle `golden_families_stable`: every
+family is replayed against TWO independently built fresh nodes and the redacted
+bodies must be byte-identical (±0 EXACT). That oracle is what lets a single-run
+literal (e.g. the `preview/load` BLAKE3 of the default body) be trusted — a
+hidden per-run nonce or identity leak would diverge run-to-run and fail there.
+`took_ms` (search timing) was the one newly observed volatile field added to the
+point-2 allowlist.

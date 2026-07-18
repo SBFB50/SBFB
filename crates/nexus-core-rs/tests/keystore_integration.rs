@@ -154,16 +154,17 @@ fn unlock_after_restart_works() {
 fn hot_reload_blob_rotation_watcher() {
     use notify::{EventKind, RecursiveMode, Watcher};
     let dir = TempDir::new().unwrap();
-    let store = LocalFileKeyStore::with_params(dir.path(), KdfParams::fast_for_tests())
-        .without_os_keyring();
+    // S83 A1 (carry 3): canonical base so macOS FSEvents' /private/var
+    // path matches the watched path (dunce, not std::fs → no Windows \\?\).
+    let base = dunce::canonicalize(dir.path()).expect("canonicalize tempdir");
+    let store =
+        LocalFileKeyStore::with_params(&base, KdfParams::fast_for_tests()).without_os_keyring();
     store.init("1234").unwrap();
 
-    let blob_path = dir.path().join(BLOB_FILE_NAME);
+    let blob_path = base.join(BLOB_FILE_NAME);
     let (tx, rx) = mpsc::channel::<notify::Result<notify::Event>>();
     let mut watcher = notify::recommended_watcher(move |res| tx.send(res).unwrap_or(())).unwrap();
-    watcher
-        .watch(dir.path(), RecursiveMode::NonRecursive)
-        .unwrap();
+    watcher.watch(&base, RecursiveMode::NonRecursive).unwrap();
 
     // Rotate the PIN — triggers write_atomic which on Windows does
     // fs::write(tmp) + fs::rename(tmp, blob_path). On Unix the

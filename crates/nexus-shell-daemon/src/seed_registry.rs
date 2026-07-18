@@ -303,8 +303,9 @@ impl SeedRegistry {
     }
 
     /// The distinct seeder ids of `(project_id, archive_hash)` seen within the
-    /// TTL at `now`, sorted for determinism. Same lazy-purge semantics as
-    /// [`Self::count_recent`] with `Some(archive_hash)`.
+    /// TTL at `now`, in a deterministic anti-Sybil order (blake3 sampling
+    /// keyed by the (project, archive) context — §P68 doctrine, see the body).
+    /// Same lazy-purge semantics as [`Self::count_recent`] with `Some(archive_hash)`.
     ///
     /// Promoted from test-only to prod in Sprint 75 Phase D (carry PULL-2):
     /// the multi-provider pull builds its ordered provider vector from the
@@ -328,7 +329,25 @@ impl SeedRegistry {
         if ids.is_empty() {
             state.seeders.remove(&key);
         }
-        ids.sort();
+        // Deterministic, context-scoped, NON-lexicographic ordering (anti-Sybil
+        // dial-tail, doctrine §P68 — mirror of `placement.rs::sampling_key`):
+        // order by blake3(project ‖ archive ‖ seeder_id) so a Sybil minting a
+        // low-prefix hex id cannot crowd the capped pull-provider head
+        // (`blob_serve_http` PULL_PROVIDER_CAP takes the vector head). The
+        // (project, archive) context means a pre-mined id cannot win for every
+        // project at once. Reorder ONLY — every resident id is still returned,
+        // so the best-effort contract (a lying entry = one failed dial, never
+        // wrong bytes) is intact. Fields are unit-separated (0x1f) so
+        // variable-length project/archive keys cannot alias.
+        ids.sort_by_key(|id| {
+            let mut input = Vec::with_capacity(key.0.len() + key.1.len() + id.len() + 2);
+            input.extend_from_slice(key.0.as_bytes());
+            input.push(0x1f);
+            input.extend_from_slice(key.1.as_bytes());
+            input.push(0x1f);
+            input.extend_from_slice(id.as_bytes());
+            *blake3::hash(&input).as_bytes()
+        });
         ids
     }
 
@@ -392,9 +411,13 @@ mod tests {
         // A second distinct peer raises the count.
         assert!(reg.record_announced(&seed_op(&pid, &peer2, &archive), &peer2, &me, now, now));
         assert_eq!(reg.count_recent(&pid, Some(&archive), now), 2);
+        // Order is now blake3-sampled (anti-Sybil dial-tail) — compare as a
+        // SET (both seeders present), order-independent.
+        let mut got = reg.seeders_recent(&pid, &archive, now);
+        got.sort();
         let mut expected = vec![peer1.clone(), peer2.clone()];
         expected.sort();
-        assert_eq!(reg.seeders_recent(&pid, &archive, now), expected);
+        assert_eq!(got, expected);
 
         // Re-announce by an already-known peer refreshes, never double-counts.
         assert!(reg.record_announced(
@@ -418,6 +441,81 @@ mod tests {
         assert_eq!(reg.count_recent(&pid, Some(&archive), now + 10), 2);
         // The version-agnostic read agrees (one archive version, two seeders).
         assert_eq!(reg.count_recent(&pid, None, now + 10), 2);
+    }
+
+    #[test]
+    fn dial_set_sampling_distribution() {
+        // SEEDER-DIAL-TAIL (carry S83 A1): the dial order is a deterministic,
+        // context-scoped blake3 sampling — NOT lexicographic — so a Sybil with
+        // a low-prefix hex id cannot crowd the capped pull-provider head.
+        // Mirror of `placement.rs::sampling_key` doctrine (§P68).
+        let reg = SeedRegistry::new();
+        let pid = "a".repeat(64);
+        let archive = "cc".repeat(32);
+        let me = "ff".repeat(32);
+        let now = 1_700_000_000u64;
+
+        // Six seeders whose ids are lexicographically ordered by construction
+        // (00.. < 11.. < .. < 55..): a lexicographic sort returns this exact
+        // input order, so any deviation proves the sampling reorders the tail.
+        let seeders: Vec<String> = (0u8..6).map(|i| format!("{i:02x}").repeat(32)).collect();
+        for (i, s) in seeders.iter().enumerate() {
+            assert!(reg.record_announced(
+                &seed_op(&pid, s, &archive),
+                s,
+                &me,
+                now + i as u64,
+                now + i as u64
+            ));
+        }
+
+        let order1 = reg.seeders_recent(&pid, &archive, now + 6);
+
+        // (d) no id dropped: the returned set equals the input set.
+        let mut got_set = order1.clone();
+        got_set.sort();
+        let mut want_set = seeders.clone();
+        want_set.sort();
+        assert_eq!(
+            got_set, want_set,
+            "every resident seeder must still be returned"
+        );
+
+        // (a) NON-lexicographic: blake3 shuffles the lexicographically-ordered input.
+        let mut lexi = seeders.clone();
+        lexi.sort();
+        assert_ne!(
+            order1, lexi,
+            "dial order must not be lexicographic (anti-Sybil tail)"
+        );
+
+        // (b) reproducible: same inputs -> same order.
+        let order2 = reg.seeders_recent(&pid, &archive, now + 6);
+        assert_eq!(order1, order2, "sampling must be deterministic");
+
+        // (c) context-scoped: a DIFFERENT (project, archive) reorders the SAME
+        // seeder set (a pre-mined id cannot win for every project at once).
+        let pid2 = "b".repeat(64);
+        for (i, s) in seeders.iter().enumerate() {
+            assert!(reg.record_announced(
+                &seed_op(&pid2, s, &archive),
+                s,
+                &me,
+                now + i as u64,
+                now + i as u64
+            ));
+        }
+        let order_ctx2 = reg.seeders_recent(&pid2, &archive, now + 6);
+        let mut ctx2_set = order_ctx2.clone();
+        ctx2_set.sort();
+        assert_eq!(
+            ctx2_set, want_set,
+            "context 2 must still return every seeder"
+        );
+        assert_ne!(
+            order1, order_ctx2,
+            "a different context must reorder the same set"
+        );
     }
 
     #[test]

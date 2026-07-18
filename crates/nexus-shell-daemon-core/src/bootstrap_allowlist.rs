@@ -641,7 +641,10 @@ expires_at_tag = "v1.0"
     fn watcher_picks_up_file_rewrite() {
         let _g = ENV_GUARD.lock().unwrap();
         let dir = tempdir().unwrap();
-        let path = dir.path().join("bootstrap_allowlist.toml");
+        // S83 A1 (carry 3): canonical base so macOS FSEvents' /private/var
+        // path matches the watched path (dunce, not std::fs → no Windows \\?\).
+        let base = dunce::canonicalize(dir.path()).expect("canonicalize tempdir");
+        let path = base.join("bootstrap_allowlist.toml");
         // Start empty (no file).
         let watcher = BootstrapAllowlistWatcher::spawn(path.clone()).unwrap();
         assert!(watcher.current().is_empty());

@@ -4650,6 +4650,10 @@ mod tests {
             llm_override: Some(Box::new(StubBackend::new())),
             sbfb_home_override: Some(sbfb_tmp.path().to_path_buf()),
             rate_limit_policy_path_override: None,
+            // TEST-ISOLATION (S83 A1 carry 5): confine explicitly (per-Engine),
+            // not via the process-global NEXUS_GRID_ROOT env this test also
+            // sets — the override is deterministic under shared-process.
+            state_flush_path_override: Some(sbfb_tmp.path().join("worker").join("state.json")),
         };
         let mut engine = Engine::new(boot).await.expect("worker engine boots");
         let w_stop = engine.take_shutdown_sender().expect("shutdown sender");

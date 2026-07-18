@@ -135,12 +135,13 @@ pub(crate) fn find_directory_app_by_project(
 /// lying seeder entry costs one failed dial, never integrity: the requested
 /// object is the BLAKE3 hash itself.
 ///
-/// Known availability residual (review Phase D): the seeder tail comes from
-/// `seeders_recent`, which sorts lexicographically — a Sybil minting keys
-/// with low hex prefixes can deterministically occupy the capped slots and
-/// crowd an honest seeder out of the dial set (the anchor slot is never
-/// crowdable). Integrity holds regardless (BLAKE3); random sampling of the
-/// fresh-seeder set is the tracked mitigation, carried to the S76 audit.
+/// Sybil dial-tail hardening (S83 Phase A1, closes CARRY-1): the seeder tail
+/// comes from `seeders_recent`, which now orders by `blake3(project ‖ archive ‖
+/// seeder_id)` (context-scoped, non-lexicographic) — a Sybil minting keys with
+/// low hex prefixes can no longer deterministically occupy the capped slots to
+/// crowd an honest seeder out of the dial set (the anchor slot was never
+/// crowdable either way). Integrity holds regardless (BLAKE3 content-addressing);
+/// the ordering only decides dial priority, never which bytes are served.
 pub(crate) fn directory_pull_providers(
     seed_registry: &crate::seed_registry::SeedRegistry,
     my_node_id: &str,

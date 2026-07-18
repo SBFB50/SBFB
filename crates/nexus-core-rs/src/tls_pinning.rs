@@ -834,7 +834,10 @@ mod tests {
     #[test]
     fn hot_reload_picks_up_external_rewrite() {
         let dir = TempDir::new().unwrap();
-        let path = dir.path().join(RELAY_PINS_FILE_NAME);
+        // S83 A1 (carry 3): canonical base so macOS FSEvents' /private/var
+        // path matches the watched path (dunce, not std::fs → no Windows \\?\).
+        let base = dunce::canonicalize(dir.path()).expect("canonicalize tempdir");
+        let path = base.join(RELAY_PINS_FILE_NAME);
         // Seed with an empty pinset.
         std::fs::write(&path, br#"{"version": 1, "pins": []}"#).unwrap();
         let v = PinValidator::from_file_with_watch(&path).unwrap();

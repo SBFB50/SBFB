@@ -204,6 +204,10 @@ async fn handle_start(
         llm_override,
         sbfb_home_override: None,
         rate_limit_policy_path_override: None,
+        // PROD: `None` = flush to the real `worker_state_file()` the shell
+        // reads (honours NEXUS_GRID_ROOT, else the platform data dir). The
+        // per-Engine test override (S83 A1 carry 5) never applies here.
+        state_flush_path_override: None,
     };
     let mut engine = Engine::new(boot).await.context("engine boot failed")?;
 

@@ -227,6 +227,9 @@ mod tests {
             llm_override: Some(Box::new(StubBackend::new().with_delay_ms(5))),
             sbfb_home_override: Some(sbfb_tmp.path().to_path_buf()),
             rate_limit_policy_path_override: None,
+            // TEST-ISOLATION (S83 A1 carry 5): this test runs the engine
+            // (flushes) — confine the state file under the sbfb tempdir.
+            state_flush_path_override: Some(sbfb_tmp.path().join("worker").join("state.json")),
         };
         let mut engine = Engine::new(boot).await.expect("engine boots");
 

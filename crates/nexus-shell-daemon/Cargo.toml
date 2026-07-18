@@ -65,6 +65,9 @@ serde_json = { workspace = true }
 # launcher hands to the daemon child at `sbfb unlock` time.
 hex = { workspace = true }
 sha2 = { workspace = true }
+# S83 A1 (SEEDER-DIAL-TAIL): deterministic anti-Sybil dial ordering in
+# seed_registry (blake3(project‖archive‖id)); workspace dep, 0 new lock node.
+blake3 = { workspace = true }
 rand = { workspace = true }
 
 # Sprint 20 Phase A : zero the hex-encoded identity secret after
@@ -153,6 +156,11 @@ zip = { workspace = true }
 # isolated NEXUS_GRID_ROOT fixture directory, the same harness
 # the nexus-worker tests use.
 tempfile = "3.12"
+# S83 A1 (carry 3, test-only): the loopback_token watcher integration test
+# canonicalizes its tempdir base so the macOS-FSEvents canonical path
+# (/private/var vs /var symlink) matches the watched path. dunce, NOT
+# std::fs (avoids the Windows \\?\ verbatim prefix that would break it).
+dunce = { workspace = true }
 
 # Unix-only tests signal the running daemon with SIGINT to
 # prove the start handler's ctrl+c wiring works end-to-end.

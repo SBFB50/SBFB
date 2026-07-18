@@ -253,7 +253,7 @@ fi
 # §6.1.1 : G1 obligatoire sauf sprint pure-docs ou trivial.
 # Le hook bloque Phase A si sprint{N}_design_review.md n'existe nulle part.
 # Exemption : kickoff contient "G1 skipped" (decision documentee §3.5).
-if [ "$PHASE" = "A" ] && [ -n "$SPRINT" ]; then
+if [ "$PHASE_UPPER" = "A" ] && [ -n "$SPRINT" ]; then
   DR_ACTIVE=".planning/active/sprint${SPRINT}_design_review.md"
   DR_ARCHIVE=$(ls .planning/archive/v*/sprint${SPRINT}_design_review.md 2>/dev/null | head -1 || true)
 

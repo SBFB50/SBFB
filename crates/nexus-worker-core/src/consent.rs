@@ -944,7 +944,10 @@ mod tests {
     #[test]
     fn watcher_picks_up_external_rewrite() {
         let dir = tempdir().unwrap();
-        let path = dir.path().join("consent.json");
+        // S83 A1 (carry 3): canonical base so macOS FSEvents' /private/var
+        // path matches the watched path (dunce, not std::fs → no Windows \\?\).
+        let base = dunce::canonicalize(dir.path()).expect("canonicalize tempdir");
+        let path = base.join("consent.json");
 
         // Seed with L1 default.
         ConsentConfig::default_for("self")

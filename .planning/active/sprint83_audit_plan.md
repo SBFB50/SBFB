@@ -159,7 +159,7 @@ Question centrale : le push groupé a-t-il RÉELLEMENT eu lieu sur 3 verts ?
 - actionlint jamais joué localement (routé review D) ; shellcheck absent
   localement (les scripts S82 modifiés sont couverts par le workflow GHA
   shellcheck au push).
-- M-7 nit « split target » (http.rs doc-comment, review M) — optionnel.
+- M-7 nit « split target » (test_support.rs:392 doc-comment, review M) — optionnel.
 
 ### Ré-extraction (anti dette-inventée)
 

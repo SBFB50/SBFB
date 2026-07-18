@@ -137,6 +137,11 @@ tor = ["dep:arti-client"]
 tokio = { workspace = true }
 tracing-subscriber = { workspace = true }
 tempfile = { workspace = true }
+# S83 A1 (carry 3, test-only): watcher fixtures canonicalize their tempdir
+# base so the macOS-FSEvents-reported canonical path (/private/var vs the
+# /var symlink) matches the watched path. dunce (NOT std::fs::canonicalize,
+# which adds the \\?\ verbatim prefix on Windows and would break it).
+dunce = { workspace = true }
 criterion = { workspace = true }
 
 # Sprint 81 Phase E2 : the zero-n0 discovery override needs ONE

@@ -293,7 +293,10 @@ default_difficulty = 12
     #[test]
     fn reload_on_file_change_picks_up_override() {
         let dir = tempdir().unwrap();
-        let path = dir.path().join("relay_pow_policy.toml");
+        // S83 A1 (carry 3): canonical base so macOS FSEvents' /private/var
+        // path matches the watched path (dunce, not std::fs → no Windows \\?\).
+        let base = dunce::canonicalize(dir.path()).expect("canonicalize tempdir");
+        let path = base.join("relay_pow_policy.toml");
         // Start with an empty file → default policy.
         fs::write(&path, "default_difficulty = 10").unwrap();
         let watcher = PowPolicyWatcher::spawn(path.clone()).expect("spawn");
@@ -375,7 +378,10 @@ default_difficulty = 22
     #[test]
     fn shared_handle_tracks_reloads() {
         let dir = tempdir().unwrap();
-        let path = dir.path().join("relay_pow_policy.toml");
+        // S83 A1 (carry 3): canonical base so macOS FSEvents' /private/var
+        // path matches the watched path (dunce, not std::fs → no Windows \\?\).
+        let base = dunce::canonicalize(dir.path()).expect("canonicalize tempdir");
+        let path = base.join("relay_pow_policy.toml");
         fs::write(&path, "default_difficulty = 16").unwrap();
         let watcher = PowPolicyWatcher::spawn(path.clone()).expect("spawn");
 

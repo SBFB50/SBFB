@@ -1186,8 +1186,11 @@ l'etat durable synchronise est la VERITE ; tout consommateur cold-boot RECONCILI
   ne fait jamais servir d'octets absents. Course double-annonce `SeedAnnounced` vs boot
   driver en vol : serialisee par un `seed_driver_lock` (mutex partage). Invariant
   cardinal `heberger != publier, seeder != auteur` tenu : le re-drive re-pin le hash du
-  1er ancre lexicographique advertising (residuel Sybil-sampling S76 inchange), pas une
-  provenance auteur.
+  1er ancre lexicographique advertising, pas une provenance auteur. (Le residuel
+  Sybil dial-tail S76 — l'ORDRE des pull-providers dans `directory_pull_providers` —
+  est ferme S83 A1 : `seeders_recent` echantillonne desormais par
+  `blake3(project ‖ archive ‖ seeder_id)` context-scope ; ce chemin de re-drive-ancre
+  reste distinct, il selectionne un hash d'annonce, pas un ordre de dial.)
 
 ### 15.4 Extension Sprint 81 — mode zero-n0 self-hosted + hot-join + stores migres (E2/E3/F)
 

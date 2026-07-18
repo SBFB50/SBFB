@@ -2,13 +2,17 @@
 #
 # nexus-grid supply-chain CI — Sprint 18 Phase A.
 #
-# Three parallel jobs that block any PR introducing a CVE critical
+# Two parallel jobs that block any PR introducing a CVE critical
 # upstream before landing:
 #
 #   * cargo-deny : RUSTSEC advisories + license + bans (wasmtime
 #                  pin >=43.0.1) + source allowlist
-#   * pip-audit  : PyPI advisories across the 3 Python packages
 #   * audit-ci   : npm advisories for the React shell
+#
+# (pip-audit removed S83 Phase A1 [CI-1]: the 3 Python packages
+#  nexus-sdk/nexus-coordinator/nexus-app-gov were purged S50-51;
+#  the workspace is Rust+Frontend only, so `uv export --package X`
+#  failed on non-existent packages — 3 zombie legs, always red.)
 #
 # Also runs on a weekly cron so newly published advisories are
 # caught even when no PR is opened.
@@ -74,56 +78,6 @@ jobs:
           log-level: warn
 
   # --------------------------------------------------------------
-  # pip-audit — 3 Python packages
-  # --------------------------------------------------------------
-  pip-audit:
-    name: pip-audit (Python)
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        package:
-          - nexus-sdk
-          - nexus-coordinator
-          - nexus-app-gov
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Python 3.13
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v4
-
-      # Materialize PyPI deps for the package via `uv export`. We
-      # cannot run pip-audit directly against the installed env
-      # because every workspace member is path-installed (editable)
-      # and pip-audit cannot query their advisories. The export
-      # path drops workspace members (`--no-emit-workspace`) and
-      # editable refs (`--no-editable`), leaving a flat list of
-      # PyPI deps with hashes.
-      - name: Export ${{ matrix.package }} requirements
-        run: |
-          uv export \
-            --package ${{ matrix.package }} \
-            --no-dev --no-editable --no-emit-workspace \
-            --format requirements.txt \
-            > /tmp/req-${{ matrix.package }}.txt
-
-      # `--with 'pip-audit>=2.9,<3'` pins the major to keep a
-      # stable contract while letting uv pull patch upgrades.
-      - name: pip-audit ${{ matrix.package }}
-        run: |
-          uv run --with 'pip-audit>=2.9,<3' \
-            pip-audit \
-              -r /tmp/req-${{ matrix.package }}.txt \
-              --strict \
-              --progress-spinner off
-
-  # --------------------------------------------------------------
   # audit-ci — npm (React shell)
   # --------------------------------------------------------------
   npm-audit:
@@ -133,10 +87,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Node.js 20
+      - name: Setup Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
           cache-dependency-path: web/package-lock.json
 

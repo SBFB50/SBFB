@@ -6,19 +6,20 @@
 //! with SPA document routes (`/browse`, `/curators`) when the
 //! daemon serves the React shell via `--web-root`.
 //!
-//! - `GET    /health`                         — liveness probe (public)
-//! - `GET    /api/daemon/info`                — daemon state snapshot
-//! - `GET    /api/daemon/curators`            — list every cached curator list
-//! - `POST   /api/daemon/curators/subscribe`  — add a curator to the attention set
-//! - `DELETE /api/daemon/curators/{pubkey}`   — remove a curator
-//! - `GET    /api/daemon/browse`              — aggregated browse entries
-//! - `GET    /api/daemon/nodes`               — subscribed node directories (catalog publishers)
-//! - `POST   /api/daemon/publish`             — publish a project announcement
-//! - `POST   /api/daemon/publish-blob`        — upload a zip archive blob
-//! - `POST   /api/daemon/directory/publish`   — publish this node's signed catalog
-//! - `GET    /api/daemon/default-curators`    — config-provided curator list
-//! - `POST   /api/daemon/panic/wipe`          — irreversible identity wipe
-//! - `GET    /api/daemon/diagnostic/neighborhood` — peer snapshot
+//! ## Module role (post-split, Sprint 82 series N→S4)
+//!
+//! After the http.rs monolith was split (13130 → 1513 lines), this
+//! module is the residual HUB: it owns [`build_router`] — the single
+//! assembly point that mounts every route — plus the shared HTTP state,
+//! extractors, error helpers and CORS layer that the handlers consume.
+//! The per-route handler bodies live in the 21 domain modules `*_api.rs`
+//! (`browse_api`, `curators_api`, `publish_api`, `feed_api`, `search_api`,
+//! `preview_api`, `seed_api`, `shard_session_http_api`, `frost_api`,
+//! `coordinator_api`, `contributor_api`, `diagnostic_api`, … one file per
+//! domain). Look for a handler by its domain module rather than in this
+//! file; the authoritative, exhaustive route inventory is [`build_router`]
+//! itself, not this comment (which is intentionally NOT a route list —
+//! that is what let the pre-split doc drift).
 //!
 //! ## CORS
 //!

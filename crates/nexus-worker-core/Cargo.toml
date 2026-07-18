@@ -193,3 +193,7 @@ sha2 = { workspace = true }
 # so that the save/load/env tests do not interfere with any real
 # worker.toml on the developer's machine.
 tempfile = "3.12"
+# S83 A1 (carry 3, test-only): watcher fixtures canonicalize their tempdir
+# base so the macOS-FSEvents canonical path (/private/var vs /var symlink)
+# matches the watched path. dunce, NOT std::fs (avoids the Windows \\?\ prefix).
+dunce = { workspace = true }

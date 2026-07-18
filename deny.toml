@@ -116,6 +116,14 @@ allow = [
     "AGPL-3.0-or-later",
     "CDLA-Permissive-2.0",
     "OpenSSL",
+    # S83 Phase A1 (CI-1) : licences permissives equivalent-domaine-public,
+    # coherentes avec CC0-1.0 deja autorise. async_executors 0.7.0 = Unlicense
+    # (mono), borrow-or-share 0.2.4 = MIT-0 (MIT sans attribution, mono) —
+    # transitifs dans l'arbre depuis S20/S32, sans remplacant amont, plus
+    # permissifs que MIT deja allowliste. cargo-deny CI rejetait ces 2 SPDX
+    # (run 29605787242, error[rejected]).
+    "Unlicense",
+    "MIT-0",
 ]
 confidence-threshold = 0.8
 # Per-crate exceptions landed here with `# reason:` comment.
@@ -131,9 +139,9 @@ exceptions = []
 # 3.0.0-rc.0 iroh-internal) and two duplicated `-rc` pre-releases
 # (ed25519-dalek 3.0.0-rc.0 + curve25519-dalek 5.0.0-rc.0); 72
 # multi-version groups total. Flip deferred as P2-AUDIT-2-RESIDUEL
-# (carry S82); unblocks when an upstream iroh release moves
-# ed25519-dalek 3.x off the RC line. SBFB security-critical crypto
-# stays isolated on the stable 2.2.0/4.1.3 trees.
+# (carry S83, external-blocked: upstream iroh RC ed25519-dalek); unblocks
+# when an upstream iroh release moves ed25519-dalek 3.x off the RC line.
+# SBFB security-critical crypto stays isolated on the stable 2.2.0/4.1.3 trees.
 multiple-versions = "warn"
 wildcards = "allow"         # Tightened in Sprint 19+
 highlight = "all"

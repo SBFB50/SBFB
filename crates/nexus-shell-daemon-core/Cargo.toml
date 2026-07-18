@@ -167,6 +167,10 @@ frost-ed25519 = { workspace = true }
 # never touches a real `~/.nexus-grid/` on the developer's
 # machine.
 tempfile = "3.12"
+# S83 A1 (carry 3, test-only): watcher fixtures canonicalize their tempdir
+# base so the macOS-FSEvents canonical path (/private/var vs /var symlink)
+# matches the watched path. dunce, NOT std::fs (avoids the Windows \\?\ prefix).
+dunce = { workspace = true }
 
 # Phase C 2-node integration test: `iroh_runtime::tests::two_nodes_*`
 # spawn one publisher node + one subscriber daemon runtime in the

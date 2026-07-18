@@ -164,7 +164,10 @@ fn tokens_watcher_picks_up_external_rewrite() {
     use tempfile::tempdir;
 
     let dir = tempdir().unwrap();
-    let path = dir.path().join("tokens.json");
+    // S83 A1 (carry 3): canonical base so macOS FSEvents' /private/var
+    // path matches the watched path (dunce, not std::fs → no Windows \\?\).
+    let base = dunce::canonicalize(dir.path()).expect("canonicalize tempdir");
+    let path = base.join("tokens.json");
 
     // Step 1 — initial state: only "first" is valid.
     let initial = TokenRotator::new("first".to_string());
