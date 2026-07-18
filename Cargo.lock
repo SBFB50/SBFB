@@ -7506,6 +7506,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "sbfb-workflow-core"
+version = "1.0.0"
+dependencies = [
+ "schemars 1.2.1",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "schannel"
 version = "0.1.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"

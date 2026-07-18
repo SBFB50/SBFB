@@ -1,0 +1,51 @@
+{
+  "CompiledPlan.v1": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "description": "`CompiledPlan.v1` — the immutable plan produced by the authoritative Rust\ncompiler (D3/D4): normalised graph, closed capabilities, semantic\ndigests. Frontier stub — fields authored in the compiler phase.",
+    "title": "CompiledPlan.v1",
+    "type": "object"
+  },
+  "FactoryProcessProfile.v1": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "description": "`FactoryProcessProfile.v1` — the machine-readable Factory process\ncontract (D1/D4): roles, modes, gates, hooks, verification blocks, bound\nto the digests of its sources. A source mismatch yields `PROFILE_STALE`.\nFrontier stub — fields authored in the Factory-contract phase.",
+    "title": "FactoryProcessProfile.v1",
+    "type": "object"
+  },
+  "RunEvent.v1": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "description": "`RunEvent.v1` — one append-only run-journal entry (D3), primary key\n`(run_id, sequence)`, with an idempotency key on effects. The journal is\nthe source of truth for durable replay. Frontier stub — envelope authored\nin the run-store phase.",
+    "title": "RunEvent.v1",
+    "type": "object"
+  },
+  "SBFBAgentDefinition.v1": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "description": "`SBFBAgentDefinition.v1` — one bounded agent island inside a pack (D4):\nprompt, policies, budgets, declared dependencies. `handoff` (explicit\ntransfer) is distinct from `agent.as_tool`. Frontier stub — fields\nauthored in the workflow-language phase.",
+    "title": "SBFBAgentDefinition.v1",
+    "type": "object"
+  },
+  "SBFBPromptAgentPack.v1": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "description": "`SBFBPromptAgentPack.v1` — root of the signed, portable prompt+agent pack\n(D2). Carries the workflow graph, agent definitions, prompts, pinned\nschemas, requested (never granted) capabilities, evals and provenance;\n`layout/` stays outside the semantic digest. Frontier stub — fields\nauthored in the pack-format phase.",
+    "title": "SBFBPromptAgentPack.v1",
+    "type": "object"
+  },
+  "SBFBWorkflowGraph.v1": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "description": "`SBFBWorkflowGraph.v1` — the data-flow workflow graph (D4): typed ports,\nbounded `repeat`, subworkflows, `human.review`, `wait.signal`. The signed\ngraph IS the plan; no LLM extends it. Frontier stub — node profile\nauthored in the workflow-language phase.",
+    "title": "SBFBWorkflowGraph.v1",
+    "type": "object"
+  },
+  "WorkflowPublicProjection.v1": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "description": "`WorkflowPublicProjection.v1` — the allow-listed public projection of a\nworkflow consumed by RRV (D1/D4): only whitelisted fields leave the node;\nRRV neither launches nor mutates a run. Frontier stub — fields authored in\nthe publication/RRV phase.",
+    "title": "WorkflowPublicProjection.v1",
+    "type": "object"
+  }
+}
