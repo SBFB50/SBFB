@@ -844,6 +844,21 @@ doit etre bornee en A1 sinon 3/3) ; **P2-AUDIT-2-RESIDUEL** (external-blocked
 
 ## 11. Checkpoint de validation (questions PO — chaque question admet un non constructif)
 
+> **Ratifications PO 2026-07-18** (session ultracode) : **Q1 = Workflow Agents**
+> (slot ratifié) ; **Q2 = v2.2 nouvelle** (SPRINT_LOG section ouverte, v2.1
+> close à `aa9db47`) ; **Q8 = A** — parcours in-vivo tracé Phase R (scaffold
+> Hub via Factory app-authoring, exit renforcée digest blake3 + lineage ;
+> ferme le carry P1 STANDING par la preuve) ; **Q9 = ressources engageables**
+> (plan d'activation fourni : provider cloud clé+plafond+secret_ref ; panel =
+> lead-time long, recrutement à démarrer ; AT VoiceOver/TalkBack gratuits +
+> JAWS/Dragon licences/démo + switch/braille achat/emprunt, cellules non
+> couvertes = exemption documentée ; 2 workers PC+Mac déjà en main = ré-élever
+> consents L4). **Condition 3 audit S82 exécutée** (CLAUDE.md réconcilié
+> post-gate + itemisation delta E-2 + SPRINT_LOG v2.2). Restent à trancher au
+> fil : Q3-Q7 (détails D1..D5), Q10-Q15. **Phase A peut démarrer** ; les
+> ressources à lead-time long (panel Q9-b) sont à engager en parallèle
+> (checkpoints AM-10 : B / pré-W1 / pré-R / pré-AI1).
+
 1. **Ratification formelle du slot S83** = chantier Workflow Agents (1er slot
    trace roadmap v5 bloc S82 ; signaux frais : 2 Research Packs + decision
    noms 2026-07-17). Un NON = retour aux 2 autres slots candidats (Viewer

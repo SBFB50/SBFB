@@ -215,12 +215,20 @@ Runtime isolation roadmap dans
   stores worker redb 2→4 vérifiée 3 nœuds PAR CLASSE de store
   `sprint82_t2_store_migration.json` D12 [Mac : preuve fonctionnelle
   committée, observation on-disk différée hôte froid ; consents L4 : PC
-  redescendu, Mac différé]) ⇒ **gate push groupé PO-4=C séquencé
-  POST-commit** (NOT-RUN au commit T ; 3 verts + push = actions sortantes
-  à confirmer PO, lecture bi-temporelle à ratifier à l'exécution).
-  Prochain : audit gate S82 = Phase 0 de
-  S83 (`sprint83_audit_plan.md`) ; slots candidats S83+ : workflow-engine
-  / Viewer fondation / reprise arc front (cf. roadmap v5 bloc S82).
+  redescendu, Mac différé]) ⇒ **gate push groupé PO-4=C JOUÉ 2026-07-17**
+  (origin==codeberg==`aa9db47` ; rust-ci fmt/clippy/windows/ubuntu verts,
+  nightly SUCCESS junit → S81-J-2 CLOSED ; macos-14 rouge arbitré PO
+  non-bloquant [classe watcher] ; spdx Woodpecker glitch env).
+  **Audit gate S82 = Phase 0 de S83 JOUÉ `74531d4` = CONDITIONAL PASS**
+  (0 P0/P1 frais, 5 P2, 20 P3 ; suites Track A re-vertes 2108/2112/412/201 ;
+  5 P2 = espace §P sans garde C-1, reconduction app-authoring G-1 [carry
+  reste P1 STANDING], SEEDER-DIAL-TAIL G-2, supply-chain rouge CI-1, leg
+  operator Node20 CI-2). **S83 OUVERT Cas C `550a913` = chantier Workflow
+  Agents** (app Workflow Hub sandboxée + Runtime Rust HÔTE + packs signés +
+  protocole ; ratifié PO Q1 ; **archive v2.2** Q2 ; 43 phases A..AJ1 ;
+  app-authoring S79 résolu Phase R Q8=A [scaffold Hub via app-authoring,
+  exit renforcée digest+lineage] ; ressources préalable engageables Q9).
+  Prochain : Phase A (après ratification complète Checkpoint §11).
   **S79 DONE — capacité Factory « app-authoring »** (anime.js 4.5.0 + daisyUI
   5.5.23 maîtrisés dans le process Factory) : 8 phases feature A-H + Phase I
   docs-contract closure. Knowledge packs versionnés blake3 + prompt-kind
@@ -417,31 +425,33 @@ Runtime isolation roadmap dans
   Arc 3.5 Factory Complete Vision **6/6 COMPLET**.
   S69 audit PASS (0 P0, 0 P1, 3 P2, 2 P3) — `c6c135f`.
   P2P valide cross-machine : LAN Win↔Mac, WAN dev↔VPS Helsinki.
-  CI (réconcilié S82 Phase T à l'état réel — l'ancien claim « Woodpecker
-  operationnel » était STALE) : AVANT le push groupé S82, la vérité
-  distante est ROUGE PARTOUT. GHA sur origin/master (`c899d54`,
-  2026-07-03) : « CI » et « Rust CI » rouges (ubuntu = GTK absent ->
-  `glib-sys` build-fail ; **macos-14 = classe fs-watcher/hot-reload : 10
-  tests uniques TRY-2-FAIL (20 lignes, récap dupliqué), reproduite sur 2
-  runs master (28661119376 head c899d54 + 28592686238 head d8246bd) —
-  NON traitée par S82, routée
-  `sprint83_audit_plan.md`** ; windows VERT sur ces runs) ;
-  « Mirror to Codeberg » rouge (authentification Codeberg CASSÉE : le job
-  masque un token non-vide mais le push échoue en auth — re-provisionner
-  le secret = action manuelle PO settings GitHub) ->
-  **Woodpecker ci.sbfb.world AVEUGLE**
-  (codeberg/master gelé à `f4b4600`, 2026-06-25) ; supply-chain /
-  canary-monthly / Build worker binaries rouges ; deploy.yml
-  startup-failure 0s à chaque push (trigger workflow_dispatch seul).
-  Réparations DANS les commits S82 (poussées au gate Phase T) : Phase C
-  `2931b82` installe GTK (ci.yml + rust-ci.yml + Woodpecker) + calibre
-  integration-nightly (slow-timeout K-R-13, save-if master-only K-R-14) ;
-  Phase K `713f0fa` ferme 4 RUSTSEC (supply-chain attendu vert au push).
-  Les E2E Playwright (web + operator) et les vitest operator sont câblés
-  GHA ci.yml (+ vitest operator aussi Woodpecker) et redeviennent
-  effectifs dès que les runners repassent au vert. integration-nightly
-  n'existait pas sur origin -> 1er run réel = gate push Phase T
-  (PO-4=C : rust-ci 3-OS sur le tip + Woodpecker + run nightly junit).
+  CI (réconcilié POST gate PO-4=C, poussé 2026-07-17 tip `aa9db47`) :
+  GHA rust-ci sur origin/master — **windows + ubuntu VERTS** (1er ubuntu
+  vert depuis mai = GTK Phase C `2931b82` prouvé ; clippy fix 1-char
+  `dd857d9` drift toolchain 1.97) ; **macos-14 ROUGE ARBITRÉ PO
+  non-bloquant** (classe fs-watcher/hot-reload : 10 tests uniques
+  TRY-2-FAIL, runs 28661119376 + 28592686238 — routé S83 Phase A1 puis
+  `sprint84_audit_plan.md`). **integration-nightly run 29603133484
+  SUCCESS junit 10/0** → S81-J-2 CLOSED. **ROUGES RESTANTS routés S83
+  Phase A1** (audit S82 findings) : **supply-chain** rouge (cargo-deny
+  LICENSES : async_executors 0.7.0 Unlicense + borrow-or-share 0.2.4
+  MIT-0 non-allowlisted, dans l'arbre depuis S20/S32 — la claim
+  « supply-chain attendu vert au push » ci-dessous était FAUSSE [CI-1] ;
+  + 3 legs pip-audit zombies, packages purgés S50-51) ; **leg ci.yml
+  « Factory Operator front »** (@lingui/cli globSync vs Node 20 pinné
+  ci.yml:70/:176 → bump 22 [CI-2]) ; **shellcheck** chronique 3 warnings
+  [CI-3]. **Mirror Codeberg** auth CASSÉE (token non-vide masqué, push
+  échoue en auth — re-provisionner le secret = action manuelle PO settings
+  GitHub) -> Woodpecker ci.sbfb.world reste aveugle tant que non
+  ré-provisionné ; **spdx-check Woodpecker #38** = glitch env runner
+  (2 blobs prouvés conformes, steps docs-gates skippés en aval [G-3/CI-4]).
+  Bruit rouge HORS gate : canary-monthly (tag-triggered), Build worker
+  binaries, deploy.yml startup-failure 0s (workflow_dispatch seul).
+  Réparations S82 : Phase C `2931b82` GTK (ci.yml + rust-ci.yml +
+  Woodpecker) + integration-nightly calibré (K-R-13/14) ; Phase K
+  `713f0fa` ferme 4 RUSTSEC (leg advisories SEUL — le leg licenses reste
+  rouge, CI-1). E2E Playwright (web + operator) + vitest operator câblés
+  GHA ci.yml, effectifs dès que les runners repassent au vert.
 - **~2743 tests total** (2108 Rust nextest Windows natif 0-skip /
   2112 canonique Docker Linux [+4 `#[cfg(unix)]`] / 412 Vitest `web/` /
   44+2skip E2E web hermetique (`test:e2e` ; 2 skip env-gated @shard/@compute ;
@@ -458,7 +468,8 @@ Runtime isolation roadmap dans
   30s sous Docker-on-Windows (verts <1s natif) → toujours passer
   `SBFB_TEST_HTTP_TIMEOUT_SECS=120` au run `sbfb-ci` local (echappatoire
   documentee `crates/sbfb-factory/tests/operator_server.rs`).
-  S82 delta : +13 Rust Win (2095→2108 : A +2, B +1, C +0, D +1, M +9
+  S82 delta : +13 Rust Win (2095→2108 : A +2, B +1, C +0, D +1, **H +1,
+  K -1** [paire compensatoire, itemisation corrigée audit E-2], M +9
   golden ; splits N..S4 **±0 EXACT**) / +13 Docker (2099→2112) / Vitest
   web 412 + operator 201 + E2E inchangés.
   S81 delta : +81 Rust Win (2014→2095 : A..J +70, K +11 [K-1/K-2 +9 +

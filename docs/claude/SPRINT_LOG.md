@@ -12,7 +12,19 @@ Pour le sprint en cours, voir
 
 ---
 
-## v2.1 — Protocole Neutre + Factory/RRV (OPEN)
+## v2.2 — Workflow Agents (OPEN)
+
+Chantier « Workflow Agents » : app Workflow Hub (app SBFB sandboxee) +
+Workflow Runtime Rust hote + packs portables signes + integration
+protocole. Ratifie PO 2026-07-18 (Checkpoint S83 §11 Q1/Q2).
+
+| Sprint | Etat | Tip cloture | Nb commits | Docs |
+|---|---|---|---|---|
+| 83 | OPEN — kickoff `550a913` | — | — | [kickoff](../../.planning/active/sprint83_kickoff.md) · [plan](../../.planning/active/sprint83_plan.md) · [design_review](../../.planning/active/sprint83_design_review.md) |
+
+---
+
+## v2.1 — Protocole Neutre + Factory/RRV (CLOSED — S82 `aa9db47`)
 
 | Sprint | Etat | Tip cloture | Nb commits | Docs |
 |---|---|---|---|---|
