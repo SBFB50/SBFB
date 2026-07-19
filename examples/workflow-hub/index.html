@@ -1,0 +1,84 @@
+<!doctype html>
+<!--
+  Workflow Hub — APP SBFB AUTO-PORTANTE (amorce Sprint 83 Phase B).
+  0 CDN, 0 fetch, 0 worker. Tout est embarque. Tourne tel quel sous la CSP du
+  bac a sable blob-serve (connect-src 'none'). Fondation d'accessibilite :
+  preboot needs-free, tokens oklch, contrat du mode guide. Voir README.md.
+-->
+<html lang="fr" dir="ltr" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark light" />
+    <title>Workflow Hub — SBFB</title>
+    <meta
+      name="description"
+      content="Atelier d'agents et de workflows SBFB. Amorce : profil d'accessibilite resolu sans diagnostic, tokens oklch, contrat du mode guide."
+    />
+    <!-- preboot: sync, avant tout paint, pose les 15 axes data-* (needs-free). -->
+    <script src="preboot.js"></script>
+    <link rel="stylesheet" href="tokens.css" />
+    <link rel="stylesheet" href="a11y.css" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+
+  <body>
+    <a class="skip-link" href="#contenu">Aller au contenu</a>
+
+    <header class="hub-header">
+      <h1 class="hub-title">Workflow Hub</h1>
+      <p class="hub-tagline">Atelier d'agents et de workflows — amorce.</p>
+    </header>
+
+    <main id="contenu" class="hub-main">
+      <section class="hub-card" aria-labelledby="intro-h">
+        <h2 id="intro-h">Fondation d'accessibilite</h2>
+        <p>
+          Cet atelier applique un <strong>profil d'accessibilite resolu</strong> projete par
+          l'hote. Le profil ne porte que des <em>effets</em> (mouvement reduit, contraste
+          eleve&hellip;) — jamais la <em>cause</em>. Aucun diagnostic n'entre dans cette page.
+        </p>
+      </section>
+
+      <section class="hub-card" aria-labelledby="resolved-h">
+        <h2 id="resolved-h">Profil resolu applique</h2>
+        <p class="hub-note">
+          Les 15 axes ci-dessous sont lus depuis les attributs <code>data-*</code> du document.
+          Aucun axe <code>needs</code> n'existe ici.
+        </p>
+        <dl id="resolved-axes" class="hub-axes" aria-live="polite"></dl>
+      </section>
+
+      <section class="hub-card" aria-labelledby="mode-h">
+        <h2 id="mode-h">Contrat du mode guide</h2>
+        <p class="hub-note">
+          Trois projections d'un <strong>meme modele de commandes</strong> (meme digest
+          semantique). Edition possible sans glisser-deposer, au clavier, a la voix, au lecteur
+          d'ecran. Projections implementees ulterieurement — ici, le contrat seul.
+        </p>
+        <ul id="mode-projections" class="hub-projections"></ul>
+      </section>
+
+      <section class="hub-card" aria-labelledby="dir-h">
+        <h2 id="dir-h">Sens de lecture</h2>
+        <p class="hub-note">Bascule LTR / RTL (fondation i18n — mise en page en proprietes logiques).</p>
+        <button type="button" id="dir-toggle" class="hub-button">Passer en RTL</button>
+      </section>
+    </main>
+
+    <!-- Projections du mode guide, embarquees (lues sans fetch). Copie VERBATIM
+         des id/label/summary de mode-guide.json — parite testee (hub_scripts.test.ts). -->
+    <script type="application/json" id="mode-guide-data">
+      {
+        "projections": [
+          { "id": "canvas", "label": "Canevas", "summary": "Graphe visuel. Layout hors digest ; l'edition passe par les memes commandes que les autres projections." },
+          { "id": "outline", "label": "Plan", "summary": "Arbre lineaire clavier-first des noeuds et liens ; edition complete sans pointeur." },
+          { "id": "guided", "label": "Mode guide", "summary": "Assistant pas-a-pas ; chaque etape emet une commande du meme modele. Cible COGA." }
+        ]
+      }
+    </script>
+
+    <script src="a11y.js" defer></script>
+    <script src="app.js" defer></script>
+  </body>
+</html>

@@ -101,5 +101,17 @@ bash scripts/check-frontier-contracts.sh
 step 16 "bash scripts/check-factory-docs.sh"
 bash scripts/check-factory-docs.sh
 
+step 17 "bash web/scripts/check-a11y-needs-free.sh"
+bash web/scripts/check-a11y-needs-free.sh
+
+step 18 "bash examples/workflow-hub/scripts/check-i18n-key-parity.sh"
+bash examples/workflow-hub/scripts/check-i18n-key-parity.sh
+
+step 19 "bash examples/workflow-hub/scripts/check-i18n-verdict-cross-locale.sh"
+bash examples/workflow-hub/scripts/check-i18n-verdict-cross-locale.sh
+
+step 20 "bash examples/workflow-hub/scripts/scan-hub-strings.sh"
+bash examples/workflow-hub/scripts/scan-hub-strings.sh
+
 echo ""
 echo "==> verify.sh passed all steps"

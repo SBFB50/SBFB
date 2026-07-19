@@ -44,5 +44,17 @@
 //! here: the signing domains and format versions are added when each
 //! contract is filled, which keeps the frozen `DOMAIN_*_V1` family census
 //! untouched (cf. `CLAUDE.md §Pre-launch protocol policy`).
+//!
+//! ## Sprint 83 Phase B — the host→app accessibility projection
+//!
+//! [`accessibility_profile`] adds `ResolvedAccessibilityProfile.v1`, the
+//! needs-free profile the host projects to a sandboxed SBFB app. It is a
+//! standalone frontier with its OWN golden snapshot and is deliberately kept
+//! OUT of [`contracts::all_contract_schemas`] (it is not one of the seven
+//! signed pack/graph/run identities): keeping the two registries separate
+//! preserves the `len == 7` invariant of that registry. Like the seven
+//! identities it declares no `DOMAIN_*_V1` — it is a LOCAL host→app
+//! projection, never signed or gossiped.
 
+pub mod accessibility_profile;
 pub mod contracts;

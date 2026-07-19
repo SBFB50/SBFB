@@ -12,6 +12,11 @@ import { renderHook } from "@testing-library/react";
 import { useBridge } from "../useBridge";
 import { primeAuthToken } from "@/api/auth";
 import type { BridgeRequest, BridgeResponse } from "../protocol";
+import {
+  A11Y_PROFILE_EVENT,
+  DEFAULT_ACCESSIBILITY_PREFERENCES,
+  RESOLVED_PROFILE_AXES,
+} from "@/a11y/profile";
 
 function makeRequest(overrides: Partial<BridgeRequest> = {}): BridgeRequest {
   return {
@@ -672,6 +677,131 @@ describe("useBridge", () => {
       expect(fakeWindow.postMessage.mock.calls[0][0].payload).toBe("hello");
       expect(fakeWindow.postMessage.mock.calls[1][0].payload).toBe(42);
       expect(fakeWindow.postMessage.mock.calls[2][0].payload).toEqual([1, 2, 3]);
+    });
+  });
+
+  describe("reserved event egress guard (Sprint 83 Phase B)", () => {
+    it("refuses the reserved a11y-profile event on the generic channel (any payload)", () => {
+      const { result } = renderHook(() =>
+        useBridge("http://localhost:8000", "gov", iframeRef),
+      );
+      // The reserved event is emitted ONLY through pushAccessibilityProfile;
+      // the generic channel refuses it outright, valid projection or not.
+      result.current.pushEvent(A11Y_PROFILE_EVENT, { theme: "dark" });
+      expect(fakeWindow.postMessage).not.toHaveBeenCalled();
+    });
+
+    it("DROPS any event whose payload carries needs — regardless of the event name", () => {
+      const { result } = renderHook(() =>
+        useBridge("http://localhost:8000", "gov", iframeRef),
+      );
+      // Name-INDEPENDENT guard: a cause smuggled under a FREE-FORM name, at top
+      // level or nested, is still dropped (Codex S83-B loop-7 P1).
+      result.current.pushEvent("legacy-a11y", { needs: ["motor"] });
+      result.current.pushEvent("some-notification", { nested: { needs: ["lowVision"] } });
+      expect(fakeWindow.postMessage).not.toHaveBeenCalled();
+    });
+
+    it("drops a needs KEY beyond depth 6 and inside a Map (any-depth, Map-aware)", () => {
+      const { result } = renderHook(() =>
+        useBridge("http://localhost:8000", "gov", iframeRef),
+      );
+      // Deeper than the old depth-6 cap — the strengthened guard walks the full
+      // graph (cycle-safe), so a deeply nested accident cannot slip past.
+      const deep = { a: { b: { c: { d: { e: { f: { g: { needs: ["motor"] } } } } } } } };
+      result.current.pushEvent("deep", deep);
+      // A needs key carried by a Map entry (postMessage would structured-clone it).
+      result.current.pushEvent("mapped", new Map([["needs", ["lowVision"]]]));
+      // A non-index OWN property on an array (Codex S83-B final GAP).
+      result.current.pushEvent("arrprop", Object.assign([], { needs: ["motor"] }));
+      // A `needs` KEY-OBJECT inside a Map key (Codex S83-B final GAP).
+      result.current.pushEvent("mapkey", new Map([[{ needs: ["lowVision"] }, 0]]));
+      expect(fakeWindow.postMessage).not.toHaveBeenCalled();
+    });
+
+    it("documents the SCOPE BOUNDARY: the KEY guard does not value-scan need tokens", () => {
+      const { result } = renderHook(() =>
+        useBridge("http://localhost:8000", "gov", iframeRef),
+      );
+      // NOT a runtime leak: the host that calls pushEvent is trusted and no
+      // production code does this. The name-independent guard scans for a `needs`
+      // KEY, NOT for the 13 need VALUES (value-scanning `motor`/`attention`/…
+      // would false-positive on legitimate notifications). A bare token array
+      // under a free-form name is therefore forwarded — comprehensive typed
+      // egress authority for the generic channel is Sprint 83 Phase C. This test
+      // pins the CURRENT boundary so a future Phase C tightening is caught.
+      result.current.pushEvent("tags", ["motor", "electric"]);
+      expect(fakeWindow.postMessage).toHaveBeenCalledTimes(1);
+    });
+
+    it("still sends a free-form event whose payload carries no cause", () => {
+      const { result } = renderHook(() =>
+        useBridge("http://localhost:8000", "gov", iframeRef),
+      );
+      result.current.pushEvent("task_result_ready", { task_id: "t-42" });
+      expect(fakeWindow.postMessage).toHaveBeenCalledTimes(1);
+      expect(fakeWindow.postMessage.mock.calls[0][0].name).toBe("task_result_ready");
+    });
+
+    it("does not treat inherited Object.prototype names as reserved (no throw)", () => {
+      const { result } = renderHook(() =>
+        useBridge("http://localhost:8000", "gov", iframeRef),
+      );
+      // "toString"/"constructor" are Object.prototype members — a plain-object
+      // registry would mis-handle them (Codex S83-B loop-7 P2). A cause-free
+      // payload under such a name is a normal, non-reserved event.
+      expect(() => {
+        result.current.pushEvent("toString", { task_id: "a" });
+        result.current.pushEvent("constructor", { task_id: "b" });
+      }).not.toThrow();
+      expect(fakeWindow.postMessage).toHaveBeenCalledTimes(2);
+    });
+
+    it("pushAccessibilityProfile sends a needs-free 15-axis projection", () => {
+      const { result } = renderHook(() =>
+        useBridge("http://localhost:8000", "gov", iframeRef),
+      );
+
+      result.current.pushAccessibilityProfile({
+        needs: ["motor", "lowVision"],
+        theme: "auto",
+        contrast: "auto",
+        colorVision: "standard",
+        pointer: "standard",
+        textSpacing: "standard",
+        font: "standard",
+        motion: "system",
+        transparency: "standard",
+        density: "standard",
+        reading: "standard",
+        focus: "standard",
+        scale: "100",
+        shortcuts: "off",
+        assistiveTech: "standard",
+        captions: "off",
+      });
+
+      expect(fakeWindow.postMessage).toHaveBeenCalledTimes(1);
+      const [msg, targetOrigin] = fakeWindow.postMessage.mock.calls[0];
+      expect(msg.name).toBe(A11Y_PROFILE_EVENT);
+      expect(targetOrigin).toBe("*");
+      // The cause NEVER crosses: no `needs` key, and the payload keys are
+      // EXACTLY the 15 resolved effect axes — nothing else rides along.
+      expect(msg.payload).not.toHaveProperty("needs");
+      expect(Object.keys(msg.payload).sort()).toEqual([...RESOLVED_PROFILE_AXES].sort());
+      expect(JSON.stringify(msg.payload)).not.toContain('"needs"');
+    });
+
+    it("is a no-op (no throw) when the iframe is unmounted", () => {
+      const nullRef = { current: null } as React.RefObject<HTMLIFrameElement | null>;
+      const { result } = renderHook(() =>
+        useBridge("http://localhost:8000", "gov", nullRef),
+      );
+
+      expect(() =>
+        result.current.pushAccessibilityProfile(DEFAULT_ACCESSIBILITY_PREFERENCES),
+      ).not.toThrow();
+      expect(fakeWindow.postMessage).not.toHaveBeenCalled();
     });
   });
 });

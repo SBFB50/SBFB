@@ -1,0 +1,42 @@
+{
+  "schema": "SbfbHubModeGuide.v0-draft",
+  "note": "Sprint 83 Phase B — DECLARATIVE contract only. The three projections below are IMPLEMENTED later (the authoring surface phases). Phase B fixes the invariant: all three projections edit the SAME workflow through the SAME command model, so switching projection never changes meaning — identical semantic digest. Editing must be possible without drag, by voice, by keyboard, and by screen reader (accessible authoring, ATAG 2.0).",
+  "commandModel": {
+    "id": "workflow-edit.v0",
+    "note": "One command vocabulary shared by every projection. The SEMANTIC digest is computed over the ordered log of `commands` ONLY (never a projection's pixels or layout). NO semantic command carries a layout argument (a canvas position): placement lives EXCLUSIVELY in `viewCommands` (a DISJOINT set canonically EXCLUDED from the digest), so two projections whose logs differ only by placement hash IDENTICALLY — by construction. The digest filter is therefore explicit: digest(log) = hash(log filtered to entries whose id is in `commands`). Example: [node.add(kind=llm)] and [node.add(kind=llm), node.place(nodeId=n1, at=[40,80])] produce the SAME digest — the placement is a view command, dropped before hashing.",
+    "commands": [
+      { "id": "node.add", "args": ["kind"], "summary": "Ajouter un noeud d'un type donne (semantique pure, sans position)." },
+      { "id": "node.remove", "args": ["nodeId"], "summary": "Retirer un noeud et ses liens." },
+      { "id": "node.setParam", "args": ["nodeId", "key", "value"], "summary": "Regler un parametre SEMANTIQUE d'un noeud. `key` n'est PAS une cle de layout/position (celles-ci sont des viewCommands, exclues du digest). Le jeu canonique de cles semantiques et la preuve d'egalite des deux logs sont machine-enforced a l'implementation des projections (Phase T)." },
+      { "id": "edge.connect", "args": ["fromPort", "toPort"], "summary": "Relier deux ports types." },
+      { "id": "edge.disconnect", "args": ["edgeId"], "summary": "Couper un lien." }
+    ],
+    "viewCommands": [
+      { "id": "node.place", "args": ["nodeId", "at"], "summary": "Positionner un noeud sur le canevas (layout uniquement, EXCLU du digest par construction)." },
+      { "id": "selection.move", "args": ["nodeIds", "delta"], "summary": "Deplacer une selection (layout uniquement, EXCLU du digest par construction)." }
+    ]
+  },
+  "projections": [
+    {
+      "id": "canvas",
+      "label": "Canevas",
+      "summary": "Graphe visuel. Layout hors digest ; l'edition passe par les memes commandes que les autres projections.",
+      "accessibleAuthoring": ["keyboard", "screen-reader", "voice"],
+      "dragOptional": true
+    },
+    {
+      "id": "outline",
+      "label": "Plan",
+      "summary": "Arbre lineaire clavier-first des noeuds et liens ; edition complete sans pointeur.",
+      "accessibleAuthoring": ["keyboard", "screen-reader", "voice"],
+      "dragOptional": true
+    },
+    {
+      "id": "guided",
+      "label": "Mode guide",
+      "summary": "Assistant pas-a-pas ; chaque etape emet une commande du meme modele. Cible COGA.",
+      "accessibleAuthoring": ["keyboard", "screen-reader", "voice"],
+      "dragOptional": true
+    }
+  ]
+}

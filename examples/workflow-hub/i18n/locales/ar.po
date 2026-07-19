@@ -1,0 +1,34 @@
+msgid ""
+msgstr ""
+"POT-Creation-Date: 2026-07-18\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Language: ar\n"
+
+msgid "hub.title"
+msgstr "ورشة سير العمل"
+
+msgid "hub.tagline"
+msgstr "ورشة الوكلاء وسير العمل — نسخة أولية."
+
+msgid "hub.a11y.heading"
+msgstr "أساس إمكانية الوصول"
+
+msgid "hub.a11y.resolved"
+msgstr "الملف المحلول المطبق"
+
+msgid "hub.mode.heading"
+msgstr "عقد الوضع الموجّه"
+
+msgid "hub.dir.heading"
+msgstr "اتجاه القراءة"
+
+msgid "hub.dir.toRtl"
+msgstr "التبديل إلى اليمين لليسار"
+
+msgid "hub.dir.toLtr"
+msgstr "العودة إلى اليسار لليمين"
+
+msgid "hub.skip"
+msgstr "الانتقال إلى المحتوى"

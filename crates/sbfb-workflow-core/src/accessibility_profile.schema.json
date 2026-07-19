@@ -1,0 +1,199 @@
+{
+  "$defs": {
+    "AssistiveTech": {
+      "description": "Assistive-tech mode. Mirror of `ASSISTIVE_TECHS` (`'screen-reader'`).",
+      "enum": [
+        "standard",
+        "screen-reader"
+      ],
+      "type": "string"
+    },
+    "Captions": {
+      "description": "Captions on/off. Mirror of `CAPTIONS`.",
+      "enum": [
+        "off",
+        "on"
+      ],
+      "type": "string"
+    },
+    "ColorVision": {
+      "description": "Colour-vision projection. Mirror of `COLOR_VISIONS`.",
+      "enum": [
+        "standard",
+        "safe",
+        "monochrome"
+      ],
+      "type": "string"
+    },
+    "Density": {
+      "description": "Layout density. Mirror of `DENSITIES`.",
+      "enum": [
+        "standard",
+        "focus"
+      ],
+      "type": "string"
+    },
+    "Focus": {
+      "description": "Focus ring strength. Mirror of `FOCUS_MODES`.",
+      "enum": [
+        "standard",
+        "strong"
+      ],
+      "type": "string"
+    },
+    "Font": {
+      "description": "Font choice. Mirror of `FONTS`.",
+      "enum": [
+        "standard",
+        "legible"
+      ],
+      "type": "string"
+    },
+    "Pointer": {
+      "description": "Pointer sizing. Mirror of `POINTERS`.",
+      "enum": [
+        "standard",
+        "large"
+      ],
+      "type": "string"
+    },
+    "Reading": {
+      "description": "Reading assistance. Mirror of `READINGS`.",
+      "enum": [
+        "standard",
+        "assist"
+      ],
+      "type": "string"
+    },
+    "ResolvedContrast": {
+      "description": "Resolved contrast actually applied (no `auto`).",
+      "enum": [
+        "standard",
+        "high"
+      ],
+      "type": "string"
+    },
+    "ResolvedMotion": {
+      "description": "Resolved motion actually applied (no `system`).",
+      "enum": [
+        "standard",
+        "reduced"
+      ],
+      "type": "string"
+    },
+    "ResolvedTheme": {
+      "description": "Resolved theme actually applied (no `auto`). Mirror of `RESOLVED_THEMES`.",
+      "enum": [
+        "dark",
+        "light",
+        "calm",
+        "paper",
+        "forced"
+      ],
+      "type": "string"
+    },
+    "Scale": {
+      "description": "UI scale, as a percentage string. Mirror of `SCALES` (`'100'..'150'`).",
+      "enum": [
+        "100",
+        "112",
+        "125",
+        "150"
+      ],
+      "type": "string"
+    },
+    "Shortcuts": {
+      "description": "Keyboard shortcuts on/off. Mirror of `SHORTCUTS`.",
+      "enum": [
+        "off",
+        "on"
+      ],
+      "type": "string"
+    },
+    "TextSpacing": {
+      "description": "Text spacing. Mirror of `TEXT_SPACINGS`.",
+      "enum": [
+        "standard",
+        "loose"
+      ],
+      "type": "string"
+    },
+    "Transparency": {
+      "description": "Transparency. Mirror of `TRANSPARENCIES`.",
+      "enum": [
+        "standard",
+        "reduced"
+      ],
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "`ResolvedAccessibilityProfile.v1` — the needs-free host→app projection.\n\nCarries ONLY the 15 resolved EFFECT axes. There is deliberately NO `needs`\nfield: the cause is structurally absent, so it cannot leak through the wire,\nthe JSON Schema, a `Debug` print, a logger, or a manual field access. The\nneeds live only in [`AccessibilityPreferences`] (the host-local input to\n[`resolve`]); the output type simply never carries them. This is stronger\nthan a `#[serde(skip)]` on a retained field (which `Debug`/`{:?}` would\nstill print). See the module docs for the cardinal invariant.\n\nThe absence is structurally enforced — the field cannot even be named:\n\n```compile_fail\nuse sbfb_workflow_core::accessibility_profile::{\n    resolve, AccessibilityPreferences, AccessibilitySystem,\n};\nlet p = resolve(&AccessibilityPreferences::default(), &AccessibilitySystem::default());\nlet _cause = p.needs; // no field `needs` on ResolvedAccessibilityProfile\n```",
+  "properties": {
+    "assistiveTech": {
+      "$ref": "#/$defs/AssistiveTech"
+    },
+    "captions": {
+      "$ref": "#/$defs/Captions"
+    },
+    "colorVision": {
+      "$ref": "#/$defs/ColorVision"
+    },
+    "contrast": {
+      "$ref": "#/$defs/ResolvedContrast"
+    },
+    "density": {
+      "$ref": "#/$defs/Density"
+    },
+    "focus": {
+      "$ref": "#/$defs/Focus"
+    },
+    "font": {
+      "$ref": "#/$defs/Font"
+    },
+    "motion": {
+      "$ref": "#/$defs/ResolvedMotion"
+    },
+    "pointer": {
+      "$ref": "#/$defs/Pointer"
+    },
+    "reading": {
+      "$ref": "#/$defs/Reading"
+    },
+    "scale": {
+      "$ref": "#/$defs/Scale"
+    },
+    "shortcuts": {
+      "$ref": "#/$defs/Shortcuts"
+    },
+    "textSpacing": {
+      "$ref": "#/$defs/TextSpacing"
+    },
+    "theme": {
+      "$ref": "#/$defs/ResolvedTheme"
+    },
+    "transparency": {
+      "$ref": "#/$defs/Transparency"
+    }
+  },
+  "required": [
+    "theme",
+    "contrast",
+    "colorVision",
+    "pointer",
+    "textSpacing",
+    "font",
+    "motion",
+    "transparency",
+    "density",
+    "reading",
+    "focus",
+    "scale",
+    "shortcuts",
+    "assistiveTech",
+    "captions"
+  ],
+  "title": "ResolvedAccessibilityProfile.v1",
+  "type": "object"
+}

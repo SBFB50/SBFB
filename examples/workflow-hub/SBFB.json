@@ -1,0 +1,10 @@
+{
+  "schema_version": 2,
+  "name": "workflow-hub",
+  "version": "0.1.0",
+  "description": "Workflow Hub — atelier d'agents et de workflows SBFB. Amorce Sprint 83 Phase B : fondation d'accessibilite (profil resolu sans diagnostic), tokens oklch et contrat du mode guide. App SBFB scellee, conforme a la CSP du bac a sable.",
+  "category": "tools",
+  "bridge": {
+    "methods": []
+  }
+}

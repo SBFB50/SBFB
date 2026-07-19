@@ -202,3 +202,6 @@ tests/*
 
 # Agent process surfaces are repo-visible contracts.
 # Do not ignore AGENTS.md, .githooks/, docs/agent/, prompts/, or scripts/agent/.
+
+# Playwright CLI local capture artifacts (console/page dumps) — never committed
+.playwright-cli/

@@ -32,6 +32,12 @@ import {
 } from "@/api/coordinator";
 import { authFetch } from "@/api/auth";
 import { detectAndRedact, type PiiPolicy } from "@/sdk/pii";
+import { isReservedEvent, payloadCarriesCause } from "@/bridge/reserved-events";
+import {
+  buildAccessibilityProfileEvent,
+  type AccessibilityPreferences,
+  type AccessibilitySystem,
+} from "@/a11y/profile";
 
 /**
  * Watchdog state for a single iframe.
@@ -66,6 +72,23 @@ export interface UseBridgeHandle {
    * effort notifications.
    */
   pushEvent: (name: string, payload: unknown) => void;
+
+  /**
+   * Push the needs-free resolved accessibility profile to the iframe
+   * (host→app). Sprint 83 Phase B.
+   *
+   * The sanctioned typed path for the reserved `a11y-profile` event:
+   * resolves the operator's `needs[]` LOCALLY and strictly validates the
+   * 15-axis projection before send, so the cause never crosses the sandbox
+   * boundary. The generic {@link pushEvent} refuses this reserved event, so
+   * this method is the only way to emit it.
+   *
+   * No-op when the iframe ref is unmounted or has no contentWindow.
+   */
+  pushAccessibilityProfile: (
+    prefs: AccessibilityPreferences,
+    system?: AccessibilitySystem,
+  ) => void;
 
   /**
    * Current watchdog state for the iframe. Sprint 15 Phase B.
@@ -199,12 +222,44 @@ export function useBridge(
     (name: string, payload: unknown) => {
       const iframe = iframeRef.current;
       if (!iframe || !iframe.contentWindow) return;
+      // Sprint 83 Phase B — two egress guards defend the needs-free invariant:
+      //  (1) BY CONSTRUCTION: a reserved event (e.g. the accessibility profile)
+      //      is emitted ONLY via its dedicated typed sender — refuse it here;
+      //  (2) BEST-EFFORT: drop any payload carrying an accidental `needs` KEY
+      //      (any depth, Map/Set, under any name). The by-construction guarantee
+      //      is the projection TYPE; comprehensive typed egress is Phase C.
+      if (isReservedEvent(name)) {
+        console.error(
+          `pushEvent: "${name}" is a reserved event — use its dedicated typed sender`,
+        );
+        return;
+      }
+      if (payloadCarriesCause(payload)) {
+        console.error(
+          `pushEvent: "${name}" payload carries an accessibility cause (needs) — not sent`,
+        );
+        return;
+      }
       iframe.contentWindow.postMessage(createEvent(name, payload), "*");
     },
     [iframeRef],
   );
 
-  return { pushEvent, watchdogState, resetWatchdog };
+  const pushAccessibilityProfile = useCallback(
+    (prefs: AccessibilityPreferences, system: AccessibilitySystem = {}) => {
+      const iframe = iframeRef.current;
+      if (!iframe || !iframe.contentWindow) return;
+      // Resolves `needs` LOCALLY and strictly validates the 15-axis
+      // projection (throws on any extra field) before it leaves the host.
+      iframe.contentWindow.postMessage(
+        buildAccessibilityProfileEvent(prefs, system),
+        "*",
+      );
+    },
+    [iframeRef],
+  );
+
+  return { pushEvent, pushAccessibilityProfile, watchdogState, resetWatchdog };
 }
 
 function reply(target: Window, response: import("@/bridge/protocol").BridgeResponse) {

@@ -1,0 +1,87 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+/*
+ * Sprint 83 Phase B — Workflow Hub design tokens (oklch).
+ *
+ * The dark base palette (:root). Non-dark themes (light / calm / paper /
+ * forced) and high-contrast overrides are set as `--color-*` custom
+ * properties by preboot.js / a11y.js from the resolved profile, so this file
+ * only carries the dark defaults + the scale-driven type ramp. Re-derived from
+ * the reference host tool's palette conventions (hue 260 neutral surfaces,
+ * semantic hues 150/78/25/240) — NOT imported from the Operator.
+ */
+:root {
+  color-scheme: dark;
+
+  /* Surfaces (deepest -> raised) */
+  --color-s0: oklch(0.185 0.008 260);
+  --color-s1: oklch(0.215 0.008 260);
+  --color-s2: oklch(0.255 0.010 260);
+  --color-s3: oklch(0.305 0.012 260);
+
+  /* Borders / fields */
+  --color-bd: oklch(0.400 0.012 260);
+  --color-bd2: oklch(0.520 0.014 260);
+  --color-field: oklch(0.620 0.014 260);
+
+  /* Text (strongest -> faintest) */
+  --color-tx: oklch(0.955 0.004 260);
+  --color-tx2: oklch(0.820 0.006 260);
+  --color-tx3: oklch(0.720 0.008 260);
+  --color-tx4: oklch(0.640 0.010 260);
+
+  /* Semantic */
+  --color-ok: oklch(0.760 0.130 150);
+  --color-warn: oklch(0.800 0.110 78);
+  --color-bad: oklch(0.720 0.150 25);
+  --color-info: oklch(0.760 0.110 240);
+  --color-neu: oklch(0.720 0.008 260);
+  --color-ok-bg: oklch(0.300 0.040 150);
+  --color-bad-bg: oklch(0.300 0.050 25);
+
+  /* Type ramp (scale 100). data-scale overrides below. */
+  --text-scene: 20px;
+  --text-card: 18px;
+  --text-body: 16px;
+  --text-sec: 14px;
+  --text-meta: 13px;
+
+  --font-sans: 'Segoe UI', system-ui, ui-sans-serif, Arial, sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Code', 'Consolas', monospace;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+}
+
+/* data-scale — the user-controlled type ramp (mirror of the reference tool). */
+html[data-scale='112'] {
+  --text-scene: 22.5px;
+  --text-card: 20.25px;
+  --text-body: 18px;
+  --text-sec: 15.75px;
+  --text-meta: 14.625px;
+}
+html[data-scale='125'] {
+  --text-scene: 25px;
+  --text-card: 22.5px;
+  --text-body: 20px;
+  --text-sec: 17.5px;
+  --text-meta: 16.25px;
+}
+html[data-scale='150'] {
+  --text-scene: 30px;
+  --text-card: 27px;
+  --text-body: 24px;
+  --text-sec: 21px;
+  --text-meta: 19.5px;
+}
+
+/* Resolved theme colour-scheme hints (colours themselves come from JS). */
+html[data-theme='light'],
+html[data-theme='paper'] {
+  color-scheme: light;
+}
+html[data-theme='calm'],
+html[data-theme='forced'],
+html[data-theme='dark'] {
+  color-scheme: dark;
+}

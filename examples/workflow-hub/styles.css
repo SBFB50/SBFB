@@ -1,0 +1,158 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+/*
+ * Sprint 83 Phase B — Workflow Hub layout (amorce).
+ *
+ * Consumes the tokens from tokens.css. Uses logical properties throughout so
+ * the RTL toggle (dir="rtl") mirrors the layout with no extra rules — the i18n
+ * foundation. Effect-axis behaviour lives in a11y.css.
+ */
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  min-height: 100dvh;
+  background: var(--color-s0);
+  color: var(--color-tx);
+  font-family: var(--font-sans);
+  font-size: var(--text-body);
+  line-height: 1.5;
+}
+
+.hub-header {
+  border-block-end: 1px solid var(--color-bd);
+  background: var(--color-s1);
+  padding: 1.25rem clamp(1rem, 4vw, 2.5rem);
+}
+
+.hub-title {
+  margin: 0;
+  font-size: var(--text-scene);
+  font-weight: 700;
+}
+
+.hub-tagline {
+  margin: 0.25rem 0 0;
+  color: var(--color-tx3);
+  font-size: var(--text-sec);
+}
+
+.hub-main {
+  display: grid;
+  gap: 1rem;
+  max-width: 56rem;
+  margin-inline: auto;
+  padding: clamp(1rem, 4vw, 2rem);
+}
+
+.hub-card {
+  border: 1px solid var(--color-bd);
+  border-radius: var(--radius-md);
+  background: var(--color-s1);
+  padding: clamp(0.875rem, 2vw, 1.25rem);
+}
+
+.hub-card h2 {
+  margin: 0 0 0.5rem;
+  font-size: var(--text-card);
+  font-weight: 650;
+}
+
+.hub-card p {
+  margin: 0 0 0.5rem;
+}
+
+.hub-card p:last-child {
+  margin-block-end: 0;
+}
+
+.hub-note {
+  color: var(--color-tx3);
+  font-size: var(--text-sec);
+}
+
+code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  color: var(--color-tx2);
+}
+
+.hub-axes {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  gap: 0.5rem;
+  margin: 0.75rem 0 0;
+}
+
+.hub-axis {
+  border: 1px solid var(--color-bd);
+  border-radius: var(--radius-sm);
+  background: var(--color-s2);
+  padding: 0.5rem 0.625rem;
+}
+
+.hub-axis dt {
+  color: var(--color-tx3);
+  font-family: var(--font-mono);
+  font-size: var(--text-meta);
+}
+
+.hub-axis dd {
+  margin: 0.125rem 0 0;
+  color: var(--color-tx);
+  font-family: var(--font-mono);
+  font-size: var(--text-sec);
+}
+
+.hub-projections {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hub-projection {
+  border: 1px solid var(--color-bd);
+  border-radius: var(--radius-sm);
+  background: var(--color-s2);
+  padding: 0.625rem 0.75rem;
+}
+
+.hub-projection h3 {
+  margin: 0 0 0.25rem;
+  font-size: var(--text-body);
+  font-weight: 600;
+}
+
+.hub-projection p {
+  margin: 0;
+  color: var(--color-tx3);
+  font-size: var(--text-sec);
+}
+
+.hub-button {
+  border: 1px solid var(--color-bd2);
+  border-radius: var(--radius-sm);
+  background: var(--color-s2);
+  padding: 0.5rem 0.875rem;
+  color: var(--color-tx);
+  font: inherit;
+  font-size: var(--text-sec);
+  cursor: pointer;
+}
+
+.hub-button:hover {
+  background: var(--color-s3);
+}
+
+.hub-button:focus-visible {
+  outline: 2px solid var(--color-info);
+  outline-offset: 2px;
+}

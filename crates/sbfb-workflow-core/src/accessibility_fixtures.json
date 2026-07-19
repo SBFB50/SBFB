@@ -1,0 +1,1085 @@
+{
+  "cases": [
+    {
+      "expected": {
+        "assistiveTech": "standard",
+        "captions": "off",
+        "colorVision": "standard",
+        "contrast": "standard",
+        "density": "standard",
+        "focus": "standard",
+        "font": "standard",
+        "motion": "standard",
+        "pointer": "standard",
+        "reading": "standard",
+        "scale": "100",
+        "shortcuts": "off",
+        "textSpacing": "standard",
+        "theme": "dark",
+        "transparency": "standard"
+      },
+      "name": "baseline",
+      "prefs": {
+        "assistiveTech": "standard",
+        "captions": "off",
+        "colorVision": "standard",
+        "contrast": "auto",
+        "density": "standard",
+        "focus": "standard",
+        "font": "standard",
+        "motion": "system",
+        "needs": [],
+        "pointer": "standard",
+        "reading": "standard",
+        "scale": "100",
+        "shortcuts": "off",
+        "textSpacing": "standard",
+        "theme": "auto",
+        "transparency": "standard"
+      },
+      "system": {
+        "forcedColors": false,
+        "highContrast": false,
+        "reducedMotion": false
+      }
+    },
+    {
+      "expected": {
+        "assistiveTech": "standard",
+        "captions": "off",
+        "colorVision": "standard",
+        "contrast": "high",
+        "density": "standard",
+        "focus": "strong",
+        "font": "standard",
+        "motion": "standard",
+        "pointer": "large",
+        "reading": "standard",
+        "scale": "125",
+        "shortcuts": "off",
+        "textSpacing": "standard",
+        "theme": "forced",
+        "transparency": "standard"
+      },
+      "name": "lowVision",
+      "prefs": {
+        "assistiveTech": "standard",
+        "captions": "off",
+        "colorVision": "standard",
+        "contrast": "auto",
+        "density": "standard",
+        "focus": "standard",
+        "font": "standard",
+        "motion": "system",
+        "needs": [
+          "lowVision"
+        ],
+        "pointer": "standard",
+        "reading": "standard",
+        "scale": "100",
+        "shortcuts": "off",
+        "textSpacing": "standard",
+        "theme": "auto",
+        "transparency": "standard"
+      },
+      "system": {
+        "forcedColors": false,
+        "highContrast": false,
+        "reducedMotion": false
+      }
+    },
+    {
+      "expected": {
+        "assistiveTech": "screen-reader",
+        "captions": "off",
+        "colorVision": "standard",
+        "contrast": "high",
+        "density": "focus",
+        "focus": "strong",
+        "font": "standard",
+        "motion": "standard",
+        "pointer": "standard",
+        "reading": "standard",
+        "scale": "100",
+        "shortcuts": "off",
+        "textSpacing": "standard",
+        "theme": "forced",
+        "transparency": "standard"
+      },
+      "name": "blindAssistive",
+      "prefs": {
+        "assistiveTech": "standard",
+        "captions": "off",
+        "colorVision": "standard",
+        "contrast": "auto",
+        "density": "standard",
+        "focus": "standard",
+        "font": "standard",
+        "motion": "system",
+        "needs": [
+          "blindAssistive"
+        ],
+        "pointer": "standard",
+        "reading": "standard",
+        "scale": "100",
+        "shortcuts": "off",
+        "textSpacing": "standard",
+        "theme": "auto",
+        "transparency": "standard"
+      },
+      "system": {
+        "forcedColors": false,
+        "highContrast": false,
+        "reducedMotion": false
+      }
+    },
+    {
+      "expected": {
+        "assistiveTech": "standard",
+        "captions": "off",
+        "colorVision": "safe",
+        "contrast": "high",
+        "density": "standard",
+        "focus": "strong",
+        "font": "standard",
+        "motion": "standard",
+        "pointer": "standard",
+        "reading": "standard",
+        "scale": "100",
+        "shortcuts": "off",
+        "textSpacing": "standard",
+        "theme": "dark",
+        "transparency": "standard"
+      },
+      "name": "colorVision",
+      "prefs": {
+        "assistiveTech": "standard",
+        "captions": "off",
+        "colorVision": "standard",
+        "contrast": "auto",
+        "density": "standard",
+        "focus": "standard",
+        "font": "standard",
+        "motion": "system",
+        "needs": [
+          "colorVision"
+        ],
+        "pointer": "standard",
+        "reading": "standard",
+        "scale": "100",
+        "shortcuts": "off",
+        "textSpacing": "standard",
+        "theme": "auto",
+        "transparency": "standard"
+      },
+      "system": {
+        "forcedColors": false,
+        "highContrast": false,
+        "reducedMotion": false
+      }
+    },
+    {
+      "expected": {
+        "assistiveTech": "standard",
+        "captions": "off",
+        "colorVision": "monochrome",
+        "contrast": "high",
+        "density": "standard",
+        "focus": "strong",
+        "font": "standard",
+        "motion": "standard",
+        "pointer": "standard",
+        "reading": "standard",
+        "scale": "100",
+        "shortcuts": "off",
+        "textSpacing": "standard",
+        "theme": "forced",
+        "transparency": "standard"
+      },
+      "name": "noColor",
+      "prefs": {
+        "assistiveTech": "standard",
+        "captions": "off",
+        "colorVision": "standard",
+        "contrast": "auto",
+        "density": "standard",
+        "focus": "standard",
+        "font": "standard",
+        "motion": "system",
+        "needs": [
+          "noColor"
+        ],
+        "pointer": "standard",
+        "reading": "standard",
+        "scale": "100",
+        "shortcuts": "off",
+        "textSpacing": "standard",
+        "theme": "auto",
+        "transparency": "standard"
+      },
+      "system": {
+        "forcedColors": false,
+        "highContrast": false,
+        "reducedMotion": false
+      }
+    },
+    {
+      "expected": {
+        "assistiveTech": "standard",
+        "captions": "off",
+        "colorVision": "standard",
+        "contrast": "standard",
+        "density": "standard",
+        "focus": "standard",
+        "font": "standard",
+        "motion": "reduced",
+        "pointer": "standard",
+        "reading": "standard",
+        "scale": "100",
+        "shortcuts": "off",
+        "textSpacing": "standard",
+        "theme": "calm",
+        "transparency": "reduced"
+      },
+      "name": "vestibular",
+      "prefs": {
+        "assistiveTech": "standard",
+        "captions": "off",
+        "colorVision": "standard",
+        "contrast": "auto",
+        "density": "standard",
+        "focus": "standard",
+        "font": "standard",
+        "motion": "system",
+        "needs": [
+          "vestibular"
+        ],
+        "pointer": "standard",
+        "reading": "standard",
+        "scale": "100",
+        "shortcuts": "off",
+        "textSpacing": "standard",
+        "theme": "auto",
+        "transparency": "standard"
+      },
+      "system": {
+        "forcedColors": false,
+        "highContrast": false,
+        "reducedMotion": false
+      }
+    },
+    {
+      "expected": {
+        "assistiveTech": "standard",
+        "captions": "off",
+        "colorVision": "standard",
+        "contrast": "standard",
+        "density": "standard",
+        "focus": "standard",
+        "font": "standard",
+        "motion": "reduced",
+        "pointer": "standard",
+        "reading": "standard",
+        "scale": "100",
+        "shortcuts": "off",
+        "textSpacing": "standard",
+        "theme": "calm",
+        "transparency": "reduced"
+      },
+      "name": "photosensitive",
+      "prefs": {
+        "assistiveTech": "standard",
+        "captions": "off",
+        "colorVision": "standard",
+        "contrast": "auto",
+        "density": "standard",
+        "focus": "standard",
+        "font": "standard",
+        "motion": "system",
+        "needs": [
+          "photosensitive"
+        ],
+        "pointer": "standard",
+        "reading": "standard",
+        "scale": "100",
+        "shortcuts": "off",
+        "textSpacing": "standard",
+        "theme": "auto",
+        "transparency": "standard"
+      },
+      "system": {
+        "forcedColors": false,
+        "highContrast": false,
+        "reducedMotion": false
+      }
+    },
+    {
+      "expected": {
+        "assistiveTech": "standard",
+        "captions": "off",
+        "colorVision": "standard",
+        "contrast": "standard",
+        "density": "standard",
+        "focus": "strong",
+        "font": "standard",
+        "motion": "standard",
+        "pointer": "large",
+        "reading": "standard",
+        "scale": "100",
+        "shortcuts": "off",
+        "textSpacing": "standard",
+        "theme": "dark",
+        "transparency": "standard"
+      },
+      "name": "motor",
+      "prefs": {
+        "assistiveTech": "standard",
+        "captions": "off",
+        "colorVision": "standard",
+        "contrast": "auto",
+        "density": "standard",
+        "focus": "standard",
+        "font": "standard",
+        "motion": "system",
+        "needs": [
+          "motor"
+        ],
+        "pointer": "standard",
+        "reading": "standard",
+        "scale": "100",
+        "shortcuts": "off",
+        "textSpacing": "standard",
+        "theme": "auto",
+        "transparency": "standard"
+      },
+      "system": {
+        "forcedColors": false,
+        "highContrast": false,
+        "reducedMotion": false
+      }
+    },
+    {
+      "expected": {
+        "assistiveTech": "standard",
+        "captions": "off",
+        "colorVision": "standard",
+        "contrast": "standard",
+        "density": "focus",
+        "focus": "standard",
+        "font": "standard",
+        "motion": "standard",
+        "pointer": "standard",
+        "reading": "assist",
+        "scale": "100",
+        "shortcuts": "off",
+        "textSpacing": "loose",
+        "theme": "paper",
+        "transparency": "standard"
+      },
+      "name": "cognitive",
+      "prefs": {
+        "assistiveTech": "standard",
+        "captions": "off",
+        "colorVision": "standard",
+        "contrast": "auto",
+        "density": "standard",
+        "focus": "standard",
+        "font": "standard",
+        "motion": "system",
+        "needs": [
+          "cognitive"
+        ],
+        "pointer": "standard",
+        "reading": "standard",
+        "scale": "100",
+        "shortcuts": "off",
+        "textSpacing": "standard",
+        "theme": "auto",
+        "transparency": "standard"
+      },
+      "system": {
+        "forcedColors": false,
+        "highContrast": false,
+        "reducedMotion": false
+      }
+    },
+    {
+      "expected": {
+        "assistiveTech": "standard",
+        "captions": "off",
+        "colorVision": "standard",
+        "contrast": "standard",
+        "density": "standard",
+        "focus": "standard",
+        "font": "legible",
+        "motion": "standard",
+        "pointer": "standard",
+        "reading": "assist",
+        "scale": "112",
+        "shortcuts": "off",
+        "textSpacing": "loose",
+        "theme": "paper",
+        "transparency": "standard"
+      },
+      "name": "dyslexia",
+      "prefs": {
+        "assistiveTech": "standard",
+        "captions": "off",
+        "colorVision": "standard",
+        "contrast": "auto",
+        "density": "standard",
+        "focus": "standard",
+        "font": "standard",
+        "motion": "system",
+        "needs": [
+          "dyslexia"
+        ],
+        "pointer": "standard",
+        "reading": "standard",
+        "scale": "100",
+        "shortcuts": "off",
+        "textSpacing": "standard",
+        "theme": "auto",
+        "transparency": "standard"
+      },
+      "system": {
+        "forcedColors": false,
+        "highContrast": false,
+        "reducedMotion": false
+      }
+    },
+    {
+      "expected": {
+        "assistiveTech": "standard",
+        "captions": "off",
+        "colorVision": "standard",
+        "contrast": "standard",
+        "density": "standard",
+        "focus": "standard",
+        "font": "standard",
+        "motion": "reduced",
+        "pointer": "standard",
+        "reading": "standard",
+        "scale": "100",
+        "shortcuts": "off",
+        "textSpacing": "standard",
+        "theme": "calm",
+        "transparency": "reduced"
+      },
+      "name": "attention",
+      "prefs": {
+        "assistiveTech": "standard",
+        "captions": "off",
+        "colorVision": "standard",
+        "contrast": "auto",
+        "density": "standard",
+        "focus": "standard",
+        "font": "standard",
+        "motion": "system",
+        "needs": [
+          "attention"
+        ],
+        "pointer": "standard",
+        "reading": "standard",
+        "scale": "100",
+        "shortcuts": "off",
+        "textSpacing": "standard",
+        "theme": "auto",
+        "transparency": "standard"
+      },
+      "system": {
+        "forcedColors": false,
+        "highContrast": false,
+        "reducedMotion": false
+      }
+    },
+    {
+      "expected": {
+        "assistiveTech": "standard",
+        "captions": "on",
+        "colorVision": "standard",
+        "contrast": "standard",
+        "density": "standard",
+        "focus": "standard",
+        "font": "standard",
+        "motion": "standard",
+        "pointer": "standard",
+        "reading": "standard",
+        "scale": "100",
+        "shortcuts": "off",
+        "textSpacing": "standard",
+        "theme": "dark",
+        "transparency": "standard"
+      },
+      "name": "auditory",
+      "prefs": {
+        "assistiveTech": "standard",
+        "captions": "off",
+        "colorVision": "standard",
+        "contrast": "auto",
+        "density": "standard",
+        "focus": "standard",
+        "font": "standard",
+        "motion": "system",
+        "needs": [
+          "auditory"
+        ],
+        "pointer": "standard",
+        "reading": "standard",
+        "scale": "100",
+        "shortcuts": "off",
+        "textSpacing": "standard",
+        "theme": "auto",
+        "transparency": "standard"
+      },
+      "system": {
+        "forcedColors": false,
+        "highContrast": false,
+        "reducedMotion": false
+      }
+    },
+    {
+      "expected": {
+        "assistiveTech": "standard",
+        "captions": "off",
+        "colorVision": "standard",
+        "contrast": "standard",
+        "density": "standard",
+        "focus": "standard",
+        "font": "standard",
+        "motion": "standard",
+        "pointer": "standard",
+        "reading": "standard",
+        "scale": "100",
+        "shortcuts": "off",
+        "textSpacing": "standard",
+        "theme": "dark",
+        "transparency": "standard"
+      },
+      "name": "speech",
+      "prefs": {
+        "assistiveTech": "standard",
+        "captions": "off",
+        "colorVision": "standard",
+        "contrast": "auto",
+        "density": "standard",
+        "focus": "standard",
+        "font": "standard",
+        "motion": "system",
+        "needs": [
+          "speech"
+        ],
+        "pointer": "standard",
+        "reading": "standard",
+        "scale": "100",
+        "shortcuts": "off",
+        "textSpacing": "standard",
+        "theme": "auto",
+        "transparency": "standard"
+      },
+      "system": {
+        "forcedColors": false,
+        "highContrast": false,
+        "reducedMotion": false
+      }
+    },
+    {
+      "expected": {
+        "assistiveTech": "standard",
+        "captions": "off",
+        "colorVision": "standard",
+        "contrast": "standard",
+        "density": "standard",
+        "focus": "standard",
+        "font": "standard",
+        "motion": "reduced",
+        "pointer": "standard",
+        "reading": "standard",
+        "scale": "100",
+        "shortcuts": "off",
+        "textSpacing": "standard",
+        "theme": "calm",
+        "transparency": "reduced"
+      },
+      "name": "sensory",
+      "prefs": {
+        "assistiveTech": "standard",
+        "captions": "off",
+        "colorVision": "standard",
+        "contrast": "auto",
+        "density": "standard",
+        "focus": "standard",
+        "font": "standard",
+        "motion": "system",
+        "needs": [
+          "sensory"
+        ],
+        "pointer": "standard",
+        "reading": "standard",
+        "scale": "100",
+        "shortcuts": "off",
+        "textSpacing": "standard",
+        "theme": "auto",
+        "transparency": "standard"
+      },
+      "system": {
+        "forcedColors": false,
+        "highContrast": false,
+        "reducedMotion": false
+      }
+    },
+    {
+      "expected": {
+        "assistiveTech": "standard",
+        "captions": "off",
+        "colorVision": "standard",
+        "contrast": "standard",
+        "density": "standard",
+        "focus": "standard",
+        "font": "standard",
+        "motion": "reduced",
+        "pointer": "standard",
+        "reading": "standard",
+        "scale": "100",
+        "shortcuts": "off",
+        "textSpacing": "standard",
+        "theme": "dark",
+        "transparency": "standard"
+      },
+      "name": "system-reduced-motion",
+      "prefs": {
+        "assistiveTech": "standard",
+        "captions": "off",
+        "colorVision": "standard",
+        "contrast": "auto",
+        "density": "standard",
+        "focus": "standard",
+        "font": "standard",
+        "motion": "system",
+        "needs": [],
+        "pointer": "standard",
+        "reading": "standard",
+        "scale": "100",
+        "shortcuts": "off",
+        "textSpacing": "standard",
+        "theme": "auto",
+        "transparency": "standard"
+      },
+      "system": {
+        "forcedColors": false,
+        "highContrast": false,
+        "reducedMotion": true
+      }
+    },
+    {
+      "expected": {
+        "assistiveTech": "standard",
+        "captions": "off",
+        "colorVision": "standard",
+        "contrast": "high",
+        "density": "standard",
+        "focus": "standard",
+        "font": "standard",
+        "motion": "standard",
+        "pointer": "standard",
+        "reading": "standard",
+        "scale": "100",
+        "shortcuts": "off",
+        "textSpacing": "standard",
+        "theme": "dark",
+        "transparency": "standard"
+      },
+      "name": "system-high-contrast",
+      "prefs": {
+        "assistiveTech": "standard",
+        "captions": "off",
+        "colorVision": "standard",
+        "contrast": "auto",
+        "density": "standard",
+        "focus": "standard",
+        "font": "standard",
+        "motion": "system",
+        "needs": [],
+        "pointer": "standard",
+        "reading": "standard",
+        "scale": "100",
+        "shortcuts": "off",
+        "textSpacing": "standard",
+        "theme": "auto",
+        "transparency": "standard"
+      },
+      "system": {
+        "forcedColors": false,
+        "highContrast": true,
+        "reducedMotion": false
+      }
+    },
+    {
+      "expected": {
+        "assistiveTech": "standard",
+        "captions": "off",
+        "colorVision": "standard",
+        "contrast": "high",
+        "density": "standard",
+        "focus": "standard",
+        "font": "standard",
+        "motion": "standard",
+        "pointer": "standard",
+        "reading": "standard",
+        "scale": "100",
+        "shortcuts": "off",
+        "textSpacing": "standard",
+        "theme": "forced",
+        "transparency": "standard"
+      },
+      "name": "system-forced-colors",
+      "prefs": {
+        "assistiveTech": "standard",
+        "captions": "off",
+        "colorVision": "standard",
+        "contrast": "auto",
+        "density": "standard",
+        "focus": "standard",
+        "font": "standard",
+        "motion": "system",
+        "needs": [],
+        "pointer": "standard",
+        "reading": "standard",
+        "scale": "100",
+        "shortcuts": "off",
+        "textSpacing": "standard",
+        "theme": "auto",
+        "transparency": "standard"
+      },
+      "system": {
+        "forcedColors": true,
+        "highContrast": false,
+        "reducedMotion": false
+      }
+    },
+    {
+      "expected": {
+        "assistiveTech": "standard",
+        "captions": "off",
+        "colorVision": "standard",
+        "contrast": "high",
+        "density": "standard",
+        "focus": "strong",
+        "font": "legible",
+        "motion": "standard",
+        "pointer": "large",
+        "reading": "assist",
+        "scale": "125",
+        "shortcuts": "off",
+        "textSpacing": "loose",
+        "theme": "forced",
+        "transparency": "standard"
+      },
+      "name": "stack-lowVision-dyslexia",
+      "prefs": {
+        "assistiveTech": "standard",
+        "captions": "off",
+        "colorVision": "standard",
+        "contrast": "auto",
+        "density": "standard",
+        "focus": "standard",
+        "font": "standard",
+        "motion": "system",
+        "needs": [
+          "lowVision",
+          "dyslexia"
+        ],
+        "pointer": "standard",
+        "reading": "standard",
+        "scale": "100",
+        "shortcuts": "off",
+        "textSpacing": "standard",
+        "theme": "auto",
+        "transparency": "standard"
+      },
+      "system": {
+        "forcedColors": false,
+        "highContrast": false,
+        "reducedMotion": false
+      }
+    },
+    {
+      "expected": {
+        "assistiveTech": "standard",
+        "captions": "off",
+        "colorVision": "standard",
+        "contrast": "standard",
+        "density": "focus",
+        "focus": "strong",
+        "font": "standard",
+        "motion": "standard",
+        "pointer": "large",
+        "reading": "assist",
+        "scale": "100",
+        "shortcuts": "off",
+        "textSpacing": "loose",
+        "theme": "paper",
+        "transparency": "standard"
+      },
+      "name": "stack-cognitive-motor",
+      "prefs": {
+        "assistiveTech": "standard",
+        "captions": "off",
+        "colorVision": "standard",
+        "contrast": "auto",
+        "density": "standard",
+        "focus": "standard",
+        "font": "standard",
+        "motion": "system",
+        "needs": [
+          "cognitive",
+          "motor"
+        ],
+        "pointer": "standard",
+        "reading": "standard",
+        "scale": "100",
+        "shortcuts": "off",
+        "textSpacing": "standard",
+        "theme": "auto",
+        "transparency": "standard"
+      },
+      "system": {
+        "forcedColors": false,
+        "highContrast": false,
+        "reducedMotion": false
+      }
+    },
+    {
+      "expected": {
+        "assistiveTech": "screen-reader",
+        "captions": "on",
+        "colorVision": "monochrome",
+        "contrast": "high",
+        "density": "focus",
+        "focus": "strong",
+        "font": "legible",
+        "motion": "reduced",
+        "pointer": "large",
+        "reading": "assist",
+        "scale": "125",
+        "shortcuts": "off",
+        "textSpacing": "loose",
+        "theme": "forced",
+        "transparency": "reduced"
+      },
+      "name": "all-needs",
+      "prefs": {
+        "assistiveTech": "standard",
+        "captions": "off",
+        "colorVision": "standard",
+        "contrast": "auto",
+        "density": "standard",
+        "focus": "standard",
+        "font": "standard",
+        "motion": "system",
+        "needs": [
+          "lowVision",
+          "blindAssistive",
+          "colorVision",
+          "noColor",
+          "vestibular",
+          "photosensitive",
+          "motor",
+          "cognitive",
+          "dyslexia",
+          "attention",
+          "auditory",
+          "speech",
+          "sensory"
+        ],
+        "pointer": "standard",
+        "reading": "standard",
+        "scale": "100",
+        "shortcuts": "off",
+        "textSpacing": "standard",
+        "theme": "auto",
+        "transparency": "standard"
+      },
+      "system": {
+        "forcedColors": false,
+        "highContrast": false,
+        "reducedMotion": false
+      }
+    },
+    {
+      "expected": {
+        "assistiveTech": "standard",
+        "captions": "off",
+        "colorVision": "standard",
+        "contrast": "standard",
+        "density": "standard",
+        "focus": "standard",
+        "font": "standard",
+        "motion": "standard",
+        "pointer": "standard",
+        "reading": "standard",
+        "scale": "100",
+        "shortcuts": "off",
+        "textSpacing": "standard",
+        "theme": "light",
+        "transparency": "standard"
+      },
+      "name": "pref-theme-light",
+      "prefs": {
+        "assistiveTech": "standard",
+        "captions": "off",
+        "colorVision": "standard",
+        "contrast": "auto",
+        "density": "standard",
+        "focus": "standard",
+        "font": "standard",
+        "motion": "system",
+        "needs": [],
+        "pointer": "standard",
+        "reading": "standard",
+        "scale": "100",
+        "shortcuts": "off",
+        "textSpacing": "standard",
+        "theme": "light",
+        "transparency": "standard"
+      },
+      "system": {
+        "forcedColors": false,
+        "highContrast": false,
+        "reducedMotion": false
+      }
+    },
+    {
+      "expected": {
+        "assistiveTech": "standard",
+        "captions": "off",
+        "colorVision": "standard",
+        "contrast": "standard",
+        "density": "standard",
+        "focus": "standard",
+        "font": "standard",
+        "motion": "standard",
+        "pointer": "standard",
+        "reading": "standard",
+        "scale": "150",
+        "shortcuts": "on",
+        "textSpacing": "standard",
+        "theme": "dark",
+        "transparency": "standard"
+      },
+      "name": "pref-scale-150-shortcuts-on",
+      "prefs": {
+        "assistiveTech": "standard",
+        "captions": "off",
+        "colorVision": "standard",
+        "contrast": "auto",
+        "density": "standard",
+        "focus": "standard",
+        "font": "standard",
+        "motion": "system",
+        "needs": [],
+        "pointer": "standard",
+        "reading": "standard",
+        "scale": "150",
+        "shortcuts": "on",
+        "textSpacing": "standard",
+        "theme": "auto",
+        "transparency": "standard"
+      },
+      "system": {
+        "forcedColors": false,
+        "highContrast": false,
+        "reducedMotion": false
+      }
+    },
+    {
+      "expected": {
+        "assistiveTech": "standard",
+        "captions": "off",
+        "colorVision": "standard",
+        "contrast": "high",
+        "density": "standard",
+        "focus": "standard",
+        "font": "standard",
+        "motion": "reduced",
+        "pointer": "standard",
+        "reading": "standard",
+        "scale": "100",
+        "shortcuts": "off",
+        "textSpacing": "standard",
+        "theme": "dark",
+        "transparency": "standard"
+      },
+      "name": "pref-contrast-high-motion-reduced",
+      "prefs": {
+        "assistiveTech": "standard",
+        "captions": "off",
+        "colorVision": "standard",
+        "contrast": "high",
+        "density": "standard",
+        "focus": "standard",
+        "font": "standard",
+        "motion": "reduced",
+        "needs": [],
+        "pointer": "standard",
+        "reading": "standard",
+        "scale": "100",
+        "shortcuts": "off",
+        "textSpacing": "standard",
+        "theme": "auto",
+        "transparency": "standard"
+      },
+      "system": {
+        "forcedColors": false,
+        "highContrast": false,
+        "reducedMotion": false
+      }
+    },
+    {
+      "expected": {
+        "assistiveTech": "standard",
+        "captions": "off",
+        "colorVision": "standard",
+        "contrast": "standard",
+        "density": "standard",
+        "focus": "standard",
+        "font": "legible",
+        "motion": "standard",
+        "pointer": "standard",
+        "reading": "assist",
+        "scale": "150",
+        "shortcuts": "off",
+        "textSpacing": "loose",
+        "theme": "paper",
+        "transparency": "standard"
+      },
+      "name": "pref-nondegrading-scale-150-with-dyslexia",
+      "prefs": {
+        "assistiveTech": "standard",
+        "captions": "off",
+        "colorVision": "standard",
+        "contrast": "auto",
+        "density": "standard",
+        "focus": "standard",
+        "font": "standard",
+        "motion": "system",
+        "needs": [
+          "dyslexia"
+        ],
+        "pointer": "standard",
+        "reading": "standard",
+        "scale": "150",
+        "shortcuts": "off",
+        "textSpacing": "standard",
+        "theme": "auto",
+        "transparency": "standard"
+      },
+      "system": {
+        "forcedColors": false,
+        "highContrast": false,
+        "reducedMotion": false
+      }
+    }
+  ],
+  "note": "Sprint 83 Phase B — shared Rust<->TS resolution parity oracle. full prefs + system -> the 15-axis needs-free projection. Consumed by accessibility_profile.rs and web/src/a11y/__tests__/profile_resolution.test.ts. Regenerate: UPDATE_SNAPSHOTS=1 cargo test -p sbfb-workflow-core resolution_fixtures."
+}

@@ -64,6 +64,7 @@ pattern OWASP Threat Dragon.
 | A6 | Project archives (zip) | Faible (publique) | **Critique** | Haute | iroh-blobs + BLAKE3 hash |
 | A7 | Task results + kudos ledger | Moyenne | **Haute** | Moyenne | iroh-docs + hash-chain append-only |
 | A8 | Activations sharding + RunProof | **Haute** (activations en clair, SI-1) | **Critique** (verdict N0-N3) | Moyenne | frames `sbfb/shard/1` en transit (groupe prive) + `RunProof` signe (slot `activation_fingerprint`) |
+| A9 | `needs[]` accessibilite (PII sante/handicap) | **Critique** (LINDDUN, categorie sensible > A4) | Moyenne | Faible | Host-local UNIQUEMENT (`AccessibilityPreferences`) ; JAMAIS dans la projection `ResolvedAccessibilityProfile.v1` (le type de sortie n'a pas de champ `needs`) ni au DOM/bridge/prompt/trace du Hub. Cf. §17. |
 
 ---
 
@@ -151,6 +152,12 @@ chaque etablissement de stage-link d'une session reelle exige en plus
 l'ATTESTATION du stage charge (binding loaded-stage <-> manifeste signe,
 fail-closed ; le chemin echo digest-zeros ne sert aucune session reelle et
 n'emet ni n'exige d'attestation — cf. §16). Cf. §16.
+
+**Flux accessibilite hote→app (Sprint 83 Phase B, A9)** : `AccessibilityPreferences`
+(needs + axes, host-local) → `resolve()` (host) → `ResolvedAccessibilityProfile.v1`
+(15 axes-effet, needs-free) → event bridge `sbfb-bridge-event`/`a11y-profile` →
+iframe Hub sandboxee. `needs[]` (la CAUSE) ne franchit JAMAIS la barriere
+host→app ; seul l'EFFET traverse. Cf. §17.
 
 ---
 
@@ -284,6 +291,7 @@ de compute. Severites en contexte RGPD Art.5/6/9/35.
 | Kudos ledger | **H** (hash-chain permet cross-project linking) | M (node_id) | H (append-only = non-repudiation by design) | M | L | M (pas de UI explicite "tes contributions sont publiques") | **M — Sprint 17+ : UI explicitant la publicite du ledger** |
 | Gossip annonces | M | L | L | **H (gossip = public par definition)** | L | L | L |
 | Shard frontier forward (`sbfb/shard/1`) | M (node_id lie aux shards du groupe) | L (pseudo) | M (RunProof signe = trace) | M (membres du groupe voient les frames) | **H (activations en clair vers les workers-shard, SI-1)** | L (groupe prive explicite + consentement worker) | L (groupe prive, pas de PII dans les activations sauf si le prompt en porte) |
+| Projection accessibilite host→app (A9) | **L (accepte)** — correlation des axes-effet cote app, mitige `connect-src 'none'` + effet≠cause | L (aucune identite) | L | L (projection locale, non-gossipee) | **L — `needs[]` (PII Art.9) reste host-local, la projection est needs-free PAR CONSTRUCTION (type de sortie sans champ `needs`)** | L (operateur regle ses propres preferences) | **L (GDPR Art.9 : la categorie speciale ne quitte pas l'hote ; seul l'EFFET traverse)** |
 
 ### 6.1 GDPR mapping (Sprint 16 livre)
 
@@ -1652,7 +1660,36 @@ region mmapee, ou hash-avant-load + re-verification) = re-route slot rig-chaud (
 
 ---
 
-## 17. Revue et evolution
+## 17. Surface profil d'accessibilite (Sprint 83 Phase B)
+
+Le chantier Workflow Agents introduit une **projection d'accessibilite
+hote→app** : l'hote (shell React / page-hote du Hub) connait le profil
+d'accessibilite de l'operateur ; une app SBFB sandboxee (le Workflow Hub, dans
+un iframe `allow-scripts` sans `allow-same-origin`, CSP `connect-src 'none'`)
+doit rendre accessible SANS jamais apprendre POURQUOI.
+
+**Asset A9 — `needs[]` (cause) = PII sante/handicap.** Les 13 `AccessibilityNeed`
+de l'operateur (basse vision, cognitif, vestibulaire, …) sont une donnee
+LINDDUN sensible (categorie plus forte que le « consent PII light » A4). Le
+profil projete (`ResolvedAccessibilityProfile.v1`,
+`crates/sbfb-workflow-core/src/accessibility_profile.rs` + miroir
+`web/src/a11y/profile.ts`) ne porte que les 15 **axes-effet** resolus
+(`motion=reduced`, `contrast=high`, …). Invariant cardinal : **`needs[]` ne
+quitte JAMAIS l'hote**.
+
+| # | Menace (STRIDE/LINDDUN) | Sev | Mitigation cablee |
+|---|---|---|---|
+| **T-A11Y-NEEDS-LEAK** | *Disclosure/Linkability* — la cause fuit vers le DOM (`data-needs`), les logs, un prompt LLM, la trace, le bridge ou un provider | **fermee** | Projection **needs-free par construction** : le type de sortie `ResolvedAccessibilityProfile` n'a AUCUN champ `needs` (Rust : champ retire, pas un simple `#[serde(skip)]` — donc pas de fuite via `Debug`/`{:?}`/logger/acces manuel ; TS interface sans `needs`). `applyResolvedAxes()` ecrit les 15 `data-*` mais JAMAIS `data-needs` (preboot Hub inclus). Tests : `accessibility_profile::tests::needs_never_serialized_outward` (Rust) + oracle de parite partage `resolution_fixtures` (Rust) / `profile_resolution.test.ts` (web, applique `applyResolvedAxes` sur TOUS les besoins et assert 0 `data-needs` — **preuve autoritaire** de l'invariant) ; gate statique `web/scripts/check-a11y-needs-free.sh` (garde DOM **best-effort ligne-a-ligne**, non-fail-open, CABLE verify.sh + ci.yml — le garant AUTORITAIRE reste le type sans champ `needs`, PAS ce grep) ; spec e2e `workflow-hub-a11y.spec.ts` (smoke shell, non-autoritaire). Aucun axe a11y n'entre dans un `assemble_prompt` ni dans `TraceEvent.attributes`. |
+| **T-A11Y-PROJECTION-SMUGGLE** | *Tampering* — un payload d'event bridge injecte `needs` dans l'app, y compris via le canal generique non type `pushEvent(payload: unknown)` sous **n'importe quel nom d'event** (contournait le sender strict) | **fermee** (voie sanctionnee) ; canal generique = best-effort + **Phase C** | Garantie **par construction** = le TYPE de la projection (aucun champ `needs`) emis UNIQUEMENT via `useBridge.pushAccessibilityProfile`. Sur le canal generique non type, deux gardes host (`web/src/bridge/reserved-events.ts`) plus le receveur : (1) **garde best-effort independante du nom** — `useBridge.pushEvent` appelle `payloadCarriesCause(payload)` et **DROP** avant `postMessage` tout payload portant une cle `needs` a toute profondeur du graphe enumerable (indices + props propres de tableau, cles ET valeurs de Map, Set, cycles), sous n'importe quel nom (anti-ACCIDENT `pushEvent("legacy-a11y", {needs})`). **Residu scope** : l'encodage delibere des VALEURS de need sous une cle arbitraire, en tableau nu, ou dans le NOM d'event n'est PAS couvert (value-scan des 13 tokens = faux positifs sur des notifications legitimes ; l'hote appelant est de confiance) → autorite d'egress typee complete = **Phase C** ; (2) l'event reserve `a11y-profile` est **refuse d'emblee** sur le canal generique (`isReservedEvent`, `Set` prototype-safe — `toString`/`constructor` non confondus) et n'est emis QUE par le sender dedie type `useBridge.pushAccessibilityProfile`, qui resout `needs[]` LOCALEMENT et re-valide la projection 15-axes ; (3) module partage `ResolvedAccessibilityProfileSchema` **Zod `.strict()`** (`parseProjectedProfile` → `null` sur cle en trop) + `buildAccessibilityProfileEvent` re-valide avant emission ; (4) cote Hub, `a11y.js` REJETTE tout payload portant une cle hors des 15 axes et n'accepte que les messages du `parent`. Tests : `useBridge.test.ts` (§"reserved event egress guard" — cause top-level/imbriquee sous nom libre = AUCUN envoi ; nom reserve refuse ; noms `Object.prototype` sans throw ; `pushAccessibilityProfile` emet needs-free). |
+| **T-A11Y-OPERATOR-DOM** | *Confusion de surface* — l'outil-hote Factory Operator ecrit `data-needs` a son propre DOM (`preboot.js:367`, `accessibility.ts:486`) | INFO | Acceptable : l'Operator est une **surface hote first-party privilegiee** (son acceptation NE repose PAS sur une absence de connectivite : son front fait des `fetch` loopback et expose un provider Claude cloud). Le `data-needs` reste sur son PROPRE DOM first-party, JAMAIS projete vers une app untrusted sandboxee ; le risque DOM est accepte sur cette base (first-party, DOM local de l'operateur), pas sur une premisse d'absence de connectivite. La difference avec le Hub est intentionnelle — le Hub (app untrusted) ne reutilise PAS `applyAccessibilityPreferences` verbatim ; le gate `check-a11y-needs-free.sh` scope les surfaces needs-free (Hub + `web/src/a11y`), l'Operator est hors scope. |
+| **T-A11Y-LINKABILITY** | *Linkability* — les axes-effet correles (`motion=reduced` + `contrast=high` + `colorVision=safe`) laissent inferer un profil sante cote app | **L (accepte)** | Residuel accepte : la projection envoie l'EFFET, jamais la CAUSE ; mitige par `connect-src 'none'` (l'app sandboxee ne peut exfiltrer) + l'absence de tout identifiant de need. Non ferme : l'inference statistique reste possible pour une app qui rendrait ET renverrait par un canal legitime — hors surface Phase B (fondation). |
+
+**Wire / census** : `ResolvedAccessibilityProfile.v1` est une projection
+hote→app LOCALE, non-signee, non-gossipee → 0 `DOMAIN_*_V1`, 0
+`*_FORMAT_VERSION`, census DOMAIN inchange (25). Frontiere docs-contrat gatee
+par son propre golden `accessibility_profile.schema.json` (drift-gate).
+
+## 18. Revue et evolution
 
 Ce document est vivant. Chaque sprint qui livre une mitigation
 ou deplace un residual doit :
@@ -1892,3 +1929,30 @@ Historique versions :
   0 changement de posture — re-libelle de routage uniquement. La cloture
   docs-contrat S82 (index request-bodies + verrou D7 LOOPBACK) vit dans
   les docs concernes, pas ici.
+- **v20 (Sprint 83 Phase B, 2026-07-18)** : ajout **§17 Surface profil
+  d'accessibilite** (chantier Workflow Agents), renommage §17 « Revue et
+  evolution »→§18. Nouvel **Asset A9** `needs[]` = PII sante/handicap
+  (LINDDUN, sensibilite superieure a A4) ajoute a §2/§4/§6 (regle §18.3).
+  4 rows §17 : T-A11Y-NEEDS-LEAK (fermee — projection needs-free PAR
+  CONSTRUCTION : le type de sortie n'a AUCUN champ `needs` cote Rust
+  [champ retire, pas un `#[serde(skip)]` — pas de fuite `Debug`/logger] et
+  cote TS ; `applyResolvedAxes` sans `data-needs` ; preuve autoritaire =
+  unit test web `applyResolvedAxes` all-needs ; oracle de parite partage
+  Rust↔TS `resolution_fixtures` ; gate `check-a11y-needs-free.sh`
+  garde DOM best-effort + non-fail-open + CABLE verify.sh/ci.yml ; e2e = smoke),
+  T-A11Y-PROJECTION-SMUGGLE (fermee — rejet strict aux deux bouts : Zod
+  `.strict()` module partage + re-validation sender + Hub `a11y.js`
+  rejette toute cle hors-axes et n'accepte que le parent), T-A11Y-OPERATOR-DOM
+  (INFO — l'Operator ecrit `data-needs` a son DOM local first-party, sous sa
+  propre CSP hors bac a sable, hors scope du gate), T-A11Y-LINKABILITY (**residuel L accepte** — correlation des
+  axes-effet cote app, mitigee `connect-src 'none'` + effet≠cause, non
+  fermee : hors surface fondation Phase B, appartient aux surfaces d'autorat
+  + AI1). Codex S83-B (4 P1/6 P2/2 P3) reconcilie : needs retire du type,
+  canal host→app cable (sender + receiver strict), gate durci+cable, e2e
+  smoke honnete + tags WCAG cumulatifs, fixtures de parite, golden non
+  fail-open. Wire : projection hote→app LOCALE non-signee → 0 `DOMAIN_*_V1`,
+  census DOMAIN inchange (25), frontiere gatee par son golden
+  `accessibility_profile.schema.json`. 0 bump wire, 2 deps DEV neuves
+  (`axe-core` + `@axe-core/playwright`, hors archive, CSP inchangee). DoD
+  Phase B = **fondation, pas conformite** (AM-8) : la conformite WCAG 2.2 AA
+  / ATAG / COGA reelle appartient aux surfaces d'autorat + au panel AI1.

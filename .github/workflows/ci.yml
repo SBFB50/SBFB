@@ -139,6 +139,18 @@ jobs:
       - name: "[16] factory docs check"
         run: bash scripts/check-factory-docs.sh
 
+      # ── a11y needs-free gate (Sprint 83 Phase B) ─────────
+      - name: "[17] a11y profile needs-free check"
+        run: bash web/scripts/check-a11y-needs-free.sh
+
+      # ── Workflow Hub i18n gates (Sprint 83 Phase B) ──────
+      - name: "[18] hub i18n key-parity"
+        run: bash examples/workflow-hub/scripts/check-i18n-key-parity.sh
+      - name: "[19] hub i18n verdict cross-locale"
+        run: bash examples/workflow-hub/scripts/check-i18n-verdict-cross-locale.sh
+      - name: "[20] hub no-literal scan"
+        run: bash examples/workflow-hub/scripts/scan-hub-strings.sh
+
   # ── Factory Operator greenfield front (Sprint 80 Phase B) ──
   # Separate job: its own Node project under tools/factory-operator,
   # plus the Operator Rust binary for the hermetic T1 (cookie boot +
