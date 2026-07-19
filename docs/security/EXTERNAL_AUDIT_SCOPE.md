@@ -105,7 +105,7 @@ INCHANGE, le pilote reste ferme.)*
 | Component | Fichier |
 |---|---|
 | blob-serve iframe CSP (`sandbox="allow-scripts"`, no `allow-same-origin`) | `crates/nexus-shell-daemon-core/src/blob_serve.rs` |
-| postMessage bridge 3 methods (`task_submit`, `storage_get`, `storage_set`) | `web/public/sbfb-bridge.js` |
+| postMessage bridge 16 methods, intersection d'autorite host-side per-call fail-closed (S83 Phase C) | `web/public/sbfb-bridge.js`, `web/src/bridge/{useBridge,authority}.ts`, `crates/sbfb-manifest/src/grant_v0.rs` |
 | Correlation ID validation + source iframe check | `web/src/hooks/useBridgeMessages.ts` |
 
 **Focus audit** : CSP bypass vectors (cf. A-S1 ATTACK_SCENARIOS),

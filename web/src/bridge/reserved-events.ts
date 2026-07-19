@@ -79,13 +79,15 @@ function payloadHasNeedsKey(value: unknown, seen: Set<object>): boolean {
  * SCOPED RESIDUAL (honest): this catches the realistic ACCIDENT — a developer
  * forwarding state that carries a `needs` key. It does NOT catch a DELIBERATE
  * encoding of the 13 need VALUES under an arbitrary key, as a bare array payload,
- * or in the event NAME — nor a getter that mutates between this scan and the
- * structured clone: value-scanning the tokens (`motor`, `attention`, …) would
- * false-positive on legitimate notifications, and the host that calls
- * `pushEvent` is trusted (it already holds `needs`). The BY-CONSTRUCTION
- * guarantee for the accessibility projection is its TYPE (no `needs` field),
- * emitted only via `useBridge.pushAccessibilityProfile`; comprehensive typed
- * egress authority for the generic channel is Sprint 83 Phase C (bridge authority).
+ * or in the event NAME: value-scanning the tokens (`motor`, `attention`, …) would
+ * false-positive on legitimate notifications, and the host that calls `pushEvent`
+ * is trusted (it already holds `needs`). That deliberate value/name-encoding residual
+ * is ACCEPTED. The getter-TOCTOU leg — a getter returning a benign value to this scan
+ * and the cause to `postMessage` — was CLOSED in Sprint 83 Phase C: `pushEvent` clones
+ * the payload ONCE (structuredClone runs each getter exactly once) and scans AND sends
+ * that same frozen snapshot, so this guard inspects exactly the bytes the wire carries.
+ * The BY-CONSTRUCTION guarantee for the accessibility projection is its TYPE (no
+ * `needs` field), emitted only via `useBridge.pushAccessibilityProfile`.
  */
 export function payloadCarriesCause(payload: unknown): boolean {
   return payloadHasNeedsKey(payload, new Set());

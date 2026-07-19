@@ -727,11 +727,40 @@ describe("useBridge", () => {
       // production code does this. The name-independent guard scans for a `needs`
       // KEY, NOT for the 13 need VALUES (value-scanning `motor`/`attention`/…
       // would false-positive on legitimate notifications). A bare token array
-      // under a free-form name is therefore forwarded — comprehensive typed
-      // egress authority for the generic channel is Sprint 83 Phase C. This test
-      // pins the CURRENT boundary so a future Phase C tightening is caught.
+      // under a free-form name is therefore forwarded — the deliberate
+      // value/name-encoding residual is ACCEPTED in Sprint 83 Phase C (the host is
+      // trusted). This test pins that accepted boundary.
       result.current.pushEvent("tags", ["motor", "electric"]);
       expect(fakeWindow.postMessage).toHaveBeenCalledTimes(1);
+    });
+
+    it("closes the getter-TOCTOU leg: clones ONCE so a flipping getter cannot smuggle the cause (Sprint 83 Phase C)", () => {
+      const { result } = renderHook(() =>
+        useBridge("http://localhost:8000", "gov", iframeRef),
+      );
+      // A racy getter returning benign on the FIRST read and the cause on a LATER
+      // read. Before Phase C the guard read it once (benign -> passed) and
+      // postMessage read it AGAIN (cause -> leaked). Now pushEvent clones ONCE
+      // (structuredClone runs the getter exactly once) and scans AND sends that same
+      // frozen snapshot, so what the scan approved is exactly what the wire carries.
+      let reads = 0;
+      const flipping = {
+        get data() {
+          reads += 1;
+          return reads === 1 ? { benign: true } : { needs: ["motor"] };
+        },
+      };
+      result.current.pushEvent("toctou", flipping);
+      expect(fakeWindow.postMessage).toHaveBeenCalledTimes(1);
+      const sent = fakeWindow.postMessage.mock.calls[0][0];
+      // DISCRIMINATOR (red-before/green-after): on the OLD scan-then-postMessage-the-
+      // ORIGINAL code, `sent` is a live ref whose getter yields the cause when
+      // serialized -> "needs" appears. With clone-once-scan-send, `sent` is the frozen
+      // benign snapshot -> no "needs" ever reaches the wire.
+      expect(JSON.stringify(sent)).not.toContain("needs");
+      // Secondary signal: the getter ran exactly once (at clone); the scan then reads
+      // the plain snapshot, not the accessor.
+      expect(reads).toBe(1);
     });
 
     it("still sends a free-form event whose payload carries no cause", () => {

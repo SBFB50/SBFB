@@ -7,6 +7,8 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod grant_v0;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SbfbManifest {
     #[serde(default)]
@@ -51,19 +53,27 @@ pub enum ManifestError {
 
 /// The set of bridge methods an app may DECLARE in its `SbfbManifest.bridge`.
 ///
-/// This is a DECLARATIVE manifest-validation allowlist, NOT the runtime dispatch
-/// boundary: the host shell's postMessage router (`web/src/bridge`) is what
-/// actually dispatches a method and enforces the sandbox. Validating a manifest
-/// against this list is a courtesy ("you declared a method the host does not
-/// know"), never a sandbox-escape control — an app cannot reach a method by
-/// declaring it, nor lose sandbox protection by omitting it.
+/// Two host-side roles:
+///  1. Manifest validation (since S13): the universe of method names a release may
+///     legitimately name in `bridge.methods`. An off-list name is rejected.
+///  2. Release-declaration layer of the host authority intersection (Sprint 83
+///     Phase C): when a manifest declares a `bridge` config, that declared set is
+///     the FAIL-CLOSED release layer of `declared ∩ grant ∩ policy ∩ consent`,
+///     evaluated per call by the shell host (`web/src/bridge`) and modelled in
+///     [`grant_v0`]. Declaring a method is still NOT sufficient to reach it (the
+///     grant/policy/consent layers must also admit it); OMITTING the `bridge` key
+///     keeps a legacy app grandfathered (no release constraint). The allowlist never
+///     grants a sandbox escape — the CSP iframe sandbox is orthogonal.
 ///
-/// Sprint 76 Phase B (B10, BRIDGE-ALLOWLIST-DRIFT): this list MUST mirror the
-/// host dispatch schema `BridgeMethodSchema` in `web/src/bridge/protocol.ts`
-/// (16 methods; S76-H added `task_result`). Pre-B10 it carried only 10, so a manifest declaring a genuinely
-/// host-dispatched method (`pii_redact`, `storage_version`, `provenance_get`,
-/// `provenance_verify`, `feed_cursor_get`) was wrongly rejected. The parity test
-/// `allowlist_mirrors_host_dispatch_schema` locks the two sides together.
+/// Sprint 76 Phase B (B10, BRIDGE-ALLOWLIST-DRIFT): this list MUST mirror the host
+/// dispatch schema `BridgeMethodSchema` in `web/src/bridge/protocol.ts` (16 methods;
+/// S76-H added `task_result`). Pre-B10 it carried only 10, so a manifest declaring a
+/// genuinely host-dispatched method (`pii_redact`, `storage_version`, `provenance_get`,
+/// `provenance_verify`, `feed_cursor_get`) was wrongly rejected. As of S83 Phase C the
+/// parity is a SECURITY invariant (a drift lets a release declare a method the host
+/// will not dispatch, or the host dispatch a method no release can name): the unit
+/// mirror `allowlist_mirrors_host_dispatch_schema` AND the mechanical gate
+/// `scripts/check-frontier-contracts.sh` (bridge-parity block) lock the two sides.
 const BRIDGE_METHOD_ALLOWLIST: &[&str] = &[
     "task_submit",
     "storage_get",
@@ -243,5 +253,52 @@ mod tests {
                 "host-dispatched method {m} must be declarable in a manifest"
             );
         }
+    }
+
+    /// Sprint 83 Phase C: a manifest's declared `bridge.methods` compose with a host
+    /// grant as the release-declaration layer of the authority intersection — the
+    /// effective set keeps only what BOTH the release declares AND the grant confers.
+    #[test]
+    fn bridge_methods_intersect_grants() {
+        use crate::grant_v0::{Grant, effective_methods};
+        use std::collections::BTreeSet;
+
+        let json = r#"{
+            "schema_version": 2,
+            "name": "hub",
+            "bridge": { "methods": ["storage_get", "storage_set", "search"] }
+        }"#;
+        let m = SbfbManifest::parse(json).unwrap();
+        m.validate().unwrap();
+        let declared: Option<BTreeSet<String>> = m
+            .bridge
+            .as_ref()
+            .map(|b| b.methods.iter().cloned().collect());
+        assert!(
+            declared.is_some(),
+            "a declared bridge config is the fail-closed release layer"
+        );
+
+        // Operator grant covers a subset (storage_set, search) plus a method the
+        // release never declared (task_submit): the intersection drops both the
+        // undeclared method and the un-granted one.
+        let grant = Grant {
+            methods: ["storage_set", "search", "task_submit"]
+                .iter()
+                .map(|x| x.to_string())
+                .collect(),
+            expires_at_ms: None,
+            revoked: false,
+        };
+        let eff = effective_methods(&declared, &grant, &None, 0);
+        let expected: BTreeSet<String> = ["search", "storage_set"]
+            .iter()
+            .map(|x| x.to_string())
+            .collect();
+        assert_eq!(eff, expected);
+
+        // No bridge key -> declared = None -> grandfathered legacy (no release layer).
+        let legacy = SbfbManifest::parse(r#"{"schema_version":2,"name":"legacy"}"#).unwrap();
+        assert!(legacy.bridge.is_none());
     }
 }

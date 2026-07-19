@@ -51,7 +51,7 @@ AVEC AMENDEMENTS, AM-1..AM-12), `oss_runtime.md`, `oss_workflow_ux.md`,
 modules `*_api.rs`, mesure `wc -l` au tip) (nexus-shell-daemon),
 `storage_limiter.rs:12` (nexus-shell-daemon-core), `seed_registry.rs:331`,
 `agentctl.py:28/:32/:566`, hooks lightcheck `:88` / auditor-gate `:54`,
-`THREAT_MODEL.md:179`, `sprint82_audit_findings.md:674-678` + Carry-Over
+`THREAT_MODEL.md:186`, `sprint82_audit_findings.md:674-678` + Carry-Over
 l.693-749.
 
 **crates.io API (constate 2026-07-17)** : iroh 1.0.2 (pin =1.0.1 conserve) ;
@@ -508,7 +508,7 @@ reference data model, PAS une dependance MVP (WA-10). AM-12 (`verif_plan36.md`)
   Plan-Then-Execute testable) ; `schemars` pour les 2 formats.
 - `crates/nexus-core-rs/src/task.rs:152-202` : extensions ADDITIVES seulement
   (metadata string-only preserve) ; `:416-453/:541-571` inchangees.
-- `docs/security/THREAT_MODEL.md:179` : ligne STALE « 3 methodes whitelist »
+- `docs/security/THREAT_MODEL.md:186` : ligne STALE « 3 methodes whitelist »
   (16 reelles) fermee en Phase C.
 - **9 fichiers `sbfb-bridge.js` trackes AU TOTAL** (corrige G1) :
   `web/public/` + 8 copies (templates sbfb-factory react/pyodide/static/
@@ -626,7 +626,7 @@ a11y/i18n sur toute phase de surface (AM-8).
 | A | Cadrage, contrats de preuve, ressources | Materialiser D1..D5 en contrats versionnes ; matrice COMPLETE objectif→acceptance→gate→phase→commande→artefact (AM-2, HUB-T1..T10 inclus) ; spec T1/T2 (AM-1) ; preuve labels bi-lettres ; reservations verifiees | G-SCOPE-FLOOR (ouvre), G-PHASE-GRAMMAR, G1/G9 |
 | A1 | Lot carries hors-theme bornes | Fermer les carries CI/hygiene S82 : supply-chain (CI-1), Node 20→22 (CI-2), SEEDER-DIAL-TAIL (ou WONTFIX PO), macos-14 watcher, spdx Woodpecker, shellcheck, TEST-ISOLATION state.json, 0-golden familles, dispatch_loop test-group, **fix hook lightcheck Check 5 (comparaison casse — G1 code mort)**, nits doc M-7/C-2 | exit conditions par item (§6.2) |
 | B | Fondation a11y, i18n, preferences privees | Preboot, tokens, mode guide, harness WCAG/ATAG/COGA, i18n/RTL, matrice AT + premier contact panel — DoD = fondation+logistique (AM-8) ; checkpoint ressources #1 | G-A11Y-PREFS (ouvre), G-I18N (ouvre) |
-| C | Autorite du bridge existant | Intersection caller∩release∩grant∩politique∩consentement AUTORITAIRE per-call (offline inclus) AVANT tout verbe Workflow ; grant v0 host-side (explicite au plan) ; ferme THREAT_MODEL:179 ; spec `web/e2e/bridge-grant-intersection.spec.ts` | G-BRIDGE-GRANT |
+| C | Autorite du bridge existant | Intersection caller∩release∩grant∩politique∩consentement AUTORITAIRE per-call (offline inclus) AVANT tout verbe Workflow ; grant v0 host-side (explicite au plan) ; ferme THREAT_MODEL:186 ; spec `web/e2e/bridge-grant-intersection.spec.ts` | G-BRIDGE-GRANT |
 | D | Extraction du vrai contrat Factory | `FactoryProcessProfile.v1` machine-lisible lie aux digests sources ; documente vs enforce ; PROFILE_STALE bloquant | G-FACTORY-CONTRACT |
 | E | Spike durable BLOQUANT | Kill/restart/replay, journal/outbox atomiques, 0 double effet a chaque frontiere de crash ; echo-target Rust deterministe v0 ; GO/NO-GO — bloque F | G-AUTHORITY (ouvre), G-STORE (ouvre) |
 | F | Format portable et signe | `SBFBPromptAgentPack.v1` + layout + PACK.lock + JCS/domaines + corpus hostile + digests Rust/TS concordants | G-IMPORT-HOSTILE (ouvre) |
@@ -725,7 +725,7 @@ kickoff (non recommandee).
 | codex sandbox `elevated` casse | 1 | decision PO (Q15) — workaround `--sandbox read-only` | — |
 | Mirror Codeberg auth | 1 | action manuelle PO settings GitHub (Q15) | — |
 | Topologie A-vs-B (PO-5, due 25/08) + gate C8 01/08 | calendaire | **hors-sprint PO pendant S83** (recommande, Q11) ; revalidation PKARR_RELAY_OPS (pkarr-relay 1.0.0) AVANT provisioning | decision consignee avant 25/08 |
-| THREAT_MODEL.md:179 stale (3 vs 16 methodes) | 1 | **Phase C** (docs-contrat de la phase) | ligne corrigee + verifiee |
+| THREAT_MODEL.md:186 stale (3 vs 16 methodes) | 1 | **Phase C** (docs-contrat de la phase) | ligne corrigee + verifiee |
 | bump arti-client 0.44 + rusqlite 0.40 (CVE-2025-6965) | 1 | slot maintenance S84+ (QPO-3 — 0 RUSTSEC ouvert) | trace roadmap |
 | Arc front parque `wip/factory-front-arc-post-s82` (87 fichiers) | echeance « post-S82 » ATTEINTE | decision PO Q13 (avant/pendant/apres S83) | review + Codex groupes a la reprise |
 

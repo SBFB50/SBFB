@@ -50,6 +50,15 @@ export const BridgeMethodSchema = z.enum([
 
 export type BridgeMethod = z.infer<typeof BridgeMethodSchema>;
 
+/**
+ * The host-dispatched bridge methods as a value array (mirror of the schema's
+ * variants). Sprint 83 Phase C uses this as the universe for the host authority
+ * intersection ({@link import("./authority")}); parity with the Rust allowlist
+ * `BRIDGE_METHOD_ALLOWLIST` (`sbfb-manifest`) is a security invariant gated by
+ * `scripts/check-frontier-contracts.sh`.
+ */
+export const BRIDGE_METHODS = BridgeMethodSchema.options;
+
 export const BridgeRequestSchema = z.object({
   type: z.literal("sbfb-bridge-request"),
   id: z.string().uuid(),

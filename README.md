@@ -260,7 +260,7 @@ current runtime.
 | App | Description | Bridge methods used |
 |-----|-------------|---------------------|
 | **Protocol Explorer** (`examples/sbfb-explorer/`) | Interactive protocol documentation with live network status and provenance demos. Pure HTML/JS. | `node_status`, `identity_pubkey`, `browse_list`, `provenance_verify` |
-| **Ideas Hub** (`examples/sbfb-ideas/`) | Decentralized idea board with voting. This is the clearest current example of replicated app storage. Pure HTML/JS. | `storage_get`, `storage_set`, `storage_list`, `storage_delete`, `identity_pubkey` |
+| **Ideas Hub** (`examples/sbfb-ideas/`) | Decentralized idea board with voting. This is the clearest current example of replicated app storage. Pure HTML/JS. | `storage_get`, `storage_set`, `storage_list`, `storage_delete`, `storage_version` (live-sync), `identity_pubkey` |
 | **Factory Viewer** (`examples/sbfb-factory-viewer/`) | Read-only sandboxed app for browsing network apps with search and Proof Cards. | `browse_list`, `search`, `proof_card_get`, `storage_get` |
 
 These are demonstration apps. They prove the bridge and sandbox model, but they

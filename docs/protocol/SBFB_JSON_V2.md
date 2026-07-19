@@ -45,7 +45,7 @@ extension explicite, avec des labels separes de `verified SBFB app`.
 | `license` | `string` | `null` | Identifiant SPDX de la licence de l'app (ex : `MIT`, `GPL-3.0-only`, `AGPL-3.0-or-later`). Distinct de la licence SBFB (AGPL-3.0). |
 | `lang` | `string` | `null` | Langue principale du contenu (`fr`, `en`, `ar`, etc., code ISO 639-1). Pour les apps multilingues, indiquer la langue par defaut. |
 | `bridge` | `object` | `{}` | Configuration du bridge postMessage. |
-| `bridge.methods` | `string[]` | `[]` | Methodes bridge requises. Sous-ensemble de `["task_submit", "storage_get", "storage_set"]`. |
+| `bridge.methods` | `string[]` | `[]` | Methodes bridge que l'app declare utiliser. **AUTORITAIRE depuis S83 Phase C** : une app qui declare une clef `bridge` ne peut atteindre QUE les methodes listees (intersection host-side per-call, fail-closed) — declarer un sur-ensemble des methodes REELLEMENT appelees (chemins SDK transitifs inclus, ex. `onStorageUpdate` -> `storage_version`). Sous-ensemble de l'allowlist des 16 verbes : `task_submit`, `task_result`, `storage_get`, `storage_set`, `storage_list`, `storage_delete`, `storage_version`, `identity_pubkey`, `node_status`, `browse_list`, `provenance_get`, `provenance_verify`, `feed_cursor_get`, `search`, `proof_card_get`, `pii_redact`. Omettre la clef `bridge` = grandfather legacy (les 16, a migrer post-v1.0). |
 | `bridge.events` | `string[]` | `[]` | Evenements bridge auxquels l'app s'abonne (reserve pour S67+). |
 | `tech` | `object` | `{}` | Metadonnees techniques. |
 | `tech.type` | `string` | `"static-html"` | Type technique : `static-html`, `react`, `pyodide`, `wasm`, `jupyterlite`. Utilise par Factory FG0 et par le shell pour adapter l'affichage. |

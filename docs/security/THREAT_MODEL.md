@@ -96,7 +96,8 @@ par `=======`.
     |   (window.top)         |
     +------+-----------------+
            |  postMessage bridge
-           |  (task_submit / storage_get / storage_set / event)
+           |  (16 methodes typees, intersection host-side autoritaire
+           |   per-call [S83 Phase C, cf. §5.2 row I] / event)
            v
     +------+-----------------+
     |  App iframe            |       <-- sandbox="allow-scripts"
@@ -183,8 +184,13 @@ mitigations livrees.
 |---|---|:---:|---|:---:|
 | S | Extension navigateur injecte `postMessage` craftes | H | Bridge valide `event.source === iframe.contentWindow` | **M** |
 | T | App fake `response.id` pour corrompre reply d'une autre app | M | Correlation ID UUID par call + Map ownership | **L** |
-| I | Bridge leak des donnees cross-iframe | M | 3 methodes whitelist (`task_submit`, `storage_get`, `storage_set`) + 1 canal event push ; schema Zod strict | **L** |
+| I | Bridge leak des donnees cross-iframe | M | 16 methodes bridge typees + intersection d'autorite host-side per-call (Sprint 83 Phase C — cable ACTIVEMENT `declare-par-release ∩ grant` ; les couches `politique locale` et `consentement de l'effet` sont INERTES en v0 [policy toujours `null`/absente — PAS un ensemble vide qui refuserait tout ; consent hors interface], activees en L/L1/…) ; schema Zod strict | **L** |
 | D | Flood de messages, denied-of-sevice coordinator | M | Correlation ID cap 1 MB/message + callback Set timeout (Phase B/D Sprint 15 discussion) | **M** |
+| T-BRIDGE-USURP | App envoie un message VALIDE pour une methode non declaree / non accordee | M | Intersection fail-closed evaluee a CHAQUE appel (choke-point `useBridge` apres le source-check, AVANT tout dispatch y compris `pii_redact` offline) ; modele canonique `sbfb_manifest::grant_v0`, miroir TS `web/src/bridge/authority.ts`, parite sous gate `scripts/check-frontier-contracts.sh` | **L** |
+| T-BRIDGE-GRANT-EXPIRY | Un grant expire continue d'autoriser | M | `grant.expires_at_ms` re-evalue PAR APPEL ; expire ⇒ ensemble effectif vide (fail-closed) | **L** |
+| T-BRIDGE-LEGACY-DEFAULT | Une app SANS clef `bridge` (legacy/demo) reste permissive sur les 16 verbes du dispatch | L | Grandfather EXPLICITE, residu ACCEPTE pre-launch : source verifiable + sandbox CSP `connect-src 'none'` ; bascule « toutes les apps declarent » = post-v1.0 | **L** |
+| T-BRIDGE-REVOKE-INFLIGHT | Revocation pendant la fenetre async d'un appel DEJA admis (`void dispatch(...)`) ; OU un `message` arrivant entre le commit d'un re-render et l'effet passif qui rafraichit `authorityRef` (juge par l'autorite PRECEDENTE) | L | `revocation_per_call` couvre le PRE-call (preuve autoritaire = modele `grant_v0`) ; la maj host-side de `authorityRef` se fait a l'effet post-commit — micro-fenetre ACCEPTEE, alignee sur les refs bridge existantes (coordUrl/appName) et sur `react-hooks/refs` (ecriture de ref en render interdite) ; l'annulation in-flight d'un appel deja parti est routee L/V/AI — hors scope Phase C | **L** |
+| T-BRIDGE-RESOLVE-FAILOPEN | Une app qui DECLARE un `bridge` (regime fail-closed) est grandfathered aux 16 verbes pendant la fenetre async de resolution au 1er montage, ET durablement si le fetch `SBFB.json` echoue (repli grandfather, cache react-query ~60s) | L | Residu ACCEPTE pre-launch, NON-escaladant : une app hostile omettrait la clef `bridge` -> grandfather de toute facon, et l'intersection ne peut que RETRECIR la surface vs l'etat pre-Phase-C (aucun verbe NEUF ouvert). Disponibilite priorisee sur le durcissement-au-montage ; a resserrer post-v1.0 (resolution bloquante ou fail-closed-on-unreachable pour une app connue-declaree) | **L** |
 
 ### 5.3 Deploy-from-repo
 
@@ -1680,7 +1686,7 @@ quitte JAMAIS l'hote**.
 | # | Menace (STRIDE/LINDDUN) | Sev | Mitigation cablee |
 |---|---|---|---|
 | **T-A11Y-NEEDS-LEAK** | *Disclosure/Linkability* — la cause fuit vers le DOM (`data-needs`), les logs, un prompt LLM, la trace, le bridge ou un provider | **fermee** | Projection **needs-free par construction** : le type de sortie `ResolvedAccessibilityProfile` n'a AUCUN champ `needs` (Rust : champ retire, pas un simple `#[serde(skip)]` — donc pas de fuite via `Debug`/`{:?}`/logger/acces manuel ; TS interface sans `needs`). `applyResolvedAxes()` ecrit les 15 `data-*` mais JAMAIS `data-needs` (preboot Hub inclus). Tests : `accessibility_profile::tests::needs_never_serialized_outward` (Rust) + oracle de parite partage `resolution_fixtures` (Rust) / `profile_resolution.test.ts` (web, applique `applyResolvedAxes` sur TOUS les besoins et assert 0 `data-needs` — **preuve autoritaire** de l'invariant) ; gate statique `web/scripts/check-a11y-needs-free.sh` (garde DOM **best-effort ligne-a-ligne**, non-fail-open, CABLE verify.sh + ci.yml — le garant AUTORITAIRE reste le type sans champ `needs`, PAS ce grep) ; spec e2e `workflow-hub-a11y.spec.ts` (smoke shell, non-autoritaire). Aucun axe a11y n'entre dans un `assemble_prompt` ni dans `TraceEvent.attributes`. |
-| **T-A11Y-PROJECTION-SMUGGLE** | *Tampering* — un payload d'event bridge injecte `needs` dans l'app, y compris via le canal generique non type `pushEvent(payload: unknown)` sous **n'importe quel nom d'event** (contournait le sender strict) | **fermee** (voie sanctionnee) ; canal generique = best-effort + **Phase C** | Garantie **par construction** = le TYPE de la projection (aucun champ `needs`) emis UNIQUEMENT via `useBridge.pushAccessibilityProfile`. Sur le canal generique non type, deux gardes host (`web/src/bridge/reserved-events.ts`) plus le receveur : (1) **garde best-effort independante du nom** — `useBridge.pushEvent` appelle `payloadCarriesCause(payload)` et **DROP** avant `postMessage` tout payload portant une cle `needs` a toute profondeur du graphe enumerable (indices + props propres de tableau, cles ET valeurs de Map, Set, cycles), sous n'importe quel nom (anti-ACCIDENT `pushEvent("legacy-a11y", {needs})`). **Residu scope** : l'encodage delibere des VALEURS de need sous une cle arbitraire, en tableau nu, ou dans le NOM d'event n'est PAS couvert (value-scan des 13 tokens = faux positifs sur des notifications legitimes ; l'hote appelant est de confiance) → autorite d'egress typee complete = **Phase C** ; (2) l'event reserve `a11y-profile` est **refuse d'emblee** sur le canal generique (`isReservedEvent`, `Set` prototype-safe — `toString`/`constructor` non confondus) et n'est emis QUE par le sender dedie type `useBridge.pushAccessibilityProfile`, qui resout `needs[]` LOCALEMENT et re-valide la projection 15-axes ; (3) module partage `ResolvedAccessibilityProfileSchema` **Zod `.strict()`** (`parseProjectedProfile` → `null` sur cle en trop) + `buildAccessibilityProfileEvent` re-valide avant emission ; (4) cote Hub, `a11y.js` REJETTE tout payload portant une cle hors des 15 axes et n'accepte que les messages du `parent`. Tests : `useBridge.test.ts` (§"reserved event egress guard" — cause top-level/imbriquee sous nom libre = AUCUN envoi ; nom reserve refuse ; noms `Object.prototype` sans throw ; `pushAccessibilityProfile` emet needs-free). |
+| **T-A11Y-PROJECTION-SMUGGLE** | *Tampering* — un payload d'event bridge injecte `needs` dans l'app, y compris via le canal generique non type `pushEvent(payload: unknown)` sous **n'importe quel nom d'event** (contournait le sender strict) | **fermee** (voie sanctionnee) ; canal generique = best-effort, getter-TOCTOU **ferme** (S83 Phase C), residu value/nom-encoding **accepte** | Garantie **par construction** = le TYPE de la projection (aucun champ `needs`) emis UNIQUEMENT via `useBridge.pushAccessibilityProfile`. Sur le canal generique non type, deux gardes host (`web/src/bridge/reserved-events.ts`) plus le receveur : (1) **garde best-effort independante du nom** — `useBridge.pushEvent` appelle `payloadCarriesCause` et **DROP** avant `postMessage` tout payload portant une cle `needs` a toute profondeur du graphe enumerable (indices + props propres de tableau, cles ET valeurs de Map, Set, cycles), sous n'importe quel nom (anti-ACCIDENT `pushEvent("legacy-a11y", {needs})`). **Residu scope** : l'encodage delibere des VALEURS de need sous une cle arbitraire, en tableau nu, ou dans le NOM d'event n'est PAS couvert (value-scan des 13 tokens = faux positifs sur des notifications legitimes ; l'hote appelant est de confiance) et EST re-documente comme residu **ACCEPTE**. Le leg **getter-TOCTOU** (un getter qui mute entre le scan et l'envoi) est **FERME** en Sprint 83 Phase C : `pushEvent` clone le payload UNE seule fois (`structuredClone`, chaque getter execute exactement une fois) puis scanne ET envoie ce MEME snapshot fige (le scan inspecte exactement les octets de la wire) ; (2) l'event reserve `a11y-profile` est **refuse d'emblee** sur le canal generique (`isReservedEvent`, `Set` prototype-safe — `toString`/`constructor` non confondus) et n'est emis QUE par le sender dedie type `useBridge.pushAccessibilityProfile`, qui resout `needs[]` LOCALEMENT et re-valide la projection 15-axes ; (3) module partage `ResolvedAccessibilityProfileSchema` **Zod `.strict()`** (`parseProjectedProfile` → `null` sur cle en trop) + `buildAccessibilityProfileEvent` re-valide avant emission ; (4) cote Hub, `a11y.js` REJETTE tout payload portant une cle hors des 15 axes et n'accepte que les messages du `parent`. Tests : `useBridge.test.ts` (§"reserved event egress guard" — cause top-level/imbriquee sous nom libre = AUCUN envoi ; nom reserve refuse ; noms `Object.prototype` sans throw ; getter-TOCTOU clone-once ; `pushAccessibilityProfile` emet needs-free). |
 | **T-A11Y-OPERATOR-DOM** | *Confusion de surface* — l'outil-hote Factory Operator ecrit `data-needs` a son propre DOM (`preboot.js:367`, `accessibility.ts:486`) | INFO | Acceptable : l'Operator est une **surface hote first-party privilegiee** (son acceptation NE repose PAS sur une absence de connectivite : son front fait des `fetch` loopback et expose un provider Claude cloud). Le `data-needs` reste sur son PROPRE DOM first-party, JAMAIS projete vers une app untrusted sandboxee ; le risque DOM est accepte sur cette base (first-party, DOM local de l'operateur), pas sur une premisse d'absence de connectivite. La difference avec le Hub est intentionnelle — le Hub (app untrusted) ne reutilise PAS `applyAccessibilityPreferences` verbatim ; le gate `check-a11y-needs-free.sh` scope les surfaces needs-free (Hub + `web/src/a11y`), l'Operator est hors scope. |
 | **T-A11Y-LINKABILITY** | *Linkability* — les axes-effet correles (`motion=reduced` + `contrast=high` + `colorVision=safe`) laissent inferer un profil sante cote app | **L (accepte)** | Residuel accepte : la projection envoie l'EFFET, jamais la CAUSE ; mitige par `connect-src 'none'` (l'app sandboxee ne peut exfiltrer) + l'absence de tout identifiant de need. Non ferme : l'inference statistique reste possible pour une app qui rendrait ET renverrait par un canal legitime — hors surface Phase B (fondation). |
 
@@ -1956,3 +1962,38 @@ Historique versions :
   (`axe-core` + `@axe-core/playwright`, hors archive, CSP inchangee). DoD
   Phase B = **fondation, pas conformite** (AM-8) : la conformite WCAG 2.2 AA
   / ATAG / COGA reelle appartient aux surfaces d'autorat + au panel AI1.
+- **v21 (Sprint 83 Phase C, 2026-07-19)** : **autorite du bridge** rendue
+  AUTORITAIRE per-call (ordre canon C→D→E→F : aucun verbe Workflow privilegie
+  avant). §5.2 row I corrigee (**3 → 16 methodes** + intersection host-side
+  `caller ∩ methode-declaree-par-release ∩ grant ∩ politique ∩ consentement` —
+  cable ACTIVEMENT `declare ∩ grant` ; politique + consentement INERTES v0 ;
+  l'ancre docs-contrat reelle etait `:186`, pas `:179` [ligne vide]). 5 rows
+  §5.2 neuves : T-BRIDGE-USURP (fail-closed per-call au choke-point `useBridge`
+  AVANT tout dispatch, `pii_redact` offline inclus ; modele canonique
+  `sbfb_manifest::grant_v0`, miroir `web/src/bridge/authority.ts`, parite gatee
+  `check-frontier-contracts.sh` bloc 5 [self-test de non-vacuite committe]),
+  T-BRIDGE-GRANT-EXPIRY (expiry re-evalue PAR APPEL), T-BRIDGE-LEGACY-DEFAULT
+  (**grandfather** des apps sans clef `bridge` = residu accepte pre-launch,
+  bascule post-v1.0), T-BRIDGE-REVOKE-INFLIGHT (revocation in-flight routee
+  L/V/AI, hors scope Phase C), T-BRIDGE-RESOLVE-FAILOPEN (une app DECLAREE
+  grandfathered pendant la resolution async / sur echec fetch `SBFB.json` =
+  residu accepte NON-escaladant).
+  §17 T-A11Y-PROJECTION-SMUGGLE : leg **getter-TOCTOU FERME** (`pushEvent`
+  clone-once-scan-send du meme snapshot), residu value/nom-encoding **ACCEPTE**
+  (hote de confiance). Regime : `bridge` present ⇒ fail-closed sur le set declare ;
+  absent ⇒ grandfather. **1 correction de declaration** : les declarations
+  existantes deviennent AUTORITAIRES — 6/7 exemples declarent un `bridge`, seul
+  sbfb-explorer (sans clef) est grandfathered ; `workflow-hub` = focus, declare
+  `[]`. L'audit adversarial declare-⊇-appele **incluant les chemins SDK
+  transitifs** a trouve `sbfb-ideas` sous-declarant `storage_version` (appele
+  transitivement par `onStorageUpdate`→`getStorageVersion`, poll live-sync 3s,
+  erreurs avalees) : la methode a ete ajoutee a son `SBFB.json` (live-sync
+  restauree). Les 5 autres apps declarantes sont verifiees exhaustivement
+  (compute-tester `[task_submit,task_result]` + factory-viewer couvrent leurs
+  appels ; daisyui/velocity/workflow-hub declarent `[]` et n'invoquent aucun
+  verbe). Apres correction, declare ⊇ appele est tenu ; le gate CI
+  declare-⊇-appele-transitif reste un carry (non construit ce sprint). Wire :
+  grant v0 =
+  etat host-side ⇒ 0 `DOMAIN_*_V1`, census DOMAIN inchange (25), 0 bump wire
+  (`FEED_FORMAT_VERSION`/`*_ANNOUNCEMENT_VERSION`=1), gate `SENSITIVE_ACTIONS`
+  substring NON etendu. 0 dep runtime neuve.

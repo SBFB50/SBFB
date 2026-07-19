@@ -59,6 +59,11 @@ import {
   listApps,
 } from "@/api/coordinator";
 import {
+  GRANDFATHER_AUTHORITY,
+  resolveAuthorityFromManifest,
+  type BridgeAuthority,
+} from "@/bridge/authority";
+import {
   selectActiveCoordinator,
   useProjectStore,
 } from "@/stores/projectStore";
@@ -280,12 +285,51 @@ function FullScreenApp({
     retry: 1,
   });
 
+  // Sprint 83 Phase C — resolve the app's release-declared bridge authority from
+  // its manifest (served by the LOCAL blob-serve alongside the app). Any failure
+  // (no SBFB.json, no `bridge` key, network/CORS, parse) resolves to grandfathered
+  // legacy: a pre-existing app keeps working; only an app that EXPLICITLY declares a
+  // `bridge` config is fail-closed on its declared set (the per-call intersection
+  // lives in useBridge). The resolver never throws.
+  const authorityQuery = useQuery({
+    queryKey: [
+      "bridge-authority",
+      entry.archive_hash,
+      daemonInfo?.api_host,
+      daemonInfo?.api_port,
+    ],
+    enabled: hasArchive,
+    staleTime: 60_000,
+    queryFn: async (): Promise<BridgeAuthority> => {
+      if (!daemonInfo || !entry.archive_hash) return GRANDFATHER_AUTHORITY;
+      try {
+        const resp = await fetch(
+          blobServeUrl(
+            daemonBaseUrlFromInfo(daemonInfo),
+            entry.archive_hash,
+            "SBFB.json",
+          ),
+        );
+        if (!resp.ok) return GRANDFATHER_AUTHORITY;
+        // The pure release-declaration -> authority resolution (grandfather vs
+        // fail-closed) is unit-tested in `@/bridge/authority`; here we only fetch
+        // and fall back on any failure.
+        return resolveAuthorityFromManifest(await resp.json());
+      } catch {
+        return GRANDFATHER_AUTHORITY;
+      }
+    },
+  });
+
   // Sprint 13 Phase C: bridge listener for iframe ↔ coordinator.
   // Sprint 15 Phase B: also exposes the CPU watchdog state.
+  // Sprint 83 Phase C: governed by the resolved per-app authority (grandfather
+  // until resolved / on any failure).
   const { watchdogState, resetWatchdog } = useBridge(
     coordUrl,
     entry.project_name,
     iframeRef,
+    authorityQuery.data ?? GRANDFATHER_AUTHORITY,
   );
 
   // Sprint 15 Phase B: reload a stalled iframe by resetting its src.

@@ -104,7 +104,7 @@ E2E Hub +15..30 specs ; E2E web +0..5 ; operator 0..+10. **Total +550..950**.
 | **D1** | **4 couches d'autorité** : Hub sandboxé (jamais credential/exécution privilégiée) → shell hôte de confiance (grants/HITL/secrets) → **Workflow Runtime Rust hôte = SEULE autorité** → protocole SBFB (distribution + feuilles bornées). **Placement (Q3)** : runtime générique `sbfb-workflow-engine` hébergé par le **daemon hôte** (routes loopback → inventaire D7) ; `FactoryAdapter` privilégié dans un **companion sbfb-factory** (IPC capability-scoped, hors TCB réseau, WA-19). | `http.rs` (1513 l, 21 modules) → nouveau `workflow_api.rs` (route par route versée à `inventory_policy`) ; `csp.rs:33` (`BLOB_SERVE_CSP` : `connect-src 'none'`, `sandbox allow-scripts` sans `allow-same-origin`) = base sandbox confirmée ; `crates/sbfb-factory/operator_server.rs` = précédent d'auth locale companion ; nouveaux crates `sbfb-workflow-core`/`-engine`. |
 | **D2** | **Pack `SBFBPromptAgentPack.v1` maison** : JCS RFC 8785 + Ed25519 + constantes `DOMAIN_*_V1` dédiées (1 domaine/rôle §17.1) ; `subject[] = [{name, digest:{blake3}}]` à la in-toto (DSSE atteignable sans casse, différé Q4) ; 6 digests séparés ; `PACK.lock` pinne tout ; interdits durs (secret/code/grant/état live) refusés par le compilateur, étendus aux références nominatives de credentials (leçon n8n → seul `secret_ref` opaque). | `crates/nexus-core-rs/src/canonical.rs:77-332` (23 `DOMAIN_*_V1` — append) ; `serde_jcs 0.2` (Cargo.toml:65) ; `schemars 1.2` (Cargo.toml:360, draft 2020-12) ; `crates/nexus-shell-daemon/src/deploy.rs:355-376` (`finalize_deploy`, strip `provenance.json` avant hash + ré-injection — pattern étendu aux packs) ; `crates/nexus-coordinator-rs/src/provenance.rs:17-29,102-124` (`canonical_bytes` réutilisé). |
 | **D3** | **Moteur durable = mémoïsation-de-steps + journal SQLite append-only maison** (2 crates), PAS de replay-total ni WASM. Renoncement EXPLICITE au replay-total déterministe (Q5). Journal `RunEvent.v1` PK `(run_id, sequence)` ; idempotence `(run_id, node_instance_id, effect_id)` ; **outbox dans la MÊME transaction** que l'avancement ; fail-closed sur divergence de replay ; `outcome_unknown` jamais convertible en succès ; **echo-target Rust déterministe À LIVRER** (B8 : jamais existé). Doctrine sécurité checkpoints (Ed25519 AVANT parse riche, requêtes paramétrées, état données-pures — réponse à la chaîne CVE LangGraph 2026). | Nouveaux `sbfb-workflow-core`/`-engine` ; `rusqlite 0.36` + `rusqlite_migration 2.2` (Cargo.toml:135-136, **0 bump pendant le chantier** ; bump 0.40 = slot maintenance S84+, QPO-3) ; `storage_api.rs:27-33,293-340` revalidé INADAPTE (KV last-value, GCRA 10/min `storage_limiter.rs:12`) — le runtime possède SON store ; `provider_router.rs:62-113` (`ExecutionTarget` 3 bras) + bras echo NEUF. |
-| **D4** | **Langage `SBFBWorkflowGraph.v1` + `SBFBAgentDefinition.v1`** data-flow à ports typés, borné statiquement (profil 18 nodes CANDIDAT, gelé Phase G). Invariant Plan-Then-Execute testable. **Ordonnancement P0** : AUCUN verbe bridge Workflow privilégié tant que l'intersection `caller ∩ méthode-déclarée-par-release ∩ grant ∩ politique locale ∩ consentement de l'effet` n'est pas autoritaire dans le HOST (Phase C AVANT tout pouvoir — ordre C→D→E→F). Capacités TYPÉES par classe (17 classes), pas le gate substring. `secret_ref` opaque + HITL chrome hôte signé lié au digest exact. MCP borné (WA-10), A2A futur. | `web/src/bridge/useBridge.ts:111-176` (dispatch consulte l'intersection autoritaire host, Phase C) + `protocol.ts:20-49` (16 verbes ; verbes Workflow APRÈS C) ; `crates/sbfb-manifest/src/lib.rs:34-66` (`bridge.methods` déclaratif « NOT the runtime dispatch boundary ») + `BRIDGE_METHOD_ALLOWLIST:67+` (parité Rust↔TS) ; `operator_server.rs:37` (`SENSITIVE_ACTIONS` substring — NON étendu) ; `task.rs:152-202` (extensions ADDITIVES, metadata string-only préservé) ; `THREAT_MODEL.md:179` (ligne STALE « 3 méthodes » fermée Phase C) ; **9 fichiers `sbfb-bridge.js` trackés** (web/public + 8 copies : templates react/pyodide/static/static-reader + examples compute-tester/sbfb-explorer/sbfb-factory-viewer/sbfb-ideas). |
+| **D4** | **Langage `SBFBWorkflowGraph.v1` + `SBFBAgentDefinition.v1`** data-flow à ports typés, borné statiquement (profil 18 nodes CANDIDAT, gelé Phase G). Invariant Plan-Then-Execute testable. **Ordonnancement P0** : AUCUN verbe bridge Workflow privilégié tant que l'intersection `caller ∩ méthode-déclarée-par-release ∩ grant ∩ politique locale ∩ consentement de l'effet` n'est pas autoritaire dans le HOST (Phase C AVANT tout pouvoir — ordre C→D→E→F). Capacités TYPÉES par classe (17 classes), pas le gate substring. `secret_ref` opaque + HITL chrome hôte signé lié au digest exact. MCP borné (WA-10), A2A futur. | `web/src/bridge/useBridge.ts:111-176` (dispatch consulte l'intersection autoritaire host, Phase C) + `protocol.ts:20-49` (16 verbes ; verbes Workflow APRÈS C) ; `crates/sbfb-manifest/src/lib.rs:34-66` (`bridge.methods` déclaratif « NOT the runtime dispatch boundary ») + `BRIDGE_METHOD_ALLOWLIST:67+` (parité Rust↔TS) ; `operator_server.rs:37` (`SENSITIVE_ACTIONS` substring — NON étendu) ; `task.rs:152-202` (extensions ADDITIVES, metadata string-only préservé) ; `THREAT_MODEL.md:186` (ligne STALE « 3 méthodes » fermée Phase C) ; **9 fichiers `sbfb-bridge.js` trackés** (web/public + 8 copies : templates react/pyodide/static/static-reader + examples compute-tester/sbfb-explorer/sbfb-factory-viewer/sbfb-ideas). |
 | **D5** | **ADOPTION du ch.24 (36 phases A..AJ) AMENDÉE — AM-1..AM-12 + outline 41 phases** (kickoff §4.5). Verdict PLAN-ADAPT. Mapping T1/T2 (specs Playwright NOMMÉES, artefact `sprint83_t2_acceptance.json` vocabulaire fermé) ; matrice de gates COMPLÈTE (47 gates, propriétaires + mécanismes + statut EXISTANT/ÉTENDU/NEUF) ; G-SCOPE-FLOOR ferme en AJ1 ; wire pre-launch AM-12 ; pré-coupes P/L au plan. | `agentctl.py:28/:32/:566` + hooks `phase-precommit-lightcheck.sh:88` / `phase-auditor-gate.sh:54` (grammaire `Phase [A-Z]+[0-9]?` prouvée — labels bi-lettres A1..AJ1 parsent ; preuve d'exercice Phase A) ; `ci.yml` (job T1 Hub nommé dès Phase R). |
 
 ---
@@ -129,7 +129,7 @@ Phase 0 (audit gate S82 — JOUÉ)
    │                                                             │
    ▼                                                             │
    C  AUTORITÉ du bridge (intersection 7 couches per-call)  ─────┤  grant v0 host-side
-   │   ferme THREAT_MODEL:179 ; ouvre G-BRIDGE-GRANT             │  (AVANT L/L1, X)
+   │   ferme THREAT_MODEL:186 ; ouvre G-BRIDGE-GRANT             │  (AVANT L/L1, X)
    ▼                                                             │
    D  contrat Factory (FactoryProcessProfile.v1) ── ferme G-FACTORY-CONTRACT
    │                                                             │
@@ -413,7 +413,7 @@ release/grant/politique/consentement)** : rendre AUTORITAIRE dans le HOST, à CH
 effet (offline/local inclus), l'intersection `caller ∩ méthode-déclarée-par-release ∩ grant
 d'installation/activation ∩ politique locale ∩ consentement de l'effet` — **AVANT tout
 verbe Workflow privilégié** (ordre C→D→E→F). Fournit le **modèle de grant v0 host-side**
-(explicite au plan, consommé par L/L1/X). Ferme la ligne STALE **`THREAT_MODEL.md:179`**
+(explicite au plan, consommé par L/L1/X). Ferme la ligne STALE **`THREAT_MODEL.md:186`**
 (« 3 méthodes » → 16 réelles, docs-contrat de la phase). Le gate `SENSITIVE_ACTIONS`
 substring n'est PAS étendu. Ouvre **G-BRIDGE-GRANT** (L/V/AI ferment la révocation pendant
 un vrai run). Surface shell touchée → spec T1 nommée.
@@ -429,7 +429,7 @@ un vrai run). Surface shell touchée → spec T1 nommée.
 - Modèle **grant v0** host-side : structure `GrantSet` (par app/release/pack) +
   résolution ; harness synthétique de test d'usurpation/expiration/révocation per-call
   (pas d'attente d'une surface UI).
-- `docs/security/THREAT_MODEL.md` : ligne 179 corrigée + vérifiée (docs-contrat de C).
+- `docs/security/THREAT_MODEL.md` : §5.2 row I (ligne 186, PAS 179 = ligne vide) corrigée + vérifiée (docs-contrat de C).
 - Étiquette docs-contrat frontière `bridge` étendue (`// FRONTIER:` + schema drift-gate).
 
 ### C.3 Tests plan
@@ -447,7 +447,7 @@ un vrai run). Surface shell touchée → spec T1 nommée.
 - `npm run test:unit` (intersection + parité verts) ; `cargo nextest run -p sbfb-manifest
   --locked` exit 0 ; `bash scripts/check-frontier-contracts.sh` exit 0.
 - **Condition binaire** : aucun verbe bridge n'est dispatché sans intersection autoritaire
-  (test d'usurpation ROUGE-avant/VERT-après) ; `THREAT_MODEL.md:179` = 16 méthodes.
+  (test d'usurpation ROUGE-avant/VERT-après) ; `THREAT_MODEL.md:186` = 16 méthodes.
 - T2 : contribue au palier WA-T5 (refus usurpation/grant expiré/capability non déclarée) —
   `NOT-RUN` jusqu'à AI2 ; le harness synthétique fournit l'`evidence` de C.
 
@@ -457,7 +457,7 @@ Body 9 sections : Contexte (P0 §5.2 fondée au HEAD ; ordre C→D→E→F ; gra
 (useBridge.ts, protocol.ts, sbfb-manifest lib.rs, grant_v0, THREAT_MODEL.md) · Delta tests
 (bridge-grant-intersection.spec + intersection unit + grant_v0 Rust) · Verification §7.4 ·
 Scope cuts · G8 traceability · Pre-launch protocol (0 bump wire ; bridge additif) · Codex
-verification · Carry closure (ferme THREAT_MODEL:179 ; ouvre G-BRIDGE-GRANT ; débloque
+verification · Carry closure (ferme THREAT_MODEL:186 ; ouvre G-BRIDGE-GRANT ; débloque
 verbes Workflow).
 
 ---

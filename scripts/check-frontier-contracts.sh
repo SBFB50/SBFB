@@ -5,7 +5,7 @@
 # Canonises the docs-contract cadence in the SBFB process itself
 # (docs/claude/README.md, docs/agent/AGENT_SYSTEM.md, docs/rust/PATTERNS.md
 # §P70, doctrine .planning/research/doctrine_contrat_pour_llm.md §2/§7).
-# Four deterministic checks (mirrors scripts/check-sharding-docs.sh
+# Five deterministic checks (mirrors scripts/check-sharding-docs.sh
 # discipline — BusyBox-safe so it also runs on the Woodpecker bash:5
 # image: no grep -P, no --include, no \b, no \s, no mapfile/readarray):
 #
@@ -269,10 +269,54 @@ if [ -d "$KNOW_DIR" ] && [ -d "prompts/agent" ]; then
   done
 fi
 
+# ── (5) bridge method parity (Sprint 83 Phase C) ──────────────────
+# As of S83 Phase C the manifest allowlist (Rust `BRIDGE_METHOD_ALLOWLIST`) and the
+# host dispatch schema (TS `BridgeMethodSchema`) are the release-declaration layer of
+# the per-call authority intersection: an app that declares a `bridge` config is
+# FAIL-CLOSED on its declared set. Parity is therefore a SECURITY invariant, not a
+# courtesy — a drift lets a release declare a method the host will not dispatch, or
+# the host dispatch a method no release can name. Derived from the two canonical
+# sources (no 4th synced copy). BusyBox-safe: index()-anchored awk, grep -oE (ERE).
+PROTOCOL_TS="web/src/bridge/protocol.ts"
+MANIFEST_RS="crates/sbfb-manifest/src/lib.rs"
+if [ ! -f "$PROTOCOL_TS" ] || [ ! -f "$MANIFEST_RS" ]; then
+  echo "BRIDGE-PARITY: missing $PROTOCOL_TS or $MANIFEST_RS"
+  fail=1
+else
+  # TS: quoted lowercase tokens inside `BridgeMethodSchema = z.enum([ ... ]);`.
+  ts_methods="$(awk 'index($0,"BridgeMethodSchema")>0 && index($0,"z.enum([")>0 {f=1;next} f && index($0,"]);")>0 {f=0} f {print}' "$PROTOCOL_TS" | grep -oE '"[a-z0-9_]+"' | tr -d '"' | sort -u)"
+  # Rust: quoted tokens inside `BRIDGE_METHOD_ALLOWLIST: &[&str] = &[ ... ];`
+  # (the `EXPECTED` test copy is skipped — its start line carries no allowlist name).
+  rs_methods="$(awk 'index($0,"BRIDGE_METHOD_ALLOWLIST")>0 && index($0,"&[")>0 {f=1;next} f && index($0,"];")>0 {f=0} f {print}' "$MANIFEST_RS" | grep -oE '"[a-z0-9_]+"' | tr -d '"' | sort -u)"
+  ts_count="$(printf '%s\n' "$ts_methods" | grep -c . || true)"
+  rs_count="$(printf '%s\n' "$rs_methods" | grep -c . || true)"
+  # Self-test (committed non-vacuity check): dropping one extracted method MUST change
+  # the set, proving the `!=` comparison below is discriminant (not vacuously equal on
+  # empty/garbled extraction). It proves the COMPARATOR is non-vacuous — not that the
+  # extractor catches every possible name shape (the regex bounds names to [a-z0-9_]).
+  if [ -n "$ts_methods" ] && [ "$ts_count" -ge 2 ]; then
+    _bp_mut="$(printf '%s\n' "$ts_methods" | tail -n +2)"
+    if [ "$_bp_mut" = "$ts_methods" ]; then
+      echo "BRIDGE-PARITY self-test: a one-method drop did not change the set (vacuous comparison)"
+      fail=1
+    fi
+  fi
+  if [ -z "$ts_methods" ] || [ -z "$rs_methods" ]; then
+    echo "BRIDGE-PARITY: could not extract methods (TS=$ts_count RS=$rs_count) — check the enum/allowlist markers"
+    fail=1
+  elif [ "$ts_methods" != "$rs_methods" ]; then
+    echo "BRIDGE-PARITY drift: TS BridgeMethodSchema ($ts_count) != Rust BRIDGE_METHOD_ALLOWLIST ($rs_count)"
+    echo "  TS methods:   $(printf '%s' "$ts_methods" | tr '\n' ' ')"
+    echo "  Rust methods: $(printf '%s' "$rs_methods" | tr '\n' ' ')"
+    echo "  -> update BOTH web/src/bridge/protocol.ts and crates/sbfb-manifest/src/lib.rs in lockstep."
+    fail=1
+  fi
+fi
+
 if [ "$fail" -ne 0 ]; then
   echo "check-frontier-contracts: FAILED"
   exit 1
 fi
 
-echo "check-frontier-contracts: clean (anti-promise + frontier-tag coverage [$frontier_count tagged] + DOMAIN census [$domain_census frozen] + BLOB_SERVE_CSP non-regression + prompt-kind provenance)"
+echo "check-frontier-contracts: clean (anti-promise + frontier-tag coverage [$frontier_count tagged] + DOMAIN census [$domain_census frozen] + BLOB_SERVE_CSP non-regression + prompt-kind provenance + bridge-parity [${ts_count:-?} methods])"
 exit 0

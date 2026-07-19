@@ -5,6 +5,6 @@
   "description": "Ideas Hub — propose and vote on ideas via P2P storage",
   "category": "community",
   "bridge": {
-    "methods": ["storage_get", "storage_set", "storage_list", "storage_delete", "identity_pubkey"]
+    "methods": ["storage_get", "storage_set", "storage_list", "storage_delete", "storage_version", "identity_pubkey"]
   }
 }

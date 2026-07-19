@@ -160,7 +160,7 @@ schema versions are accepted.
 | App | Description | Bridge methods used |
 |-----|-------------|---------------------|
 | **Protocol Explorer** (`examples/sbfb-explorer/`) | Interactive documentation of the SBFB protocol. Live network status panel via bridge. Provenance verification demo. Pure HTML/JS, zero npm dependencies. | `node_status`, `identity_pubkey`, `browse_list`, `provenance_verify` |
-| **Ideas Hub** (`examples/sbfb-ideas/`) | Decentralized idea board with voting. One vote per Ed25519 identity, toggle on/off. Data syncs between nodes via P2P storage. Pure HTML/JS. | `storage_get`, `storage_set`, `storage_list`, `storage_delete`, `identity_pubkey` |
+| **Ideas Hub** (`examples/sbfb-ideas/`) | Decentralized idea board with voting. One vote per Ed25519 identity, toggle on/off. Data syncs between nodes via P2P storage. Pure HTML/JS. | `storage_get`, `storage_set`, `storage_list`, `storage_delete`, `storage_version` (live-sync), `identity_pubkey` |
 | **Factory Viewer** (`examples/sbfb-factory-viewer/`) | Read-only app displaying network apps with Proof Cards, search, and quality badges. Runs in the same sandbox as any other app. | `browse_list`, `search`, `proof_card_get`, `storage_get` |
 
 ## Bridge SDK

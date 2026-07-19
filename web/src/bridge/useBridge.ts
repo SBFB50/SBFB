@@ -34,6 +34,11 @@ import { authFetch } from "@/api/auth";
 import { detectAndRedact, type PiiPolicy } from "@/sdk/pii";
 import { isReservedEvent, payloadCarriesCause } from "@/bridge/reserved-events";
 import {
+  GRANDFATHER_AUTHORITY,
+  isAuthorized,
+  type BridgeAuthority,
+} from "@/bridge/authority";
+import {
   buildAccessibilityProfileEvent,
   type AccessibilityPreferences,
   type AccessibilitySystem,
@@ -120,15 +125,28 @@ export function useBridge(
   coordUrl: string | null,
   appName: string | null,
   iframeRef: React.RefObject<HTMLIFrameElement | null>,
+  authority?: BridgeAuthority,
 ): UseBridgeHandle {
   const coordUrlRef = useRef(coordUrl);
   const appNameRef = useRef(appName);
+  // Sprint 83 Phase C — the resolved per-app authority (release ∩ grant ∩ policy),
+  // read per call. Omitted -> grandfathered legacy (permissive over the 16 verbs);
+  // the intersection is still ALWAYS evaluated, never bypassed. The ref is refreshed
+  // in the effect below (same pattern as coordUrl/appName — a render-phase ref write
+  // is disallowed by `react-hooks/refs`). Residual (accepted): a `message` landing
+  // between a re-render's commit and this passive effect is judged by the PREVIOUS
+  // authority — a micro-window matching the existing bridge refs; the AUTHORITATIVE
+  // per-call revocation proof is the model (`grant_v0::revocation_per_call`).
+  const authorityRef = useRef<BridgeAuthority>(
+    authority ?? GRANDFATHER_AUTHORITY,
+  );
   const lastHeartbeatRef = useRef<number | null>(null);
   const [watchdogState, setWatchdogState] = useState<WatchdogState>("unknown");
 
   useEffect(() => {
     coordUrlRef.current = coordUrl;
     appNameRef.current = appName;
+    authorityRef.current = authority ?? GRANDFATHER_AUTHORITY;
   });
 
   useEffect(() => {
@@ -155,6 +173,23 @@ export function useBridge(
       // Validate source: must come from our tracked iframe.
       const iframe = iframeRef.current;
       if (!iframe || event.source !== iframe.contentWindow) return;
+
+      // Sprint 83 Phase C — authority intersection, evaluated per call at this
+      // SINGLE choke-point BEFORE any dispatch, incl. the offline/local pii_redact
+      // effect below. A syntactically valid message is NOT sufficient authority:
+      // the method must survive `declared-by-release ∩ grant ∩ policy ∩ consent`.
+      // Fail-closed — an undeclared / ungranted / expired / revoked method is refused
+      // even offline (the check needs no coordinator).
+      if (!isAuthorized(authorityRef.current, req.method, Date.now())) {
+        reply(
+          event.source as Window,
+          createErrorResponse(
+            req.id,
+            `bridge method '${req.method}' is not authorized for this app`,
+          ),
+        );
+        return;
+      }
 
       // Sprint 21 Phase B — pii_redact dispatches locally inside
       // the host shell (no coordinator round-trip), so it must be
@@ -222,25 +257,42 @@ export function useBridge(
     (name: string, payload: unknown) => {
       const iframe = iframeRef.current;
       if (!iframe || !iframe.contentWindow) return;
-      // Sprint 83 Phase B — two egress guards defend the needs-free invariant:
-      //  (1) BY CONSTRUCTION: a reserved event (e.g. the accessibility profile)
-      //      is emitted ONLY via its dedicated typed sender — refuse it here;
-      //  (2) BEST-EFFORT: drop any payload carrying an accidental `needs` KEY
-      //      (any depth, Map/Set, under any name). The by-construction guarantee
-      //      is the projection TYPE; comprehensive typed egress is Phase C.
+      // Sprint 83 Phase B/C — egress guards defend the needs-free invariant at the
+      // single host egress:
+      //  (1) BY CONSTRUCTION: a reserved event (e.g. the accessibility profile) is
+      //      emitted ONLY via its dedicated typed sender — refuse it here;
+      //  (2) BEST-EFFORT: drop any payload carrying an accidental `needs` KEY (any
+      //      depth, Map/Set, under any name). The by-construction guarantee is the
+      //      projection TYPE.
       if (isReservedEvent(name)) {
         console.error(
           `pushEvent: "${name}" is a reserved event — use its dedicated typed sender`,
         );
         return;
       }
-      if (payloadCarriesCause(payload)) {
+      // Sprint 83 Phase C — close the getter-TOCTOU leg: clone the payload ONCE,
+      // then scan AND send that SAME frozen snapshot. structuredClone runs each
+      // getter exactly once, so a getter that returns a benign value to the scan and
+      // the cause to postMessage can no longer smuggle it (scan and wire see
+      // identical bytes). A non-cloneable payload is dropped, not sent. The
+      // deliberate value/name-encoding residual stays accepted (the calling host is
+      // trusted; the sanctioned a11y projection is needs-free BY CONSTRUCTION).
+      let snapshot: unknown;
+      try {
+        snapshot = structuredClone(payload);
+      } catch {
+        console.error(
+          `pushEvent: "${name}" payload is not structured-cloneable — not sent`,
+        );
+        return;
+      }
+      if (payloadCarriesCause(snapshot)) {
         console.error(
           `pushEvent: "${name}" payload carries an accessibility cause (needs) — not sent`,
         );
         return;
       }
-      iframe.contentWindow.postMessage(createEvent(name, payload), "*");
+      iframe.contentWindow.postMessage(createEvent(name, snapshot), "*");
     },
     [iframeRef],
   );
