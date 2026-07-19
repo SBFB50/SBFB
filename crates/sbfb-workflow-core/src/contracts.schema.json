@@ -7,9 +7,270 @@
     "type": "object"
   },
   "FactoryProcessProfile.v1": {
+    "$defs": {
+      "EnforcementKind": {
+        "description": "`Documented` vs `Enforced` — the AM-2 enforcement axis. See the module docs\nfor the exact meaning: `Enforced` requires a resolvable [`MechanismAnchor`].",
+        "oneOf": [
+          {
+            "const": "documented",
+            "description": "Carried by prompt/process discipline or a bypassable/spec-level check.",
+            "type": "string"
+          },
+          {
+            "const": "enforced",
+            "description": "A mechanical gate on the authoritative path blocks the process on\nviolation under normal operation (see the module docs — NOT a claim of\nimpossible-to-bypass; documented exemptions/scope exist).",
+            "type": "string"
+          }
+        ]
+      },
+      "MechanismAnchor": {
+        "additionalProperties": false,
+        "description": "Where an `Enforced` element's mechanism lives: a repo-relative `file` and a\n`needle` token that must appear inside it. The test layer resolves every\nanchor, so an `Enforced` marking whose mechanism vanished fails loudly\ninstead of lying (P72 anti-score / gate-discriminant discipline).",
+        "properties": {
+          "file": {
+            "description": "Repo-relative path from the workspace root (e.g. a hook or `gates.rs`).",
+            "type": "string"
+          },
+          "needle": {
+            "description": "A stable token that must be present in `file` for the marking to hold.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file",
+          "needle"
+        ],
+        "type": "object"
+      },
+      "ProcessElement": {
+        "additionalProperties": false,
+        "description": "One named element of the process (a role, a mode, a gate, or a hook) with\nits enforcement marking, optional mechanism, and the source that declares it.",
+        "properties": {
+          "enforcement": {
+            "$ref": "#/$defs/EnforcementKind",
+            "description": "`Documented` or `Enforced`."
+          },
+          "id": {
+            "description": "Stable identifier (`driver`, `G1`, `FG-CSP-authoring`, `kickoff`, …).",
+            "type": "string"
+          },
+          "mechanism": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/MechanismAnchor"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Present iff `enforcement == Enforced`; names a resolvable mechanism."
+          },
+          "source": {
+            "$ref": "#/$defs/SourceId",
+            "description": "Which digested source declares this element."
+          },
+          "title": {
+            "description": "Short human title from the source.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "enforcement",
+          "source"
+        ],
+        "type": "object"
+      },
+      "ProcessInvariants": {
+        "additionalProperties": false,
+        "description": "Boolean process invariants extracted from the sources. Each is a fact the\nruntime can assert against, not a knob.",
+        "properties": {
+          "codex_output_rewritable": {
+            "description": "Codex output is raw, never rewritten by the driver\n(`PROCESS.md`; `AGENT_SYSTEM.md §5.3`).",
+            "type": "boolean"
+          },
+          "gate_check_is_authority": {
+            "description": "`gate-check` is a diagnostic, never an authority (`AGENT_SYSTEM.md §2`;\n`RRV_FACTORY_CONTRACT.md §2`).",
+            "type": "boolean"
+          },
+          "pass_pending_committable": {
+            "description": "`PASS-PENDING` is never a committable verdict (`PROCESS.md` Phase Commit\nFinality; `AGENT_SYSTEM.md §5.2`).",
+            "type": "boolean"
+          },
+          "reconciliation_required_before_pass": {
+            "description": "The final `## Verdict: PASS` is only written after Codex reconciliation\n(`AGENT_SYSTEM.md §5.2`).",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "pass_pending_committable",
+          "codex_output_rewritable",
+          "reconciliation_required_before_pass",
+          "gate_check_is_authority"
+        ],
+        "type": "object"
+      },
+      "SourceDigest": {
+        "additionalProperties": false,
+        "description": "The BLAKE3 digest of one source, as embedded in the profile. `blake3` is the\nlowercase hex digest of the LF/BOM-canonicalised bytes (see [`canonicalise`]).",
+        "properties": {
+          "blake3": {
+            "description": "Lowercase hex BLAKE3 of the canonicalised source bytes.",
+            "type": "string"
+          },
+          "id": {
+            "$ref": "#/$defs/SourceId",
+            "description": "Which source this digest binds."
+          },
+          "path": {
+            "description": "The source's repo-relative path (mirror of [`SourceId::path`]).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "path",
+          "blake3"
+        ],
+        "type": "object"
+      },
+      "SourceId": {
+        "description": "The authoritative prose sources the profile is extracted from and bound to.\nEach variant's [`SourceId::path`] is repo-relative from the workspace root.",
+        "oneOf": [
+          {
+            "const": "process",
+            "description": "`docs/agent/PROCESS.md` — the vendor-neutral sprint workflow: the\nGuarantee Matrix (`G1`-`G10`), the 9-section commit body, `PASS-PENDING`,\nthe three verification blocks.",
+            "type": "string"
+          },
+          {
+            "const": "agent-system",
+            "description": "`docs/agent/AGENT_SYSTEM.md` — the role registry (9), the lifecycle modes\n(10), the preflight scans, the audit tracks, the gate verdicts.",
+            "type": "string"
+          },
+          {
+            "const": "rrv-factory-contract",
+            "description": "`docs/agent/RRV_FACTORY_CONTRACT.md` — the authority order\n`process > RRV > Factory` and the \"no downstream authority\" principle.",
+            "type": "string"
+          },
+          {
+            "const": "factory-gates",
+            "description": "`docs/factory/FACTORY_GATES.md` — the publication pipeline `FG0`-`FG10`\nplus the non-delegable `FG-CSP-authoring`.",
+            "type": "string"
+          },
+          {
+            "const": "hook-lightcheck",
+            "description": "`.claude/hooks/phase-precommit-lightcheck.sh` — the mechanical precommit\ngate (Phase-A design review, staging coherence, preflight presence, Codex\nartifact).",
+            "type": "string"
+          },
+          {
+            "const": "hook-auditor-gate",
+            "description": "`.claude/hooks/phase-auditor-gate.sh` — the mechanical gate that blocks a\nphase commit unless the final review reads `## Verdict: PASS`.",
+            "type": "string"
+          }
+        ]
+      }
+    },
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "additionalProperties": false,
-    "description": "`FactoryProcessProfile.v1` — the machine-readable Factory process\ncontract (D1/D4): roles, modes, gates, hooks, verification blocks, bound\nto the digests of its sources. A source mismatch yields `PROFILE_STALE`.\nFrontier stub — fields authored in the Factory-contract phase.",
+    "description": "`FactoryProcessProfile.v1` — the extracted, digest-bound Factory/process\ncontract. Assembled by [`extract`] from the six [`SourceId`] sources;\n[`detect_stale`] re-checks it against current sources, fail-closed.",
+    "properties": {
+      "audit_tracks": {
+        "description": "The nine audit-gate tracks (`AGENT_SYSTEM.md §5.4`). Note: `README §7.1`\nCas A lists an extended 11-track canon (adds `J`/`K` standing); the bound\nauthority here is `AGENT_SYSTEM.md §5.4`, so the count is 9.",
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "authority_order": {
+        "description": "Authority order `process > RRV > Factory` (`RRV_FACTORY_CONTRACT.md §2`).",
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "commit_body_sections": {
+        "description": "The nine mandatory commit-body sections (`PROCESS.md` Phase Commit Finality).",
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "finality_hooks": {
+        "description": "The two finality hooks, both `Enforced`.",
+        "items": {
+          "$ref": "#/$defs/ProcessElement"
+        },
+        "type": "array"
+      },
+      "invariants": {
+        "$ref": "#/$defs/ProcessInvariants",
+        "description": "Boolean process invariants."
+      },
+      "modes": {
+        "description": "The 10 lifecycle modes (`AGENT_SYSTEM.md §4`), all `Documented`.",
+        "items": {
+          "$ref": "#/$defs/ProcessElement"
+        },
+        "type": "array"
+      },
+      "preflight_scans": {
+        "description": "The five G8 preflight scans (`AGENT_SYSTEM.md §5.1`).",
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "process_gates": {
+        "description": "The process gates `G1`-`G10` (`PROCESS.md` Guarantee Matrix). `G1` and\n`G5` are `Enforced` (blocked by the authoritative `agentctl` gate,\nmirrored by the Claude lightcheck); the rest — including `G8`, which the\nauthoritative gate only WARNs — are `Documented`.",
+        "items": {
+          "$ref": "#/$defs/ProcessElement"
+        },
+        "type": "array"
+      },
+      "publication_gates": {
+        "description": "The publication gates `FG0`-`FG10` plus `FG-CSP-authoring`\n(`FACTORY_GATES.md`). Only `FG-CSP-authoring` is `Enforced` (truly\nnon-delegable: publish + redeploy); the rest — including `FG8`, which is\nskipped on the redeploy path and by the N0 exception — are `Documented`.",
+        "items": {
+          "$ref": "#/$defs/ProcessElement"
+        },
+        "type": "array"
+      },
+      "roles": {
+        "description": "The 9 process roles (`AGENT_SYSTEM.md §2`), all `Documented`.",
+        "items": {
+          "$ref": "#/$defs/ProcessElement"
+        },
+        "type": "array"
+      },
+      "sources": {
+        "description": "The BLAKE3 digests of the six sources, in [`SourceId::ALL`] order.",
+        "items": {
+          "$ref": "#/$defs/SourceDigest"
+        },
+        "type": "array"
+      },
+      "verification_blocks": {
+        "description": "The three full verification blocks (`PROCESS.md` Quality Bar).",
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      }
+    },
+    "required": [
+      "roles",
+      "modes",
+      "process_gates",
+      "publication_gates",
+      "finality_hooks",
+      "preflight_scans",
+      "commit_body_sections",
+      "verification_blocks",
+      "audit_tracks",
+      "authority_order",
+      "invariants",
+      "sources"
+    ],
     "title": "FactoryProcessProfile.v1",
     "type": "object"
   },

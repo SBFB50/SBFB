@@ -1,0 +1,405 @@
+{
+  "roles": [
+    {
+      "id": "driver",
+      "title": "primary implementation agent",
+      "enforcement": "documented",
+      "mechanism": null,
+      "source": "agent-system"
+    },
+    {
+      "id": "reviewer",
+      "title": "independent quality pass",
+      "enforcement": "documented",
+      "mechanism": null,
+      "source": "agent-system"
+    },
+    {
+      "id": "auditor",
+      "title": "independent 7-dimension audit",
+      "enforcement": "documented",
+      "mechanism": null,
+      "source": "agent-system"
+    },
+    {
+      "id": "codex-verifier",
+      "title": "external cross-verification, raw output",
+      "enforcement": "documented",
+      "mechanism": null,
+      "source": "agent-system"
+    },
+    {
+      "id": "researcher",
+      "title": "fact-finding, no code, no verdict",
+      "enforcement": "documented",
+      "mechanism": null,
+      "source": "agent-system"
+    },
+    {
+      "id": "preflight-checker",
+      "title": "5 scans S1-S4, no DESIGN-CONFLICT ruling",
+      "enforcement": "documented",
+      "mechanism": null,
+      "source": "agent-system"
+    },
+    {
+      "id": "kickoff-author",
+      "title": "kickoff + plan + design review",
+      "enforcement": "documented",
+      "mechanism": null,
+      "source": "agent-system"
+    },
+    {
+      "id": "audit-gate-runner",
+      "title": "9-track sprint audit",
+      "enforcement": "documented",
+      "mechanism": null,
+      "source": "agent-system"
+    },
+    {
+      "id": "gate-check",
+      "title": "diagnostic gate check, never an authority",
+      "enforcement": "documented",
+      "mechanism": null,
+      "source": "agent-system"
+    }
+  ],
+  "modes": [
+    {
+      "id": "kickoff",
+      "title": "open sprint: kickoff/plan/design-review",
+      "enforcement": "documented",
+      "mechanism": null,
+      "source": "agent-system"
+    },
+    {
+      "id": "plan",
+      "title": "update the phase plan",
+      "enforcement": "documented",
+      "mechanism": null,
+      "source": "agent-system"
+    },
+    {
+      "id": "preflight",
+      "title": "G8 pre-code scans",
+      "enforcement": "documented",
+      "mechanism": null,
+      "source": "agent-system"
+    },
+    {
+      "id": "implement",
+      "title": "drive one phase",
+      "enforcement": "documented",
+      "mechanism": null,
+      "source": "agent-system"
+    },
+    {
+      "id": "review",
+      "title": "post-code 11-dimension review",
+      "enforcement": "documented",
+      "mechanism": null,
+      "source": "agent-system"
+    },
+    {
+      "id": "codex-verify",
+      "title": "Codex cross-verification",
+      "enforcement": "documented",
+      "mechanism": null,
+      "source": "agent-system"
+    },
+    {
+      "id": "commit",
+      "title": "9-section body phase commit",
+      "enforcement": "documented",
+      "mechanism": null,
+      "source": "agent-system"
+    },
+    {
+      "id": "audit-gate",
+      "title": "Phase 0 sprint audit",
+      "enforcement": "documented",
+      "mechanism": null,
+      "source": "agent-system"
+    },
+    {
+      "id": "verification",
+      "title": "sprint verification",
+      "enforcement": "documented",
+      "mechanism": null,
+      "source": "agent-system"
+    },
+    {
+      "id": "handoff",
+      "title": "point-in-time inter-provider transfer",
+      "enforcement": "documented",
+      "mechanism": null,
+      "source": "agent-system"
+    }
+  ],
+  "process_gates": [
+    {
+      "id": "G1",
+      "title": "Design Review Board",
+      "enforcement": "enforced",
+      "mechanism": {
+        "file": ".claude/hooks/phase-precommit-lightcheck.sh",
+        "needle": "design_review"
+      },
+      "source": "process"
+    },
+    {
+      "id": "G2",
+      "title": "triggers_revalidate",
+      "enforcement": "documented",
+      "mechanism": null,
+      "source": "process"
+    },
+    {
+      "id": "G3",
+      "title": "SMART verification",
+      "enforcement": "documented",
+      "mechanism": null,
+      "source": "process"
+    },
+    {
+      "id": "G4",
+      "title": "rigor signal",
+      "enforcement": "documented",
+      "mechanism": null,
+      "source": "process"
+    },
+    {
+      "id": "G5",
+      "title": "retired working-tree audit (staged/module/commit checks)",
+      "enforcement": "enforced",
+      "mechanism": {
+        "file": ".claude/hooks/phase-precommit-lightcheck.sh",
+        "needle": "coherence staging"
+      },
+      "source": "process"
+    },
+    {
+      "id": "G6",
+      "title": "memory carry-over",
+      "enforcement": "documented",
+      "mechanism": null,
+      "source": "process"
+    },
+    {
+      "id": "G7",
+      "title": "carry escalation",
+      "enforcement": "documented",
+      "mechanism": null,
+      "source": "process"
+    },
+    {
+      "id": "G8",
+      "title": "phase preflight presence",
+      "enforcement": "documented",
+      "mechanism": null,
+      "source": "process"
+    },
+    {
+      "id": "G9",
+      "title": "factual research gate",
+      "enforcement": "documented",
+      "mechanism": null,
+      "source": "process"
+    },
+    {
+      "id": "G10",
+      "title": "OSS prior art",
+      "enforcement": "documented",
+      "mechanism": null,
+      "source": "process"
+    }
+  ],
+  "publication_gates": [
+    {
+      "id": "FG0",
+      "title": "Classification",
+      "enforcement": "documented",
+      "mechanism": null,
+      "source": "factory-gates"
+    },
+    {
+      "id": "FG1",
+      "title": "Scope",
+      "enforcement": "documented",
+      "mechanism": null,
+      "source": "factory-gates"
+    },
+    {
+      "id": "FG2",
+      "title": "Template",
+      "enforcement": "documented",
+      "mechanism": null,
+      "source": "factory-gates"
+    },
+    {
+      "id": "FG3",
+      "title": "Manifest",
+      "enforcement": "documented",
+      "mechanism": null,
+      "source": "factory-gates"
+    },
+    {
+      "id": "FG4",
+      "title": "Diff (recorded, non-blocking)",
+      "enforcement": "documented",
+      "mechanism": null,
+      "source": "factory-gates"
+    },
+    {
+      "id": "FG5",
+      "title": "Sandbox (relaxable via --skip-gates)",
+      "enforcement": "documented",
+      "mechanism": null,
+      "source": "factory-gates"
+    },
+    {
+      "id": "FG6",
+      "title": "Secrets/deps (relaxable via --skip-gates)",
+      "enforcement": "documented",
+      "mechanism": null,
+      "source": "factory-gates"
+    },
+    {
+      "id": "FG-CSP-authoring",
+      "title": "CSP conformance at publish (non-delegable: publish + redeploy)",
+      "enforcement": "enforced",
+      "mechanism": {
+        "file": "crates/sbfb-factory/src/gates.rs",
+        "needle": "run_gate_csp_authoring"
+      },
+      "source": "factory-gates"
+    },
+    {
+      "id": "FG7",
+      "title": "Preview",
+      "enforcement": "documented",
+      "mechanism": null,
+      "source": "factory-gates"
+    },
+    {
+      "id": "FG8",
+      "title": "Provenance (delegable: skipped on redeploy / N0)",
+      "enforcement": "documented",
+      "mechanism": null,
+      "source": "factory-gates"
+    },
+    {
+      "id": "FG9",
+      "title": "Publish",
+      "enforcement": "documented",
+      "mechanism": null,
+      "source": "factory-gates"
+    },
+    {
+      "id": "FG10",
+      "title": "Review",
+      "enforcement": "documented",
+      "mechanism": null,
+      "source": "factory-gates"
+    }
+  ],
+  "finality_hooks": [
+    {
+      "id": "phase-precommit-lightcheck",
+      "title": "precommit gate for phase commits: design review, staging, Codex artifact",
+      "enforcement": "enforced",
+      "mechanism": {
+        "file": ".claude/hooks/phase-precommit-lightcheck.sh",
+        "needle": "Codex review"
+      },
+      "source": "hook-lightcheck"
+    },
+    {
+      "id": "phase-auditor-gate",
+      "title": "blocks a phase commit whose review verdict is not PASS (agentctl tolerates a spaced colon)",
+      "enforcement": "enforced",
+      "mechanism": {
+        "file": ".claude/hooks/phase-auditor-gate.sh",
+        "needle": "## Verdict: PASS"
+      },
+      "source": "hook-auditor-gate"
+    }
+  ],
+  "preflight_scans": [
+    "S1a",
+    "S1b",
+    "S2",
+    "S3",
+    "S4"
+  ],
+  "commit_body_sections": [
+    "Contexte",
+    "Fichiers",
+    "Delta tests",
+    "Verification",
+    "Scope cuts",
+    "G8 traceability",
+    "Pre-launch protocol",
+    "Codex verification",
+    "Carry closure"
+  ],
+  "verification_blocks": [
+    "Rust",
+    "Python",
+    "frontend"
+  ],
+  "audit_tracks": [
+    "A suites",
+    "B security",
+    "C patterns",
+    "D scope",
+    "E tests delta",
+    "F review files",
+    "G carry-overs",
+    "H HARDENING",
+    "I meta-process"
+  ],
+  "authority_order": [
+    "process",
+    "RRV",
+    "Factory"
+  ],
+  "invariants": {
+    "pass_pending_committable": false,
+    "codex_output_rewritable": false,
+    "reconciliation_required_before_pass": true,
+    "gate_check_is_authority": false
+  },
+  "sources": [
+    {
+      "id": "process",
+      "path": "docs/agent/PROCESS.md",
+      "blake3": "674df954e7571fb4f5e7843ccd3d63294184a73a1b617aac9cd4b78aa577d5cd"
+    },
+    {
+      "id": "agent-system",
+      "path": "docs/agent/AGENT_SYSTEM.md",
+      "blake3": "8f3e2980f5c04cb7ca9d0d88ca79057e55c06ac3515c9a81ab9731060eadb6e5"
+    },
+    {
+      "id": "rrv-factory-contract",
+      "path": "docs/agent/RRV_FACTORY_CONTRACT.md",
+      "blake3": "66f6c42a2160711ad2fcde48ab93b99c176921d5e546221ac05576be4f3f5e59"
+    },
+    {
+      "id": "factory-gates",
+      "path": "docs/factory/FACTORY_GATES.md",
+      "blake3": "fbdb1b53ae5619b1d54ab52cce5bfb09d62ba8faa7a9a6d7281409c7f245ad9c"
+    },
+    {
+      "id": "hook-lightcheck",
+      "path": ".claude/hooks/phase-precommit-lightcheck.sh",
+      "blake3": "2269f36c1ed6da0066a0c0cbc8e904df571a5fedae0ad25660df192febc20df3"
+    },
+    {
+      "id": "hook-auditor-gate",
+      "path": ".claude/hooks/phase-auditor-gate.sh",
+      "blake3": "617da19e17e29b39dac5f4f0756f47cee05857caa06d9a8ee4a8318360518717"
+    }
+  ]
+}

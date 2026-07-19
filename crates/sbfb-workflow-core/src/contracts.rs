@@ -1,24 +1,37 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Versioned contract identities for the Workflow Agents chantier.
 //!
-//! Each type below is a NAMED FRONTIER reserved in Sprint 83 Phase A. The
-//! bodies are intentionally empty: the field shapes are authored in the
-//! dedicated contract phase for each identity (pack format, workflow graph,
-//! run journal, and so on). What Phase A locks is the IDENTITY — the
-//! schemars `title` carries the `.v1` contract name — and that every
-//! identity emits a valid JSON Schema draft 2020-12 object. The generated
+//! Each type below is a NAMED FRONTIER reserved in Sprint 83 Phase A. Bodies are
+//! authored in a dedicated contract phase per identity (pack format, workflow
+//! graph, run journal, and so on) — most are still empty stubs; the first to be
+//! filled is `FactoryProcessProfile.v1` (Phase D, defined in
+//! [`crate::factory_profile`] and re-exported here). What Phase A locks is the
+//! IDENTITY — the schemars `title` carries the `.v1` contract name — and that
+//! every identity emits a valid JSON Schema draft 2020-12 object. The generated
 //! schemas are pinned by the `schema_snapshot_stub` golden test against
 //! `contracts.schema.json` next to this module so an identity cannot drift
-//! silently once fields are added.
+//! silently as fields are added.
 //!
 //! Pre-launch protocol: these are NEW contract identities, not a bump of any
 //! existing wire format. No `*_FORMAT_VERSION` const and no `DOMAIN_*_V1`
-//! const is declared here — the signing domains and format versions are
-//! added when each contract is filled, keeping the frozen `DOMAIN_*_V1`
-//! family census untouched (cf. `CLAUDE.md §Pre-launch protocol policy`).
+//! const is declared here — a signing domain and format version are added when
+//! a SIGNED wire contract is filled (the pack/graph/run identities), whereas a
+//! LOCAL contract declares neither: `FactoryProcessProfile.v1` (Phase D) is
+//! filled and intentionally carries no domain and no format version. Either way
+//! the frozen `DOMAIN_*_V1` family census stays untouched (cf.
+//! `CLAUDE.md §Pre-launch protocol policy`).
 
 use schemars::{JsonSchema, schema_for};
 use serde::{Deserialize, Serialize};
+
+/// `FactoryProcessProfile.v1` — the machine-readable Factory process contract
+/// (D1/D4). Sprint 83 Phase A reserved this identity as an empty stub; Phase D
+/// authored its fields in the dedicated [`crate::factory_profile`] module (roles,
+/// modes, gates, hooks bound to the BLAKE3 digests of their sources, fail-closed
+/// on drift via `PROFILE_STALE`). It is re-exported here so it stays entry 4/7
+/// of [`all_contract_schemas`]; filling it refreshed `contracts.schema.json`
+/// while keeping the registry `len == 7`.
+pub use crate::factory_profile::FactoryProcessProfile;
 
 /// `SBFBPromptAgentPack.v1` — root of the signed, portable prompt+agent pack
 /// (D2). Carries the workflow graph, agent definitions, prompts, pinned
@@ -47,15 +60,6 @@ pub struct SbfbWorkflowGraph {}
 #[serde(deny_unknown_fields)]
 #[schemars(title = "SBFBAgentDefinition.v1")]
 pub struct SbfbAgentDefinition {}
-
-/// `FactoryProcessProfile.v1` — the machine-readable Factory process
-/// contract (D1/D4): roles, modes, gates, hooks, verification blocks, bound
-/// to the digests of its sources. A source mismatch yields `PROFILE_STALE`.
-/// Frontier stub — fields authored in the Factory-contract phase.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[schemars(title = "FactoryProcessProfile.v1")]
-pub struct FactoryProcessProfile {}
 
 /// `RunEvent.v1` — one append-only run-journal entry (D3), primary key
 /// `(run_id, sequence)`, with an idempotency key on effects. The journal is
