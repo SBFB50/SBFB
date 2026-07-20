@@ -99,4 +99,9 @@ Dockerfile text eol=lf
 # language stats. The SBFB delta is tracked in patches/llama-cpp-shard.patch.
 vendor/** linguist-vendored -whitespace
 *.patch    -whitespace
-*codex_review.md -whitespace
+# Codex writes raw output; its whitespace is not ours to police. The glob must
+# cover the per-round snapshots too (`..._codex_review_r3.md`), otherwise the
+# lightcheck whitespace gate (STRICT BLOCK) rejects the very artefact it
+# requires. Same for the per-round review snapshots.
+*codex_review*.md -whitespace
+*_review_r*.md -whitespace

@@ -417,8 +417,10 @@ est un "PO dit skip codex" explicite.
 
 **Procedure** :
 
-1. Verifier que `sprint{N}_phase_{X}_codex_review.md` existe dans
-   `.planning/active/`
+1. Verifier que `sprint{N}_phase_{X}_codex_review.md` (canonique) existe dans
+   `.planning/active/` — et que le round correspondant existe dans
+   `.planning/active/rounds/` (README §4.5.8 : chaque round est conserve,
+   le canonique est la copie byte-identique du dernier)
    - Si ABSENT : le verdict review NE DOIT PAS dire "Ready to commit"
      mais **"Ready for Codex verification (§4.5)"**
    - Ajouter dans le rapport :
@@ -578,8 +580,10 @@ commit. Ce step ne bloque pas — il documente.
 ## Post-commit obligatoire
 - [ ] Update nexus_grid_pivot.md (tip SHA + description sprint + compteurs tests)
 - [ ] Update MEMORY.md (ligne index si pivot description changee)
-- [ ] Verifier que le fichier review.md est stage dans le commit chore(planning) suivant
-      ou dans le commit phase lui-meme (si pas de chore(planning) intermediaire)
+- [ ] Verifier que le fichier review.md CANONIQUE est stage dans le commit
+      chore(planning) suivant ou dans le commit phase lui-meme
+- [ ] Stager AUSSI les rounds : `git add .planning/active/rounds/sprint{N}_phase_{X}_*`
+      (README §4.5.8 — un round non stage est perdu, le probleme se reproduit)
 ```
 
 **Rationale** : la memory `feedback_memory_update.md` prescrit cet

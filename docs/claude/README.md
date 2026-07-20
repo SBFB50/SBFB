@@ -1121,7 +1121,11 @@ plus de superviseur ni de consultation GO/BLOCK entre les etapes.
 Get-Content ".git/CODEX_SPRINT{N}_PHASE_{X}.txt" -Raw | codex exec `
   -m gpt-5.6-sol -c model_reasoning_effort=max `
   --dangerously-bypass-approvals-and-sandbox `
-  -o ".planning/active/sprint{N}_phase_{X}_codex_review.md"
+  -o ".planning/active/rounds/sprint{N}_phase_{X}_codex_review_r{R}.md"
+
+# 3. Promouvoir le round final en fichier canonique (copie BYTE-IDENTIQUE)
+Copy-Item ".planning/active/rounds/sprint{N}_phase_{X}_codex_review_r{R}.md" `
+  ".planning/active/sprint{N}_phase_{X}_codex_review.md"
 ```
 
 **Parametres obligatoires :**
@@ -1146,7 +1150,9 @@ Get-Content ".git/CODEX_SPRINT{N}_PHASE_{X}.txt" -Raw | codex exec `
 
 **Authenticite artefact Codex.** Le fichier
 `sprint{N}_phase_{X}_codex_review.md` doit rester la sortie directe de
-`codex exec -o`. Lightcheck Check 7 bloque les commits Phase
+`codex exec -o` — ou la COPIE BYTE-IDENTIQUE du dernier round
+`rounds/..._codex_review_r{R}.md` (§4.5.8). Jamais un index, jamais une
+concatenation de rounds. Lightcheck Check 7 bloque les commits Phase
 `feat/fix/docs/test/refactor` si le fichier est absent, vide, non stage,
 modifie hors staging, ressemble a un resume Claude (`Auditeur: Claude`,
 `agent independant`, `# Codex Review`), ne contient aucun verdict par
@@ -1263,6 +1269,60 @@ verdict) ; reserver l'arriere-plan aux moments ou l'arbre est
 propre. Fallback si l'opt-in Workflow est absent : plusieurs
 appels `Agent` en parallele dans un meme tour, ou les skills
 `nexus-phase-preflight` / `nexus-phase-review` en sequentiel.
+
+### 4.5.8 Rounds numerotes — ne jamais ecraser une verification
+
+**Canon 2026-07-20.** Une phase fait souvent PLUSIEURS tours de review et
+plusieurs rounds Codex. Chaque tour ecrit son propre fichier, **jamais**
+ecrase :
+
+```
+.planning/active/rounds/sprint{N}_phase_{X}_review_r{R}.md          # review Claude, tour R
+.planning/active/rounds/sprint{N}_phase_{X}_codex_review_r{R}.md    # Codex, round R (BRUT)
+.planning/active/sprint{N}_phase_{X}_review.md                      # CANONIQUE (verdict PASS)
+.planning/active/sprint{N}_phase_{X}_codex_review.md                # CANONIQUE (copie du dernier round)
+```
+
+**Pourquoi.** Le fichier final ne dit que l'etat d'arrivee. La valeur d'audit
+est la PROGRESSION : quel defaut a ete trouve a quel tour, quelle affirmation
+est tombee, ce que chaque vérificateur a manque. S83 Phase E l'a montre a ses
+depens — 4 rounds Codex, 3 reformulations successives d'une garantie centrale
+toutes fausses, deux mutations qui laissaient la suite verte : **44 Ko de cette
+trace n'existaient nulle part dans le depot**, seul le dernier etat survivait.
+Un lecteur futur ne pouvait ni verifier que le process avait mordu, ni
+apprendre des erreurs corrigees.
+
+**Regles.**
+
+1. **Le canonique garde son nom exact.** Cinq mecanismes le construisent par
+   concatenation, jamais par glob : `scripts/agent/agentctl.py` (seul chemin
+   reellement execute par `.githooks/`), `phase-precommit-lightcheck.sh`
+   Check 7, `phase-auditor-gate.sh`, `crates/sbfb-factory` (`audit-commit`,
+   `lint-planning`), la CI `phase-review-cross-check.yml`. Renommer le
+   canonique casse le gate de commit.
+2. **Le canonique est une copie BRUTE du dernier round** — jamais un index,
+   jamais une concatenation. Un vieux `## Verdict global: GAPS` ou un
+   `PASS-PENDING` lu en premier bloquerait le gate (le hook lit le PREMIER
+   `## Verdict`).
+3. **Le suffixe `_r{R}` va en TOUTE FIN du nom.** `..._cr2_review.md`
+   creerait une phase fantome « CR2 » dans `status-sprint` (le parseur
+   `phase.rs` lit lettres + ≤1 chiffre) ; `..._r1_review.md` se terminant par
+   `_review.md` declencherait `STALE_PASS_PENDING` bloquant.
+4. **`.gitattributes` doit exempter les rounds de la verif whitespace**
+   (`*codex_review*.md` et `*_review_r*.md`) : sans ca le Check 0
+   (STRICT BLOCK) rejette l'output brut de Codex.
+5. **Stager les rounds AVEC le canonique** :
+   `git add .planning/active/rounds/sprint{N}_phase_{X}_*`. Un round non
+   stage est perdu au commit — le probleme se reproduit a l'identique.
+6. **Le sous-repertoire `rounds/` garde `active/` lisible.** Les globs
+   existants (`sprint{N}_phase_*_review.md` du Track F d'audit) restent
+   inchanges et ne comptent que les canoniques.
+7. **Codex lit l'ARBRE, jamais un round anterieur.** Un artefact perime fait
+   refuter des corrections deja faites (incident S83 Phase C).
+
+**Archivage** : les rounds migrent avec leur phase (`rounds/` suit
+`active/` → `archive/v{X}/rounds/`), sinon `lint-planning` les signale
+`ORPHAN_FILE`.
 
 ---
 
@@ -2412,19 +2472,40 @@ procédure lui-même (sauf Cas D hotfix).
       les phases sans exception (§4.5.6 zero exemption).
       Ecrire prompt `.git/CODEX_SPRINT{N}_PHASE_{X}.txt`, lancer via
       `Get-Content | codex exec -m gpt-5.6-sol -c
-      model_reasoning_effort=max -o .planning/active/
-      sprint{N}_phase_{X}_codex_review.md` (slug exact `sol`, effort
-      `max`, requiert CLI codex >=0.144.1, cf. §4.5.2 pour les parametres).
-      Le fichier codex_review.md DOIT etre l'output BRUT de
-      `codex exec -o`. Claude NE DOIT PAS le reecrire, le
-      condenser, ni le resumer. Le hook lightcheck Check 7 verifie
-      l'authenticite (format par-livrable, fichier:ligne, evidence).
+      model_reasoning_effort=max -o .planning/active/rounds/
+      sprint{N}_phase_{X}_codex_review_r{R}.md` (slug exact `sol`,
+      effort `max`, requiert CLI codex >=0.144.1, cf. §4.5.2).
+
+      ROUNDS NUMEROTES (canon 2026-07-20, §4.5.8). CHAQUE round Codex
+      ecrit son PROPRE fichier `rounds/..._codex_review_r{R}.md`,
+      R=1,2,3... JAMAIS ecrase. Puis le fichier CANONIQUE
+      `.planning/active/sprint{N}_phase_{X}_codex_review.md` est une
+      COPIE BYTE-IDENTIQUE du dernier round (c'est lui, et lui seul,
+      que les gates lisent : agentctl, lightcheck Check 7, audit gate,
+      CI PR). Idem pour la review Claude :
+      `rounds/..._review_r{R}.md` par tour, canonique = tour final
+      promu `## Verdict: PASS`.
+      POURQUOI : une phase a 4 rounds ne garde sinon QUE le dernier
+      etat. Or la valeur d'audit est la PROGRESSION — ce qui a ete
+      trouve a quel tour, et quelle affirmation est tombee. Ecraser
+      efface la preuve que le process a fonctionne (S83 Phase E : 44
+      Ko de verification croisee perdus hors dépôt, 3 reformulations
+      successives d'une garantie centrale toutes fausses, invisibles
+      dans le seul fichier final).
+      Le canonique DOIT rester une copie brute : jamais un index,
+      jamais une concatenation (un vieux `## Verdict global: GAPS` lu
+      en premier bloquerait le gate).
       Si GAPs P0/P1 : corriger, puis BOUCLE COMPLETE :
         1. Re-run suites §7.4
         2. Ré-orchestrer le Workflow review (verdict PASS-PENDING
-           attendu si clean)
-        3. Re-lancer Codex
+           attendu si clean) -> nouveau `rounds/..._review_r{R+1}.md`
+        3. Re-lancer Codex -> nouveau `rounds/..._codex_review_r{R+1}.md`
+           sur l'arbre CORRIGE (un artefact perime fait refuter des
+           corrections deja faites)
         Boucle jusqu'a CLEAN ou P2/P3 documentes uniquement.
+      Au commit : stager les rounds ET le canonique
+        (`git add .planning/active/rounds/sprint{N}_phase_{X}_*`),
+        sinon les rounds sont perdus et le probleme se reproduit.
       Si GAPs P2/P3 : documenter dans commit body.
       Quand Codex est reconcilié : promouvoir le review.md a
       `## Verdict: PASS` et ajouter `## Codex reconciliation`

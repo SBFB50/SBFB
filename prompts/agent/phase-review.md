@@ -6,7 +6,10 @@ commands, not vendor-specific agent or tool syntax. Use the staged diff,
 working tree state, `.planning/active/`, and the sprint plan as ground truth.
 
 The final mechanical gate artifact for a phase is
-`.planning/active/sprint{SPRINT}_phase_{PHASE}_review.md`. Do not invent
+`.planning/active/sprint{SPRINT}_phase_{PHASE}_review.md` (the CANONICAL file),
+plus one immutable snapshot per round in
+`.planning/active/rounds/sprint{SPRINT}_phase_{PHASE}_review_r{R}.md` — never
+overwrite an earlier round (README §4.5.8). Apart from those two names, do not invent
 alternate final filenames. If this review is a driver handoff rather than the
 independent audit, make that explicit in the report body so the auditor can
 replace or complete it before commit. Driver handoff verdicts may use
