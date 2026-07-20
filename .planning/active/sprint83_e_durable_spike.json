@@ -1,0 +1,171 @@
+{
+  "artifact": "sprint83_e_durable_spike.v1",
+  "sprint": 83,
+  "phase": "E",
+  "recorded_in": "le commit atomique de la Phase E qui contient ce fichier",
+  "status": "GO",
+  "crash_model": "in-process-halt + process-exit-no-unwind",
+  "crash_model_detail": "Les bras in-process interrompent le run par une erreur typee a chaque frontiere, y compris A L'INTERIEUR des deux transactions composites (intention et completion : le halt y provoque un ROLLBACK) ; le bras out-of-process tue le processus ecrivain par std::process::exit(87) — aucun deroulement de pile, aucun destructeur, aucun sqlite3_close. La reprise est ensuite conduite par un processus DISTINCT du writer mort, sans connexion SQLite ni store pre-ouvert (c'est le processus de test parent, pas un troisieme processus lance apres la mort : la formulation « processus NEUF » etait litteralement sur-affirmee)",
+  "crash_model_not_proven": [
+    "perte d'alimentation (le fsync n'est PAS teste : SQLite est durable face aux crashs d'APPLICATION quel que soit le reglage synchronous, seule la coupure electrique discrimine)",
+    "TerminateProcess Windows / SIGKILL (exit() n'est pas un kill du noyau ; il ne deroule pas la pile mais il passe par la sortie du runtime)",
+    "corruption du fichier -wal / -shm par une ecriture partielle du materiel",
+    "mort REELLE du processus a l'interieur de la transaction d'intention (ce point n'est couvert que par un retour d'erreur + ROLLBACK normal, pas par un kill)",
+    "crashs REPETES pendant une meme reprise B2 (le harnais tue une fois par frontiere, pas N fois)",
+    "interruption au milieu du read / append / sync de la cible elle-meme",
+    "concurrence multi-ecrivains : deux reprises simultanees du meme run peuvent produire deux lignes (course read-then-append de la cible). Le modele garanti est single-writer serialise",
+    "perte ou remplacement du backend durable de deduplication entre deux reprises (le changement de backend est refuse fail-closed, mais un backend VIDE portant le meme chemin ne l'est pas)",
+    "mort REELLE du processus a l'interieur des transactions de creation de run, de completion et de cloture : ces chemins sont couverts par un retour d'erreur + ROLLBACK normal, pas par un exit(87) transaction ouverte",
+    "egalite de token de scope ne prouvant pas l'identite du backend physique (cf. guarantee.dedup_backend)"
+  ],
+  "durability_claim": "logic-only",
+  "durability_contract": {
+    "journal_mode": "wal",
+    "synchronous": "FULL",
+    "foreign_keys": "ON",
+    "busy_timeout_secs": 5,
+    "proof": "store_run_pragma_durability_contract",
+    "enforced_at_open": "les 3 pragmas sont RELUS apres avoir ete poses : pragma_update ne peut pas echouer quand SQLite refuse un mode (il renvoie le mode en vigueur, que execute_batch jette), donc un support sans WAL aurait ouvert en 'delete' sans erreur"
+  },
+  "guarantee": {
+    "engine": "au plus UNE INTENTION durable par cle (run_id, node_instance_id, effect_id), et toute reemission reutilise CETTE MEME cle : le moteur ne mint jamais une cle neuve a la reprise (asserte directement — un seul effect_intended subsiste apres reprise). L'entree de journal d'intention et la ligne d'outbox sont ecrites dans la MEME transaction ; il en va de meme de la completion (entree + transition outbox + frontiere)",
+    "one_observable_side_output": "vrai seulement contre une cible qui DEDUPLIQUE sur cette cle (FileEchoTarget::idempotent) ; le bras menteur prouve que la propriete vient de la",
+    "concurrency_model": "SINGLE-WRITER SERIALISE. FileEchoTarget deduplique par read-then-append sans verrou : deux ecrivains reprenant le meme run simultanement peuvent tous deux lire « absent » et tous deux appendre. Le fencing single-writer est hors perimetre (G-SINGLE-WRITER) — le modele est NOMME dans la garantie, pas relegue a une liste de non-prouve",
+    "b2_frontier": "irreductible sans idempotence cote cible : sortie nommee = outcome_unknown, 0 retry automatique, 0 succes invente",
+    "fail_closed": "divergence du hash de requete au replay => Err(StepHashMismatch) typee + run TERMINAL portant les DEUX hashs, jamais un panic, jamais une reponse perimee servie comme fraiche",
+    "identity_domain": "run_id / node_instance_id / effect_id VALIDES (aucun caractere de controle) + preimage de digest prefixee par longueur",
+    "spec_binding": "le run est lie a sa spec par un digest des chemins de nodes ordonnes",
+    "target_promise": "la valeur journalisee a l'intention AUTORISE la re-application ; la valeur live est relue uniquement pour verifier qu'elle n'a pas change (fail-closed si ecart). Ce n'est donc pas « journalisee, jamais redemandee »",
+    "delivery_semantics": "PAS un at-least-once, et AUCUNE promesse de liveness. Contre une cible IDEMPOTENTE : REEMISSION sous cle stable — le moteur re-tente, il ne peut pas faire reussir la cible (apply peut echouer a chaque fois). Contre une cible NON idempotente : AU PLUS UNE tentative, ZERO possible — un crash en B1 (intention durable, effet pas encore tente) reprend directement en outcome_unknown sans appeler la cible. Deux formulations anterieures (« au plus UNE tentative », puis « AT-LEAST-ONCE ») etaient fausses ; corrigees aux rounds 2 et 3 de la verification croisee externe",
+    "dedup_backend": "le moteur journalise a l'intention le TOKEN de scope declare par la cible (EffectTarget::dedup_scope) et refuse fail-closed une reprise dont le token differe (TargetScopeChanged). Il compare des TOKENS : il ne peut pas verifier que deux tokens egaux designent le meme store physique. Rendre le token globalement discriminant est la responsabilite de la CIBLE — celle du spike renvoie son chemin TEL QU'INJECTE, donc un meme chemin relatif depuis deux repertoires de travail comparerait egal en pointant deux fichiers"
+  },
+  "scenarios": [
+    {
+      "name": "store_journal_outbox_atomic",
+      "frontier": "interieur de la transaction d'intention + avant effet (B1)",
+      "green_arm": "PASS",
+      "green_assertion": "un halt A L'INTERIEUR de la transaction laisse le journal a run_started SEUL et aucune ligne d'outbox (les deux ecritures sont annulees ensemble) ; un halt en B1 laisse l'intention durable, 0 orphelin, 0 sortie externe",
+      "red_control": "PASS",
+      "red_control_kind": "guarantee-removed",
+      "red_assertion": "avec SpikeKnobs::without_atomic_outbox, un crash entre les deux ecritures expose 1 ligne d'outbox ORPHELINE et un journal qui ignore l'effet. MESURE : scinder record_intent_atomic en deux transactions rend ce test ROUGE (avant l'ajout du point de faute intra-transaction, la meme mutation laissait la suite entierement verte)"
+    },
+    {
+      "name": "store_kill_restart_replay_no_duplicate_side_output",
+      "frontier": "B1 + B2 + B3 (les 3, in-process)",
+      "green_arm": "PASS",
+      "green_assertion": "apres crash a chacune des 3 frontieres et redemarrage : exactement 1 sortie externe pour la cle ET 1 seule ligne au total (une cle forgee a neuf serait invisible a un comptage par cle), run complete, 0 orphelin",
+      "red_control": "PASS",
+      "red_control_kind": "guarantee-removed",
+      "red_assertion": "contre une cible qui PRETEND l'idempotence sans dedupliquer, la meme reprise a B2 produit 2 sorties externes"
+    },
+    {
+      "name": "store_replay_diverges_fails_closed",
+      "frontier": "apres journal (B3) / replay divergent",
+      "green_arm": "PASS",
+      "green_assertion": "Err(StepHashMismatch) portant les deux hashs, statut TERMINAL, raison step_hash_mismatch persistee AVEC les deux hashs (post-mortem depuis le journal seul), 0 sortie externe pour la requete divergente, run jamais re-drive automatiquement",
+      "red_control": "PASS",
+      "red_control_kind": "guarantee-removed",
+      "red_assertion": "avec SpikeKnobs::without_step_hash_verification le run CONTINUE et sert l'ANCIENNE reponse pour la NOUVELLE question"
+    },
+    {
+      "name": "store_echo_target_deterministic",
+      "frontier": "n/a (primitive)",
+      "green_arm": "PASS",
+      "green_assertion": "meme entree => meme recu ; re-appliquer la meme cle n'ajoute pas de sortie externe ; le digest est insensible a l'ordre d'insertion des cles (JCS)",
+      "red_control": "PASS",
+      "red_control_kind": "guarantee-removed",
+      "red_assertion": "la collision est DEMONTREE, pas supposee. Mesure sur serde_jcs 0.2.0, trois chemins : un float non fini SCALAIRE au top-level renvoie Err(invalid float value), mais IMBRIQUE dans une struct — le seul cas que ce crate hash — NaN/+Inf/-Inf s'effondrent tous sur null sans erreur, avec ou sans passage par serde_json::to_value. reject_nulls refuse la forme effondree ; retirer la garde rend le test rouge (mutation mesuree)"
+    },
+    {
+      "name": "store_identity_components_are_validated",
+      "frontier": "n/a (domaine d'identite)",
+      "green_arm": "PASS",
+      "green_assertion": "tout caractere de controle dans run_id / node_instance_id est refuse par une erreur typee AVANT que quoi que ce soit atteigne la cible",
+      "red_control": "PASS",
+      "red_control_kind": "guarantee-removed",
+      "red_assertion": "l'ambiguite est demontree sur l'ENCODEUR NON VALIDE (helper test-only raw_key_line) : deux identites DISTINCTES rendent la meme ligne, donc une cible dedupliquante collapserait deux effets differents ; puis les deux identites sont refusees au portail. Une version anterieure de ce bras comparait deux litteraux identiques avec assert_eq! — une tautologie qui ne pouvait jamais rougir, trouvee par la verification croisee externe"
+    },
+    {
+      "name": "store_process_exit_recovers_frontier_without_duplicate",
+      "frontier": "B1 + B2 + B3 (processus reellement tue)",
+      "green_arm": "PASS",
+      "green_assertion": "l'etat laisse par l'ecrivain mort est asserte PAR FRONTIERE (B1 intention durable + 0 sortie ; B2 intention non confirmee + 1 sortie ; B3 resultat journalise + run non cloture), puis un processus DISTINCT du writer mort, sans connexion ni store pre-ouvert, reprend et aboutit a exactement 1 sortie externe, run complete, 0 orphelin",
+      "red_control": "PASS",
+      "red_control_kind": "anti-vacuity",
+      "red_assertion": "le parent assert que l'enfant est bien mort au code 87. MESURE : un enfant qui sort en 87 SANS rien faire rend ce test ROUGE (avant l'ajout des assertions d'etat par frontiere, cette meme mutation laissait la suite entierement verte : le parent repartait d'une base vierge)"
+    },
+    {
+      "name": "store_spike_artifact_matches_suite",
+      "frontier": "n/a (honnetete de l'artefact)",
+      "green_arm": "PASS",
+      "green_assertion": "ce fichier est desserialise et valide par la suite : status=GO exige que chaque scenario nomme un VRAI #[test] non ignore de cette suite, sans doublon, que ses deux bras soient PASS avec une nature de bras rouge declaree, et que les comptes de tests annonces correspondent aux attributs de la source",
+      "red_control": "PASS",
+      "red_control_kind": "guarantee-removed",
+      "red_assertion": "6 mutations rejetees : scenario nommant un test inexistant, bras rouge non PASS, liste vide, supporting_test inexistant, compte de tests faux, red_control_kind invente"
+    },
+    {
+      "name": "store_completion_transaction_is_atomic",
+      "frontier": "interieur de la transaction de completion",
+      "green_arm": "PASS",
+      "green_assertion": "un halt A L'INTERIEUR de la transaction de completion annule tout : 0 effet complete, la ligne d'outbox reste pending, la frontiere n'a pas bouge, 2 evenements seulement ; la reprise converge ensuite a 1 sortie externe",
+      "red_control": "PASS",
+      "red_control_kind": "guarantee-removed",
+      "red_assertion": "avec SpikeKnobs::without_atomic_completion, l'entree de completion est committee SEULE : le journal porte exactement UN effect_completed (asserte directement sur les evenements, pas seulement via l'outbox) pendant que la ligne d'outbox reste pending et que la frontiere n'a pas bouge — l'etat incoherent que le chemin atomique rend inatteignable"
+    }
+  ],
+  "supporting_tests": [
+    "store_run_pragma_durability_contract",
+    "store_outcome_unknown_on_non_idempotent_target",
+    "store_replay_of_completed_run_appends_no_events",
+    "store_run_event_stream_matches_golden",
+    "store_terminal_event_stream_matches_golden",
+    "store_run_is_bound_to_its_spec",
+    "store_target_idempotency_claim_is_journaled",
+    "store_knobs_default_is_guaranteed",
+    "store_pending_branch_diverges_fails_closed",
+    "store_target_dedup_scope_is_journaled"
+  ],
+  "nextest": {
+    "profile_override": "package(sbfb-workflow-engine) retries = 0",
+    "override_rationale": "un flake d'un crash-test EST la panne cherchee : le retry unique du profil ci repeindrait en vert un double effet une fois sur deux",
+    "command": "cargo nextest run -p sbfb-workflow-engine --locked",
+    "exit": 0,
+    "executed": 18,
+    "ignored": 1,
+    "ignored_rationale": "store_child_writer_exits_mid_run est #[ignore] : il n'est execute que par le parent du bras out-of-process, jamais par un run ordinaire"
+  },
+  "gates": {
+    "G-AUTHORITY": "OPENED",
+    "G-STORE": "OPENED"
+  },
+  "wa_paliers": {
+    "WA-T1": "NOT-RUN",
+    "WA-T5": "NOT-RUN",
+    "evidence_target": "sprint83_t2_acceptance.json (AI2)"
+  },
+  "scope_cuts": [
+    "bornes / retention / GC du journal et de l'outbox : hors perimetre du spike, routes au run store complet (G-STORE)",
+    "cout quadratique du log de sorties externes : FileEchoTarget relit le fichier entier a chaque application dedupliquee (O(N^2)) ; sans effet a l'echelle du spike, a indexer en memoire si un appelant reel arrive",
+    "fencing single-writer (lease) : hors perimetre, route G-SINGLE-WRITER",
+    "snapshots, upcasters, backup : hors perimetre",
+    "THREAT_MODEL : aucune section neuve en Phase E, la surface durable (store complet + routes) est routee a la phase run store ; E est hermetique (0 route, 0 reseau, 0 lecteur hors du Rust de ce crate) — report EXPLICITE, pas un silence",
+    "confidentialite at-rest : le store et le log heritent des permissions par defaut du repertoire INJECTE par l'appelant (charte hote-neutre : le crate ne resout aucun chemin)",
+    "aucun format d'execution signe n'est gele ici : le journal est LOCAL, non signe, non gossipe (0 famille DOMAIN_*, 0 tag FRONTIER, census DOMAIN 25 intact)",
+    "PATTERNS.md : le pattern livre par ce spike est redige au wrap-up du sprint, precedent explicite S82 M-6 -> Phase T. Le motif n'est PAS que PATTERNS.md serait un livrable de fin de sprint (faux : des sections sont mintees en phases feature en continu, S77 A/G/H/I, S79 B/H, S80 I, S82 A/I) mais que le pattern se juge sur le sprint entier. Numero : §P74 est PRIS (docs/shell/PATTERNS.md:2219, minte S82 Phase A) — l'espace §P est COMMUN aux deux fichiers PATTERNS depuis §P74, cf. audit S82 finding C-1 ; prochain libre = §P76"
+  ],
+  "disclosed_residuals": [
+    "SQLite embarque via libsqlite3-sys (rusqlite 0.36 bundled) — CVE-2025-6965 presente ; bump bloque par tor-dirmgr (>=0.36,<0.39) ET rusqlite_migration 2.2 (caret 0.36) ; mitigation tenue : requetes parametrees exclusivement, 0 concatenation SQL",
+    "leg cargo-deny LICENSES pre-existant (carry CI-1) — ni aggrave ni ferme",
+    "le bras out-of-process utilise std::process::exit et non un kill du noyau : voir crash_model_not_proven",
+    "la surface de degradation (SpikeKnobs::without_*, FileEchoTarget::lying, les deux moities record_intent_*_only) est desormais derriere la feature NON-DEFAUT `spike-faults` : un build normal ne la compile pas. Le self dev-dependency n'ajoute aucun noeud au lock",
+    "'RunEvent v0' designe l'enveloppe LOCALE de ce crate (RUN_EVENT_FORMAT_VERSION = 1) ; l'identite de contrat RunEvent.v1 de sbfb-workflow-core reste un stub non rempli"
+  ],
+  "verdict_rationale": "GO sur la garantie REELLEMENT prouvee : (1) une intention durable atomique par cle, la meme cle pour toutes les reemissions, et les deux ecritures composites (intention, completion) annulees ensemble sur crash interne ; (2) une sortie externe unique seulement contre une cible qui deduplique, dans le MEME backend de deduplication, celui-ci etant journalise et fail-closed ; (3) dans un modele single-writer serialise ; (4) semantique de livraison qualifiee par la nature de la cible (jamais un at-least-once inconditionnel). Les 3 frontieres de crash sont couvertes deux fois, chaque garantie composite porte un point de faute INTERNE, et trois mutations qui laissaient auparavant la suite verte ont ete MESUREES rouges apres correction. La durabilite disque n'est PAS revendiquee (logic-only).",
+  "artifact_validation_limits": [
+    "le validateur lie l'artefact a la FORME de la suite (noms de #[test], unicite, comptes), PAS a une execution passee",
+    "il ne peut pas detecter la suppression d'une assertion A L'INTERIEUR d'un test",
+    "il ne peut pas observer le code de sortie du run qui a produit cet artefact : le champ nextest.exit est declaratif",
+    "ces limites sont ecrites ici pour que la formule « artefact machine-valide » ne soit pas plus forte que son mecanisme",
+    "le check de sprint doit lancer la SUITE COMPLETE (`cargo nextest run -p sbfb-workflow-engine --locked`) : un filtre etroit ne selectionnant que le validateur de forme laisserait passer la suppression d'une assertion comportementale"
+  ]
+}

@@ -15,6 +15,7 @@ members = [
     "crates/sbfb-manifest",
     "crates/sbfb-factory",
     "crates/sbfb-workflow-core",
+    "crates/sbfb-workflow-engine",
     "tools/png-to-icns",
 ]
 

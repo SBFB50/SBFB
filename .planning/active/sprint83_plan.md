@@ -516,7 +516,10 @@ Carry closure (ferme G-FACTORY-CONTRACT ; ouvre contrat candidat G-REVIEW-INDEPE
 
 ### E.1 Scope
 **LE cas dur du durable-execution** (R6). Prouver, sur `sbfb-workflow-engine`,
-kill/restart/replay SANS double effet à CHAQUE frontière de crash, journal/outbox
+kill/restart/replay à CHAQUE frontière de crash **sans double sortie externe contre
+une cible qui déduplique dans le backend journalisé, en single-writer sérialisé**
+(formulation resserrée au round 2/3 de la vérification croisée : un « 0 double effet »
+inconditionnel est faux — cf. `sprint83_e_durable_spike.json §guarantee`), journal/outbox
 atomiques (append event + update snapshot/frontier + enqueue outbox dans la MÊME
 transaction), frontier identique après restart. **AUCUN format d'exécution gelé avant ce
 GO** (bloque F). Livrer le **bras echo-target Rust déterministe v0** (B8 : jamais existé —
@@ -537,8 +540,10 @@ Ouvre **G-AUTHORITY** (fermé J), **G-STORE** (fermé I). Aucune dépendance UI/
 - Fixtures golden events (`RunEvent` v0, culture S82 M).
 
 ### E.3 Tests plan
-- `engine::spike::tests::kill_restart_replay_no_double_effect` — kill à chaque frontière,
-  0 double effet (revert-proof / contrôle rouge).
+- `store_kill_restart_replay_no_duplicate_side_output` — kill à chaque frontière, une
+  seule sortie externe contre une cible dédupliquante (contrôle rouge : cible menteuse
+  ⇒ 2 sorties). Nom adapté : aucun test de E ne doit contenir `effect`, qui appartient
+  au gate de la phase K.
 - `engine::spike::tests::journal_outbox_atomic` — crash entre append et outbox → aucun
   effet orphelin.
 - `engine::spike::tests::replay_diverges_fails_closed` — step rejoué qui ne redemande pas
@@ -550,9 +555,11 @@ Ouvre **G-AUTHORITY** (fermé J), **G-STORE** (fermé I). Aucune dépendance UI/
 ### E.4 Critère d'acceptation
 - `cargo nextest run -p sbfb-workflow-engine --locked` exit 0 (tous scénarios de crash
   verts, contrôle rouge prouvé).
-- **Condition binaire (GATE GO/NO-GO)** : 0 double effet aux 3 frontières + fail-closed sur
-  divergence + echo-target déterministe → **GO** ⇒ débloque F. Sinon **NO-GO** ⇒ retour PO
-  (jamais un format gelé sans preuve).
+- **Condition binaire (GATE GO/NO-GO)** : aux 3 frontières, une seule sortie externe
+  contre une cible dédupliquante dans le backend journalisé (single-writer sérialisé)
+  + fail-closed sur divergence + echo-target déterministe, **chaque garantie portant un
+  bras qui la retire** → **GO** ⇒ débloque F. Sinon **NO-GO** ⇒ retour PO (jamais un
+  format gelé sans preuve).
 - **T2 artefact** : `sprint83_e_durable_spike.json` committé, `status=GO|NO-GO` +
   scénarios ; alimente le palier WA-T1 (reprise durable) et WA-T5 (crashs injectés) —
   paliers `NOT-RUN` jusqu'à AI2, evidence = ce fichier.
@@ -2225,7 +2232,7 @@ en baisse** sur les baselines d'entrée (2108/2112/412/201) — un split behavio
 | 23 | gate frontier contracts | `bash scripts/check-frontier-contracts.sh` | exit 0 (frontières neuves indexées) |
 | 24 | gate factory docs | `bash scripts/check-factory-docs.sh` | exit 0 |
 | 25 | cargo deny | `cargo deny check advisories licenses` | vert (clôt CI-1) |
-| 26 | spike durable E (GO/NO-GO) | `cargo nextest run -p sbfb-workflow-engine -E 'test(spike_)'` | GO (0 double effet) |
+| 26 | spike durable E (GO/NO-GO) | `cargo nextest run -p sbfb-workflow-engine --locked` | GO (suite COMPLETE : un filtre etroit ne selectionnerait que le validateur de forme et laisserait passer la suppression d'une assertion comportementale) |
 | 27 | invariant grader LLM ≠ PASS | `cargo nextest … -E 'test(llm_grader_cannot_grant_pass)'` | vert |
 | 28 | invariant driver ≠ self-PASS | `cargo nextest … -E 'test(driver_cannot_self_pass)'` | vert |
 | 29 | Factory golden e2e | `cargo nextest … -E 'test(factory_golden_end_to_end)'` | vert |

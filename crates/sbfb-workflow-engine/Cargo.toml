@@ -1,0 +1,39 @@
+[package]
+name = "sbfb-workflow-engine"
+description = "SBFB Workflow Agents — host-neutral durable-execution spike: append-only run journal, transactional outbox, step memoisation and a deterministic echo target."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+# JCS (RFC 8785) canonicalisation feeds every digest in this crate. Plain
+# `serde_json::to_vec` is NOT usable here: the `preserve_order` feature is
+# enabled elsewhere in the workspace graph (ollama-rs -> schemars), so a
+# digest taken over `serde_json` bytes could differ between a `-p` build and
+# a `--workspace` build. JCS sorts object members at serialization time and
+# is graph-independent.
+serde_jcs = { workspace = true }
+blake3 = { workspace = true }
+# Embedded SQLite is the run journal. Already a workspace dependency
+# (coordinator DB), so this crate adds no new lock node beyond itself.
+rusqlite = { workspace = true }
+rusqlite_migration = { workspace = true }
+thiserror = { workspace = true }
+
+[features]
+# Fault injection and the degraded constructors that make each guarantee
+# falsifiable. OFF by default: a normal build of this crate cannot reach the
+# switches that turn a guarantee off. The suite lives in `tests/`, i.e. a
+# separate crate, so `#[cfg(test)]` cannot gate them — the self dev-dependency
+# below turns the feature on for the test build only, and does NOT add a lock
+# node.
+spike-faults = []
+
+[dev-dependencies]
+tempfile = { workspace = true }
+sbfb-workflow-engine = { path = ".", features = ["spike-faults"] }

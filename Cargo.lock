@@ -7521,6 +7521,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "sbfb-workflow-engine"
+version = "1.0.0"
+dependencies = [
+ "blake3",
+ "rusqlite",
+ "rusqlite_migration",
+ "sbfb-workflow-engine",
+ "serde",
+ "serde_jcs",
+ "serde_json",
+ "tempfile",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "schannel"
 version = "0.1.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"

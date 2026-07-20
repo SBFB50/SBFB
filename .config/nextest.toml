@@ -86,6 +86,17 @@ status-level = "retry"
 filter = 'binary(multi_daemon)'
 slow-timeout = { period = "60s", terminate-after = 3 }
 
+# S83 Phase E: the durable-execution spike is a CRASH harness — most of its
+# tests kill a run (in-process halt or a real process exit) and assert what
+# the restart observes. A single retry would relaunch a genuinely broken run
+# and paint it green, which is precisely the failure mode the spike exists to
+# detect: a double side output happening one time in two would be
+# indistinguishable from a clean pass. For this package a flake IS the
+# finding, so it must be surfaced, never absorbed.
+[[profile.ci.overrides]]
+filter = 'package(sbfb-workflow-engine)'
+retries = 0
+
 # Emit a JUnit XML report at `target/nextest/ci/junit.xml` so the
 # workflow can upload it as an artifact and (later) feed it to
 # result dashboards.

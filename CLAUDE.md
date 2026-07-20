@@ -452,8 +452,11 @@ Runtime isolation roadmap dans
   `713f0fa` ferme 4 RUSTSEC (leg advisories SEUL — le leg licenses reste
   rouge, CI-1). E2E Playwright (web + operator) + vitest operator câblés
   GHA ci.yml, effectifs dès que les runners repassent au vert.
-- **~2743 tests total** (2108 Rust nextest Windows natif 0-skip /
-  2112 canonique Docker Linux [+4 `#[cfg(unix)]`] / 412 Vitest `web/` /
+- **~2900 tests total** (2167 Rust nextest Windows natif **+1 skip**
+  [S83 Phase E : `store_child_writer_exits_mid_run` est le PREMIER `#[ignore]`
+  non feature-gaté du dépôt — il n'est lancé que par le parent du bras
+  out-of-process ; la formule « 0-skip » ne tient plus et n'est pas reconduite] /
+  2171 canonique Docker Linux [+4 `#[cfg(unix)]`] / 529 Vitest `web/` /
   44+2skip E2E web hermetique (`test:e2e` ; 2 skip env-gated @shard/@compute ;
   isolation fix S81-A3-1 : app-authoring seede en dernier via projet Playwright
   `dependencies`) / **201 Vitest factory-operator
