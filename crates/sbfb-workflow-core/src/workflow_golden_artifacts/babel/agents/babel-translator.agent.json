@@ -1,0 +1,41 @@
+{
+  "agent_id": "babel-translator",
+  "agent_version": 1,
+  "display_name": "Babel translator",
+  "description": "Translates the normalised task.",
+  "instructions_ref": {
+    "prompt_id": "translator-instructions",
+    "blake3": "ae7dc7232a4a46ac664a83b1daf8a69a70b2f6d4a6658d5b4169b52cb78615a3"
+  },
+  "input_schema_ref": {
+    "schema_id": "translation-task",
+    "blake3": "ae37c0779f1c885ad50fcbf82634d5d020499074990865a1e12e93a12449e442"
+  },
+  "output_schema_ref": {
+    "schema_id": "draft-translation",
+    "blake3": "b69876816677a21c56e09a8918636b565f6a975fee35467fc3ec04adfc5e7717"
+  },
+  "model_policy": {
+    "provider_class": "local",
+    "model_id": "qwen3:14b",
+    "require_structured_output": true
+  },
+  "tool_refs": [],
+  "allowed_handoffs": [
+    "babel-reviewer"
+  ],
+  "context_policy": {
+    "allowed_context_fields": [
+      "translation-task"
+    ]
+  },
+  "memory_policy": "none",
+  "guardrail_refs": [],
+  "approval_policy": "never",
+  "budget": {
+    "max_total_tokens": 300000,
+    "max_cost_micro_usd": 3000000,
+    "max_wall_clock_seconds": 1800,
+    "max_turns": 15
+  }
+}

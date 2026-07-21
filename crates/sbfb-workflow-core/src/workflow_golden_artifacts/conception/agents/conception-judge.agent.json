@@ -1,0 +1,43 @@
+{
+  "agent_id": "conception-judge",
+  "agent_version": 1,
+  "display_name": "Conception judge",
+  "description": "Scores variants and produces the shortlist.",
+  "instructions_ref": {
+    "prompt_id": "judge-instructions",
+    "blake3": "46ce2bcdcce800ea5681b11b0206a8c0434968064363df6077fb109f7fce8848"
+  },
+  "input_schema_ref": {
+    "schema_id": "judge-input",
+    "blake3": "4def276fa2520a64337675a36b0c6595332ac88c59e4e26fad31f547db4a5b29"
+  },
+  "output_schema_ref": {
+    "schema_id": "shortlist",
+    "blake3": "4547aeae2197c346378f9d2f41ab7932c62704a293efaba301687c76ef8a4ebd"
+  },
+  "model_policy": {
+    "provider_class": "claude-code",
+    "model_id": "claude-opus-4-8",
+    "require_structured_output": true
+  },
+  "tool_refs": [],
+  "allowed_handoffs": [
+    "conception-editor"
+  ],
+  "context_policy": {
+    "allowed_context_fields": [
+      "brief",
+      "variants",
+      "checks"
+    ]
+  },
+  "memory_policy": "none",
+  "guardrail_refs": [],
+  "approval_policy": "never",
+  "budget": {
+    "max_total_tokens": 700000,
+    "max_cost_micro_usd": 7000000,
+    "max_wall_clock_seconds": 3600,
+    "max_turns": 30
+  }
+}

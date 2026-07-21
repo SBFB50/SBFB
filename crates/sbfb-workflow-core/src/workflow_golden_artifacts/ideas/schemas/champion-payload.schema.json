@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Filtered payload handed to the champion.",
+  "type": "object",
+  "properties": {
+    "idea": {
+      "type": "string"
+    },
+    "research-summary": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "idea",
+    "research-summary"
+  ],
+  "additionalProperties": false
+}

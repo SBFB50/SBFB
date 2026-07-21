@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Filtered payload handed to the reviewer.",
+  "type": "object",
+  "properties": {
+    "phase-task": {
+      "type": "string"
+    },
+    "diff-summary": {
+      "type": "string"
+    },
+    "suites-report": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "phase-task",
+    "diff-summary"
+  ],
+  "additionalProperties": false
+}

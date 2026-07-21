@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Champion output: the championed draft. Publication is NOT decided here.",
+  "type": "object",
+  "properties": {
+    "draft": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "draft"
+  ],
+  "additionalProperties": false
+}

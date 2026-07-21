@@ -1,0 +1,39 @@
+{
+  "agent_id": "babel-reviewer",
+  "agent_version": 1,
+  "display_name": "Native reviewer",
+  "description": "Reviews the draft for fluency.",
+  "instructions_ref": {
+    "prompt_id": "reviewer-instructions",
+    "blake3": "90267129a8e90e8c88ba84e9ca0e2880a8c9c124e40d544c37c69c19a150bf8c"
+  },
+  "input_schema_ref": {
+    "schema_id": "draft-translation",
+    "blake3": "b69876816677a21c56e09a8918636b565f6a975fee35467fc3ec04adfc5e7717"
+  },
+  "output_schema_ref": {
+    "schema_id": "reviewed-translation",
+    "blake3": "2cfb45598a027e13019f441a8ab7a9c5cf2899690a689493301bfd275ae3987a"
+  },
+  "model_policy": {
+    "provider_class": "cloud",
+    "model_id": "claude-opus-4-8",
+    "require_structured_output": true
+  },
+  "tool_refs": [],
+  "allowed_handoffs": [],
+  "context_policy": {
+    "allowed_context_fields": [
+      "draft-translation"
+    ]
+  },
+  "memory_policy": "none",
+  "guardrail_refs": [],
+  "approval_policy": "never",
+  "budget": {
+    "max_total_tokens": 200000,
+    "max_cost_micro_usd": 2000000,
+    "max_wall_clock_seconds": 1200,
+    "max_turns": 10
+  }
+}

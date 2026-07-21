@@ -1,0 +1,94 @@
+{
+  "workflow_id": "factory-codex-round",
+  "workflow_version": 1,
+  "description": "One Codex cross-verification round over the reviewed phase.",
+  "input_schema_ref": {
+    "schema_id": "round-input",
+    "blake3": "02ddfcc915bf870726e28f1266789373569ab3abb9c2e17ea3c79c57cb758acd"
+  },
+  "output_schema_ref": {
+    "schema_id": "round-report",
+    "blake3": "c785c6039ff3399f49cb28b8607ae4c8bf13f58a6536815c03fe5fa16dabce20"
+  },
+  "entrypoints": [
+    "round-in"
+  ],
+  "nodes": {
+    "codex-verify": {
+      "kind": "agent.invoke",
+      "agent_id": "factory-codex-verifier",
+      "budget": {
+        "max_total_tokens": 600000,
+        "max_cost_micro_usd": 6000000,
+        "max_wall_clock_seconds": 2700,
+        "max_turns": 30
+      }
+    },
+    "round-in": {
+      "kind": "input",
+      "schema_ref": {
+        "schema_id": "round-input",
+        "blake3": "02ddfcc915bf870726e28f1266789373569ab3abb9c2e17ea3c79c57cb758acd"
+      }
+    },
+    "round-out": {
+      "kind": "output",
+      "schema_ref": {
+        "schema_id": "round-report",
+        "blake3": "c785c6039ff3399f49cb28b8607ae4c8bf13f58a6536815c03fe5fa16dabce20"
+      },
+      "artifact_name": "round-report"
+    }
+  },
+  "edges": [
+    {
+      "from": "round-in",
+      "from_port": "out",
+      "to": "codex-verify",
+      "to_port": "in"
+    },
+    {
+      "from": "codex-verify",
+      "from_port": "out",
+      "to": "round-out",
+      "to_port": "in"
+    }
+  ],
+  "error_policy": {
+    "on_node_failure": "fail-workflow",
+    "max_retries_per_node": 1
+  },
+  "timeout_policy": {
+    "workflow_timeout_seconds": 3000,
+    "default_node_timeout_seconds": 2700
+  },
+  "budget_policy": {
+    "max_total_tokens": 700000,
+    "max_cost_micro_usd": 7000000,
+    "max_wall_clock_seconds": 3000,
+    "max_turns": 35
+  },
+  "cancellation_policy": {
+    "cancel_on_budget_exhausted": true,
+    "cancel_on_timeout": true,
+    "allow_host_operator_cancel": true
+  },
+  "capability_requests": [],
+  "agent_refs": [
+    {
+      "agent_id": "factory-codex-verifier",
+      "blake3": "303cfdbdca24399ec3b8a209b6a41356eea5dbc8ef20ce5698dd166c86934497"
+    }
+  ],
+  "subworkflow_refs": [],
+  "artifact_outputs": [
+    {
+      "name": "round-report",
+      "schema_ref": {
+        "schema_id": "round-report",
+        "blake3": "c785c6039ff3399f49cb28b8607ae4c8bf13f58a6536815c03fe5fa16dabce20"
+      },
+      "from_node": "round-out"
+    }
+  ]
+}

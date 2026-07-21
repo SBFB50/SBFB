@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "One polish round input.",
+  "type": "object",
+  "properties": {
+    "draft": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "draft"
+  ],
+  "additionalProperties": false
+}

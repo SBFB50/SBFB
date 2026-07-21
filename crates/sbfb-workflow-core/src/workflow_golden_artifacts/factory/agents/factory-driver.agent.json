@@ -1,0 +1,52 @@
+{
+  "agent_id": "factory-driver",
+  "agent_version": 1,
+  "display_name": "Factory driver",
+  "description": "Implements one phase under preflight constraints.",
+  "instructions_ref": {
+    "prompt_id": "driver-instructions",
+    "blake3": "1894478c8e705751cfe3b2ade7e8d212e2e339dc091f72bb23b973747e8608ec"
+  },
+  "input_schema_ref": {
+    "schema_id": "phase-task",
+    "blake3": "f02ab2ab4a748822927c2680e5f74d4895f0c072e3584f129c53dffb93f5dd50"
+  },
+  "output_schema_ref": {
+    "schema_id": "driver-report",
+    "blake3": "7ae6036d83e0585177d80f2003b7ebf8e2f53f4b18e844c7b69ebbf15cfbf5a8"
+  },
+  "model_policy": {
+    "provider_class": "claude-code",
+    "model_id": "claude-opus-4-8",
+    "require_structured_output": true
+  },
+  "tool_refs": [
+    {
+      "tool_id": "nextest-runner",
+      "blake3": "35d939dbb782a079242ef4d03b47b4ac780e397322527c877ee94e25aff0a29a"
+    }
+  ],
+  "allowed_handoffs": [
+    "factory-reviewer"
+  ],
+  "context_policy": {
+    "allowed_context_fields": [
+      "phase-task",
+      "preflight-findings"
+    ]
+  },
+  "memory_policy": "run-scoped",
+  "guardrail_refs": [
+    {
+      "guardrail_id": "no-secret-egress",
+      "blake3": "86dd5fee692dd0877165d8466f814cc9e1a751a8ed0495134f78b61c2288a8e6"
+    }
+  ],
+  "approval_policy": "on-sensitive-effect",
+  "budget": {
+    "max_total_tokens": 2000000,
+    "max_cost_micro_usd": 20000000,
+    "max_wall_clock_seconds": 7200,
+    "max_turns": 80
+  }
+}

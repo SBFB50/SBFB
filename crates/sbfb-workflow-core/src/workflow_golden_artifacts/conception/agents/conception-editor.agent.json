@@ -1,0 +1,39 @@
+{
+  "agent_id": "conception-editor",
+  "agent_version": 1,
+  "display_name": "Conception editor",
+  "description": "Synthesises the shortlist into one draft.",
+  "instructions_ref": {
+    "prompt_id": "editor-instructions",
+    "blake3": "65ffe70233357953b3dc1df8a4d331fc8e7858d6f922c02586b9a6bba833e712"
+  },
+  "input_schema_ref": {
+    "schema_id": "shortlist",
+    "blake3": "4547aeae2197c346378f9d2f41ab7932c62704a293efaba301687c76ef8a4ebd"
+  },
+  "output_schema_ref": {
+    "schema_id": "draft",
+    "blake3": "33b74c7a94ef5f08791fb1235ebd5296fb6c49d1ea14bc76b4f4dcd77dff6a3d"
+  },
+  "model_policy": {
+    "provider_class": "claude-code",
+    "model_id": "claude-opus-4-8",
+    "require_structured_output": true
+  },
+  "tool_refs": [],
+  "allowed_handoffs": [],
+  "context_policy": {
+    "allowed_context_fields": [
+      "shortlist"
+    ]
+  },
+  "memory_policy": "run-scoped",
+  "guardrail_refs": [],
+  "approval_policy": "never",
+  "budget": {
+    "max_total_tokens": 500000,
+    "max_cost_micro_usd": 5000000,
+    "max_wall_clock_seconds": 2700,
+    "max_turns": 25
+  }
+}

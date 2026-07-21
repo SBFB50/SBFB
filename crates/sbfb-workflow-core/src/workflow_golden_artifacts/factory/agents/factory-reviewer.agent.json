@@ -1,0 +1,39 @@
+{
+  "agent_id": "factory-reviewer",
+  "agent_version": 1,
+  "display_name": "Factory reviewer",
+  "description": "Independent review of the handed-off phase diff.",
+  "instructions_ref": {
+    "prompt_id": "reviewer-instructions",
+    "blake3": "2d06584819f09f4e6bf21ac7ab8ef5518df92bde0df775612eaf49924136d327"
+  },
+  "input_schema_ref": {
+    "schema_id": "review-payload",
+    "blake3": "007c4f9ba6165f91480ff61091fe089531540d9bd9a9e0ca1b2ea6b58f299c58"
+  },
+  "output_schema_ref": {
+    "schema_id": "review-verdict",
+    "blake3": "e00b2fe0f51312de3021d74b72b647789bdb50049737ad488c99c7d100546ae5"
+  },
+  "model_policy": {
+    "provider_class": "claude-code",
+    "model_id": "claude-opus-4-8",
+    "require_structured_output": true
+  },
+  "tool_refs": [],
+  "allowed_handoffs": [],
+  "context_policy": {
+    "allowed_context_fields": [
+      "review-payload"
+    ]
+  },
+  "memory_policy": "none",
+  "guardrail_refs": [],
+  "approval_policy": "never",
+  "budget": {
+    "max_total_tokens": 1000000,
+    "max_cost_micro_usd": 10000000,
+    "max_wall_clock_seconds": 3600,
+    "max_turns": 60
+  }
+}

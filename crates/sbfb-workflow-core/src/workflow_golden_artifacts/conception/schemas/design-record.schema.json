@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Durable design record.",
+  "type": "object",
+  "properties": {
+    "design": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "design"
+  ],
+  "additionalProperties": false
+}

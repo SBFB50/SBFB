@@ -1,0 +1,235 @@
+{
+  "workflow_id": "babel-translation",
+  "workflow_version": 1,
+  "description": "Babel translation: local draft, native-review handoff, deterministic quality gate, bounded polish rounds, community signal, publish.",
+  "input_schema_ref": {
+    "schema_id": "source-text",
+    "blake3": "26221655fdcbee1c6ee5e64e07016d5197b20695fdb62487279fa5597570a0b4"
+  },
+  "output_schema_ref": {
+    "schema_id": "publish-receipt",
+    "blake3": "ea2db51ccf063aebc7bf1780fba619b8cfe4652178ab07af4c4750e3438ee0f6"
+  },
+  "entrypoints": [
+    "text-in"
+  ],
+  "nodes": {
+    "await-community": {
+      "kind": "wait.signal",
+      "signal_name": "community-review-complete",
+      "payload_schema_ref": {
+        "schema_id": "community-signal",
+        "blake3": "cef0bcf9ba559c851be65fca0201c2fe57ac59fac0cbb9023b9ca59fc8e46eb3"
+      }
+    },
+    "native-review": {
+      "kind": "agent.invoke",
+      "agent_id": "babel-reviewer",
+      "budget": {
+        "max_total_tokens": 150000,
+        "max_cost_micro_usd": 1500000,
+        "max_wall_clock_seconds": 900,
+        "max_turns": 8
+      }
+    },
+    "polish-rounds": {
+      "kind": "repeat",
+      "max_iterations": 3,
+      "body_subworkflow_ref": {
+        "workflow_id": "babel-polish-round",
+        "blake3": "ceea508a1ae2d1c1e9eedbd9dba93d1b8034f6ffb6dd77658e90e4b0930dd7fc"
+      },
+      "until_output_flag": "quality_ok"
+    },
+    "prepare": {
+      "kind": "transform",
+      "input_schema_ref": {
+        "schema_id": "source-text",
+        "blake3": "26221655fdcbee1c6ee5e64e07016d5197b20695fdb62487279fa5597570a0b4"
+      },
+      "output_schema_ref": {
+        "schema_id": "translation-task",
+        "blake3": "ae37c0779f1c885ad50fcbf82634d5d020499074990865a1e12e93a12449e442"
+      },
+      "field_map": {
+        "target_language": "target_language",
+        "text": "text"
+      }
+    },
+    "publish": {
+      "kind": "capability.call",
+      "capability_ref": "network.publish",
+      "args_schema_ref": {
+        "schema_id": "publish-args",
+        "blake3": "d9378c4ddf85ec0b6edae0b24c246f1d3677d086f740ddb9a36dad448d8f1519"
+      },
+      "output_schema_ref": {
+        "schema_id": "publish-receipt",
+        "blake3": "ea2db51ccf063aebc7bf1780fba619b8cfe4652178ab07af4c4750e3438ee0f6"
+      }
+    },
+    "published-out": {
+      "kind": "output",
+      "schema_ref": {
+        "schema_id": "publish-receipt",
+        "blake3": "ea2db51ccf063aebc7bf1780fba619b8cfe4652178ab07af4c4750e3438ee0f6"
+      },
+      "artifact_name": "published-translation"
+    },
+    "quality-gate": {
+      "kind": "switch",
+      "discriminant_field": "quality",
+      "branch_labels": [
+        "ship",
+        "polish"
+      ]
+    },
+    "review-handoff": {
+      "kind": "handoff",
+      "target_agent_id": "babel-reviewer",
+      "payload_schema_ref": {
+        "schema_id": "draft-translation",
+        "blake3": "b69876816677a21c56e09a8918636b565f6a975fee35467fc3ec04adfc5e7717"
+      },
+      "context_policy": {
+        "allowed_context_fields": [
+          "translation-task",
+          "draft"
+        ]
+      }
+    },
+    "text-in": {
+      "kind": "input",
+      "schema_ref": {
+        "schema_id": "source-text",
+        "blake3": "26221655fdcbee1c6ee5e64e07016d5197b20695fdb62487279fa5597570a0b4"
+      }
+    },
+    "translator": {
+      "kind": "agent.invoke",
+      "agent_id": "babel-translator",
+      "budget": {
+        "max_total_tokens": 250000,
+        "max_cost_micro_usd": 2500000,
+        "max_wall_clock_seconds": 1500,
+        "max_turns": 12
+      }
+    }
+  },
+  "edges": [
+    {
+      "from": "text-in",
+      "from_port": "out",
+      "to": "prepare",
+      "to_port": "in"
+    },
+    {
+      "from": "prepare",
+      "from_port": "out",
+      "to": "translator",
+      "to_port": "in"
+    },
+    {
+      "from": "translator",
+      "from_port": "out",
+      "to": "review-handoff",
+      "to_port": "in"
+    },
+    {
+      "from": "review-handoff",
+      "from_port": "to",
+      "to": "native-review",
+      "to_port": "in"
+    },
+    {
+      "from": "native-review",
+      "from_port": "out",
+      "to": "quality-gate",
+      "to_port": "in"
+    },
+    {
+      "from": "quality-gate",
+      "from_port": "ship",
+      "to": "await-community",
+      "to_port": "in"
+    },
+    {
+      "from": "quality-gate",
+      "from_port": "polish",
+      "to": "polish-rounds",
+      "to_port": "in"
+    },
+    {
+      "from": "quality-gate",
+      "from_port": "default",
+      "to": "polish-rounds",
+      "to_port": "in"
+    },
+    {
+      "from": "polish-rounds",
+      "from_port": "out",
+      "to": "await-community",
+      "to_port": "in"
+    },
+    {
+      "from": "await-community",
+      "from_port": "out",
+      "to": "publish",
+      "to_port": "in"
+    },
+    {
+      "from": "publish",
+      "from_port": "out",
+      "to": "published-out",
+      "to_port": "in"
+    }
+  ],
+  "error_policy": {
+    "on_node_failure": "fail-workflow",
+    "max_retries_per_node": 1
+  },
+  "timeout_policy": {
+    "workflow_timeout_seconds": 7200,
+    "default_node_timeout_seconds": 1800
+  },
+  "budget_policy": {
+    "max_total_tokens": 1500000,
+    "max_cost_micro_usd": 15000000,
+    "max_wall_clock_seconds": 7200,
+    "max_turns": 80
+  },
+  "cancellation_policy": {
+    "cancel_on_budget_exhausted": true,
+    "cancel_on_timeout": true,
+    "allow_host_operator_cancel": true
+  },
+  "capability_requests": [
+    "network.publish"
+  ],
+  "agent_refs": [
+    {
+      "agent_id": "babel-translator",
+      "blake3": "e44708474be5400586c53a9158ee8622a65527d27a762e3341280c1b6d9f3d14"
+    },
+    {
+      "agent_id": "babel-reviewer",
+      "blake3": "121757207fe144b87deda7bf984cffafcce7c3d59d9d967f8f76ef129fb645b9"
+    }
+  ],
+  "subworkflow_refs": [
+    {
+      "workflow_id": "babel-polish-round",
+      "blake3": "ceea508a1ae2d1c1e9eedbd9dba93d1b8034f6ffb6dd77658e90e4b0930dd7fc"
+    }
+  ],
+  "artifact_outputs": [
+    {
+      "name": "published-translation",
+      "schema_ref": {
+        "schema_id": "publish-receipt",
+        "blake3": "ea2db51ccf063aebc7bf1780fba619b8cfe4652178ab07af4c4750e3438ee0f6"
+      },
+      "from_node": "published-out"
+    }
+  ]
+}

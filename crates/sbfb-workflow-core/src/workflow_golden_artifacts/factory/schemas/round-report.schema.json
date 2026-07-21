@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "One Codex verification round report.",
+  "type": "object",
+  "properties": {
+    "clean": {
+      "type": "boolean"
+    },
+    "gaps": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "clean",
+    "gaps"
+  ],
+  "additionalProperties": false
+}

@@ -397,7 +397,7 @@ impl std::error::Error for ProfileStale {}
 /// Windows and Linux, yet a genuinely different byte sequence — including a bare
 /// carriage return, which is significant in shell source — still yields a
 /// different digest, so "any real source drift ⇒ stale" holds fail-closed.
-fn canonicalise(bytes: &[u8]) -> Vec<u8> {
+pub(crate) fn canonicalise(bytes: &[u8]) -> Vec<u8> {
     let src = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(bytes);
     let mut out = Vec::with_capacity(src.len());
     let mut i = 0;

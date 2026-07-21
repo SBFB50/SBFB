@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Test-suite run arguments.",
+  "type": "object",
+  "properties": {
+    "suites": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "suites"
+  ],
+  "additionalProperties": false
+}

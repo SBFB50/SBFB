@@ -1,0 +1,41 @@
+{
+  "agent_id": "ideas-researcher",
+  "agent_version": 1,
+  "display_name": "Ideas researcher",
+  "description": "Researches a submitted idea against prior art.",
+  "instructions_ref": {
+    "prompt_id": "researcher-instructions",
+    "blake3": "c11e73031b47d31dbb6a1b49a3da5599ccf638dd7c22aac96f2c5d7e3047c27d"
+  },
+  "input_schema_ref": {
+    "schema_id": "idea-submission",
+    "blake3": "c83d6adba55681acfe5eb3a1fecbaab01351f5e69e1d0fc1f4a8a86bf3f8ce4d"
+  },
+  "output_schema_ref": {
+    "schema_id": "research-summary",
+    "blake3": "ac5d3576458750c99f316003d5f9f18b414a05be5273897cc1f2002986f775c9"
+  },
+  "model_policy": {
+    "provider_class": "cloud",
+    "model_id": "claude-opus-4-8",
+    "require_structured_output": true
+  },
+  "tool_refs": [],
+  "allowed_handoffs": [
+    "ideas-champion"
+  ],
+  "context_policy": {
+    "allowed_context_fields": [
+      "idea"
+    ]
+  },
+  "memory_policy": "run-scoped",
+  "guardrail_refs": [],
+  "approval_policy": "never",
+  "budget": {
+    "max_total_tokens": 800000,
+    "max_cost_micro_usd": 8000000,
+    "max_wall_clock_seconds": 3600,
+    "max_turns": 40
+  }
+}

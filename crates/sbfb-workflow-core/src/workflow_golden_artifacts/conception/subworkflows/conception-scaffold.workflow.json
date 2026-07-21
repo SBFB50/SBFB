@@ -1,0 +1,93 @@
+{
+  "workflow_id": "conception-scaffold",
+  "workflow_version": 1,
+  "description": "Shape the approved draft into the durable design record.",
+  "input_schema_ref": {
+    "schema_id": "polished",
+    "blake3": "97d2d79555cd20285fdddbc4f25312619c9317dc29cc922d18d876d91d7780de"
+  },
+  "output_schema_ref": {
+    "schema_id": "design-record",
+    "blake3": "410f14d50e75dee2a30779f72bf7e041b7b9f35a633a3ab0f722e4507a27229d"
+  },
+  "entrypoints": [
+    "cs-in"
+  ],
+  "nodes": {
+    "cs-in": {
+      "kind": "input",
+      "schema_ref": {
+        "schema_id": "polished",
+        "blake3": "97d2d79555cd20285fdddbc4f25312619c9317dc29cc922d18d876d91d7780de"
+      }
+    },
+    "cs-out": {
+      "kind": "output",
+      "schema_ref": {
+        "schema_id": "design-record",
+        "blake3": "410f14d50e75dee2a30779f72bf7e041b7b9f35a633a3ab0f722e4507a27229d"
+      },
+      "artifact_name": "design-record"
+    },
+    "shape": {
+      "kind": "transform",
+      "input_schema_ref": {
+        "schema_id": "polished",
+        "blake3": "97d2d79555cd20285fdddbc4f25312619c9317dc29cc922d18d876d91d7780de"
+      },
+      "output_schema_ref": {
+        "schema_id": "design-record",
+        "blake3": "410f14d50e75dee2a30779f72bf7e041b7b9f35a633a3ab0f722e4507a27229d"
+      },
+      "field_map": {
+        "design": "draft"
+      }
+    }
+  },
+  "edges": [
+    {
+      "from": "cs-in",
+      "from_port": "out",
+      "to": "shape",
+      "to_port": "in"
+    },
+    {
+      "from": "shape",
+      "from_port": "out",
+      "to": "cs-out",
+      "to_port": "in"
+    }
+  ],
+  "error_policy": {
+    "on_node_failure": "fail-workflow",
+    "max_retries_per_node": 1
+  },
+  "timeout_policy": {
+    "workflow_timeout_seconds": 300,
+    "default_node_timeout_seconds": 120
+  },
+  "budget_policy": {
+    "max_total_tokens": 10000,
+    "max_cost_micro_usd": 100000,
+    "max_wall_clock_seconds": 300,
+    "max_turns": 1
+  },
+  "cancellation_policy": {
+    "cancel_on_budget_exhausted": true,
+    "cancel_on_timeout": true,
+    "allow_host_operator_cancel": true
+  },
+  "capability_requests": [],
+  "agent_refs": [],
+  "subworkflow_refs": [],
+  "artifact_outputs": [
+    {
+      "name": "design-record",
+      "schema_ref": {
+        "schema_id": "design-record",
+        "blake3": "410f14d50e75dee2a30779f72bf7e041b7b9f35a633a3ab0f722e4507a27229d"
+      },
+      "from_node": "cs-out"
+    }
+  ]
+}

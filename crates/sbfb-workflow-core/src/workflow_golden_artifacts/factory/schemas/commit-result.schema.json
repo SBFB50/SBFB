@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Commit result.",
+  "type": "object",
+  "properties": {
+    "sha": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "sha"
+  ],
+  "additionalProperties": false
+}

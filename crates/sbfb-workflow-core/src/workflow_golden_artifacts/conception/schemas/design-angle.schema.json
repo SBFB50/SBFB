@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "One design angle — a single item of the map fan-out.",
+  "type": "object",
+  "properties": {
+    "angle": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "angle"
+  ],
+  "additionalProperties": false
+}

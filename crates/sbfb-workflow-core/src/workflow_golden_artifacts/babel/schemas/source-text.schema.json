@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Source text to translate.",
+  "type": "object",
+  "properties": {
+    "text": {
+      "type": "string"
+    },
+    "target_language": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "text",
+    "target_language"
+  ],
+  "additionalProperties": false
+}

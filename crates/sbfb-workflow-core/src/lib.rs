@@ -93,7 +93,23 @@
 //! [`contracts::all_contract_schemas`] (`len == 7`) while its filled schema
 //! refreshes `contracts.schema.json`.
 
+//! ## Sprint 83 Phase G — the workflow language
+//!
+//! [`graph`] and [`agent_definition`] fill `SBFBWorkflowGraph.v1` and
+//! `SBFBAgentDefinition.v1`: the data-flow plan (frozen 18-kind node roster,
+//! internally-tagged, fail-closed on unknown kinds and fields) and the bounded
+//! agent island (required multi-dimensional budgets, digest-pinned referents,
+//! required context filters). Both are re-exported from [`contracts`], staying
+//! entries 2/7 and 3/7 of the `len == 7` registry. Neither is signed on its
+//! own — they are pinned BY DIGEST inside the pack — so neither declares a
+//! `DOMAIN_*_V1` nor a format version. Four golden workflows (factory, ideas,
+//! conception, babel) are committed next to this crate's sources with their
+//! pinned artefact stores, and the node-profile freeze decision lives in
+//! `.planning/active/sprint83_node_profile_freeze.md`.
+
 pub mod accessibility_profile;
+pub mod agent_definition;
 pub mod contracts;
 pub mod factory_profile;
+pub mod graph;
 pub mod pack;

@@ -1,0 +1,370 @@
+{
+  "workflow_id": "factory-phase",
+  "workflow_version": 1,
+  "description": "One SBFB Factory phase: preflight scans, bounded implementation, independent review handed off with a filtered payload, bounded Codex rounds, human ratification, commit.",
+  "input_schema_ref": {
+    "schema_id": "phase-brief",
+    "blake3": "7d1a5407ce34439ff5bb1da8806c5116949ba46e2c2c8c97667df2ae9765e0ca"
+  },
+  "output_schema_ref": {
+    "schema_id": "phase-record",
+    "blake3": "c1a6ca92244f1df96cc7dcccb627904f3caeafd1904e5546ab497b90d2b3b28e"
+  },
+  "entrypoints": [
+    "phase-brief"
+  ],
+  "nodes": {
+    "codex-rounds": {
+      "kind": "repeat",
+      "max_iterations": 5,
+      "body_subworkflow_ref": {
+        "workflow_id": "factory-codex-round",
+        "blake3": "617579dd618b3951a43653ae0d100d5f2826c659c8b10f6e35966cf3f716ffe9"
+      },
+      "until_output_flag": "clean"
+    },
+    "commit-phase": {
+      "kind": "capability.call",
+      "capability_ref": "process.git_commit",
+      "args_schema_ref": {
+        "schema_id": "commit-args",
+        "blake3": "33f8dace84563971ba2c1b4f8a61567cbb77137d6fc1eb750173ee06e171de13"
+      },
+      "output_schema_ref": {
+        "schema_id": "commit-result",
+        "blake3": "4c84df06529b4c39b83f2c42eeea3e0b3b56ccbe8ad65c801824680c0d41d108"
+      }
+    },
+    "drive-implementation": {
+      "kind": "agent.invoke",
+      "agent_id": "factory-driver",
+      "budget": {
+        "max_total_tokens": 1500000,
+        "max_cost_micro_usd": 15000000,
+        "max_wall_clock_seconds": 5400,
+        "max_turns": 60
+      }
+    },
+    "handoff-to-review": {
+      "kind": "handoff",
+      "target_agent_id": "factory-reviewer",
+      "payload_schema_ref": {
+        "schema_id": "review-payload",
+        "blake3": "007c4f9ba6165f91480ff61091fe089531540d9bd9a9e0ca1b2ea6b58f299c58"
+      },
+      "context_policy": {
+        "allowed_context_fields": [
+          "phase-task",
+          "diff-summary",
+          "suites-report"
+        ]
+      }
+    },
+    "independent-review": {
+      "kind": "agent.invoke",
+      "agent_id": "factory-reviewer",
+      "budget": {
+        "max_total_tokens": 800000,
+        "max_cost_micro_usd": 8000000,
+        "max_wall_clock_seconds": 3600,
+        "max_turns": 40
+      }
+    },
+    "normalise-brief": {
+      "kind": "transform",
+      "input_schema_ref": {
+        "schema_id": "phase-brief",
+        "blake3": "7d1a5407ce34439ff5bb1da8806c5116949ba46e2c2c8c97667df2ae9765e0ca"
+      },
+      "output_schema_ref": {
+        "schema_id": "phase-task",
+        "blake3": "f02ab2ab4a748822927c2680e5f74d4895f0c072e3584f129c53dffb93f5dd50"
+      },
+      "field_map": {
+        "task": "objective"
+      }
+    },
+    "phase-brief": {
+      "kind": "input",
+      "schema_ref": {
+        "schema_id": "phase-brief",
+        "blake3": "7d1a5407ce34439ff5bb1da8806c5116949ba46e2c2c8c97667df2ae9765e0ca"
+      }
+    },
+    "phase-record": {
+      "kind": "output",
+      "schema_ref": {
+        "schema_id": "phase-record",
+        "blake3": "c1a6ca92244f1df96cc7dcccb627904f3caeafd1904e5546ab497b90d2b3b28e"
+      },
+      "artifact_name": "phase-record"
+    },
+    "po-ratification": {
+      "kind": "human.review",
+      "payload_schema_ref": {
+        "schema_id": "review-verdict",
+        "blake3": "e00b2fe0f51312de3021d74b72b647789bdb50049737ad488c99c7d100546ae5"
+      },
+      "decision_labels": [
+        "approve",
+        "reject"
+      ]
+    },
+    "preflight-join": {
+      "kind": "join",
+      "policy": {
+        "mode": "all"
+      },
+      "source_node_ids": [
+        "scan-prior-art",
+        "scan-decisions",
+        "scan-threat"
+      ]
+    },
+    "preflight-scans": {
+      "kind": "parallel",
+      "branch_labels": [
+        "prior-art",
+        "decisions",
+        "threat"
+      ]
+    },
+    "rejection-record": {
+      "kind": "output",
+      "schema_ref": {
+        "schema_id": "review-verdict",
+        "blake3": "e00b2fe0f51312de3021d74b72b647789bdb50049737ad488c99c7d100546ae5"
+      },
+      "artifact_name": "rejection-record"
+    },
+    "run-suites": {
+      "kind": "capability.call",
+      "capability_ref": "process.run_tests",
+      "args_schema_ref": {
+        "schema_id": "suites-args",
+        "blake3": "373ae525387255d29d51ec88e72427deaef1b3c225e8daef0f3f2f2e7f25c324"
+      },
+      "output_schema_ref": {
+        "schema_id": "suites-report",
+        "blake3": "39a6757da658fb533a81ccf17bc5c88bacf65a72cfb63253128c0c60e5cff541"
+      }
+    },
+    "scan-decisions": {
+      "kind": "knowledge.query",
+      "corpus_ref": {
+        "corpus_id": "repo-decisions",
+        "blake3": "a8b4929ab5fc1c429c8a2edab0ca41d433cb5cefe76d632b80ae442c254ad661"
+      },
+      "query_schema_ref": {
+        "schema_id": "phase-task",
+        "blake3": "f02ab2ab4a748822927c2680e5f74d4895f0c072e3584f129c53dffb93f5dd50"
+      },
+      "output_schema_ref": {
+        "schema_id": "scan-finding",
+        "blake3": "78317205fa6b76db5d45072db785cc165f429f002386419971d093e80c8e8d37"
+      }
+    },
+    "scan-prior-art": {
+      "kind": "knowledge.query",
+      "corpus_ref": {
+        "corpus_id": "oss-prior-art",
+        "blake3": "b6626a95c764eadc992ae92d4e91a8a6129125b348aa1bfea30bf5a2fc193ca0"
+      },
+      "query_schema_ref": {
+        "schema_id": "phase-task",
+        "blake3": "f02ab2ab4a748822927c2680e5f74d4895f0c072e3584f129c53dffb93f5dd50"
+      },
+      "output_schema_ref": {
+        "schema_id": "scan-finding",
+        "blake3": "78317205fa6b76db5d45072db785cc165f429f002386419971d093e80c8e8d37"
+      }
+    },
+    "scan-threat": {
+      "kind": "model.invoke",
+      "prompt_ref": {
+        "prompt_id": "threat-scan",
+        "blake3": "8a38829e6fb5837a1d8e5feec7066dae3eb3e060c1f125c1c17fbde2b3e71473"
+      },
+      "input_schema_ref": {
+        "schema_id": "phase-task",
+        "blake3": "f02ab2ab4a748822927c2680e5f74d4895f0c072e3584f129c53dffb93f5dd50"
+      },
+      "output_schema_ref": {
+        "schema_id": "scan-finding",
+        "blake3": "78317205fa6b76db5d45072db785cc165f429f002386419971d093e80c8e8d37"
+      },
+      "model_policy": {
+        "provider_class": "local",
+        "model_id": "qwen3:14b",
+        "require_structured_output": true
+      },
+      "budget": {
+        "max_total_tokens": 100000,
+        "max_cost_micro_usd": 1000000,
+        "max_wall_clock_seconds": 600,
+        "max_turns": 4
+      }
+    }
+  },
+  "edges": [
+    {
+      "from": "phase-brief",
+      "from_port": "out",
+      "to": "normalise-brief",
+      "to_port": "in"
+    },
+    {
+      "from": "normalise-brief",
+      "from_port": "out",
+      "to": "preflight-scans",
+      "to_port": "in"
+    },
+    {
+      "from": "preflight-scans",
+      "from_port": "prior-art",
+      "to": "scan-prior-art",
+      "to_port": "in"
+    },
+    {
+      "from": "preflight-scans",
+      "from_port": "decisions",
+      "to": "scan-decisions",
+      "to_port": "in"
+    },
+    {
+      "from": "preflight-scans",
+      "from_port": "threat",
+      "to": "scan-threat",
+      "to_port": "in"
+    },
+    {
+      "from": "scan-prior-art",
+      "from_port": "out",
+      "to": "preflight-join",
+      "to_port": "in"
+    },
+    {
+      "from": "scan-decisions",
+      "from_port": "out",
+      "to": "preflight-join",
+      "to_port": "in"
+    },
+    {
+      "from": "scan-threat",
+      "from_port": "out",
+      "to": "preflight-join",
+      "to_port": "in"
+    },
+    {
+      "from": "preflight-join",
+      "from_port": "out",
+      "to": "drive-implementation",
+      "to_port": "in"
+    },
+    {
+      "from": "drive-implementation",
+      "from_port": "out",
+      "to": "handoff-to-review",
+      "to_port": "in"
+    },
+    {
+      "from": "handoff-to-review",
+      "from_port": "to",
+      "to": "independent-review",
+      "to_port": "in"
+    },
+    {
+      "from": "independent-review",
+      "from_port": "out",
+      "to": "run-suites",
+      "to_port": "in"
+    },
+    {
+      "from": "run-suites",
+      "from_port": "out",
+      "to": "codex-rounds",
+      "to_port": "in"
+    },
+    {
+      "from": "codex-rounds",
+      "from_port": "out",
+      "to": "po-ratification",
+      "to_port": "in"
+    },
+    {
+      "from": "po-ratification",
+      "from_port": "approve",
+      "to": "commit-phase",
+      "to_port": "in"
+    },
+    {
+      "from": "po-ratification",
+      "from_port": "reject",
+      "to": "rejection-record",
+      "to_port": "in"
+    },
+    {
+      "from": "commit-phase",
+      "from_port": "out",
+      "to": "phase-record",
+      "to_port": "in"
+    }
+  ],
+  "error_policy": {
+    "on_node_failure": "fail-workflow",
+    "max_retries_per_node": 1
+  },
+  "timeout_policy": {
+    "workflow_timeout_seconds": 14400,
+    "default_node_timeout_seconds": 5400
+  },
+  "budget_policy": {
+    "max_total_tokens": 4000000,
+    "max_cost_micro_usd": 40000000,
+    "max_wall_clock_seconds": 14400,
+    "max_turns": 200
+  },
+  "cancellation_policy": {
+    "cancel_on_budget_exhausted": true,
+    "cancel_on_timeout": true,
+    "allow_host_operator_cancel": true
+  },
+  "capability_requests": [
+    "process.run_tests",
+    "process.git_commit"
+  ],
+  "agent_refs": [
+    {
+      "agent_id": "factory-driver",
+      "blake3": "f4b8eb0ecc53e7facf37a89d224d8a7744c81687cc66b1148686694ec8c8b697"
+    },
+    {
+      "agent_id": "factory-reviewer",
+      "blake3": "9ee4bb1c11b2cba6a00994143f3f0f62abc0a856dc7771071a982b948329a41e"
+    }
+  ],
+  "subworkflow_refs": [
+    {
+      "workflow_id": "factory-codex-round",
+      "blake3": "617579dd618b3951a43653ae0d100d5f2826c659c8b10f6e35966cf3f716ffe9"
+    }
+  ],
+  "artifact_outputs": [
+    {
+      "name": "phase-record",
+      "schema_ref": {
+        "schema_id": "phase-record",
+        "blake3": "c1a6ca92244f1df96cc7dcccb627904f3caeafd1904e5546ab497b90d2b3b28e"
+      },
+      "from_node": "phase-record"
+    },
+    {
+      "name": "rejection-record",
+      "schema_ref": {
+        "schema_id": "review-verdict",
+        "blake3": "e00b2fe0f51312de3021d74b72b647789bdb50049737ad488c99c7d100546ae5"
+      },
+      "from_node": "rejection-record"
+    }
+  ]
+}

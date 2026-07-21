@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "One Codex verification round input.",
+  "type": "object",
+  "properties": {
+    "review_verdict": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "review_verdict"
+  ],
+  "additionalProperties": false
+}

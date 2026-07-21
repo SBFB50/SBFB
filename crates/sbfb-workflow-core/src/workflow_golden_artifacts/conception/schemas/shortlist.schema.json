@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Judged shortlist handed to the editor.",
+  "type": "object",
+  "properties": {
+    "shortlist": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "brief": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "shortlist",
+    "brief"
+  ],
+  "additionalProperties": false
+}

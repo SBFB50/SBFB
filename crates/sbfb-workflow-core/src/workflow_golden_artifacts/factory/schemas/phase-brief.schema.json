@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "One SBFB phase brief.",
+  "type": "object",
+  "properties": {
+    "sprint": {
+      "type": "string"
+    },
+    "phase": {
+      "type": "string"
+    },
+    "objective": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "sprint",
+    "phase",
+    "objective"
+  ],
+  "additionalProperties": false
+}

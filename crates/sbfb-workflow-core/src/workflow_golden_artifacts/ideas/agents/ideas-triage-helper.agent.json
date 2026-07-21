@@ -1,0 +1,39 @@
+{
+  "agent_id": "ideas-triage-helper",
+  "agent_version": 1,
+  "display_name": "Triage helper",
+  "description": "Bounded reproduction sub-task; returns to the parent.",
+  "instructions_ref": {
+    "prompt_id": "triage-helper-instructions",
+    "blake3": "4ad1c4b71f0bbea41abc9387d0d65368081da98fc38e27bded74cc0b4aaf1567"
+  },
+  "input_schema_ref": {
+    "schema_id": "idea-submission",
+    "blake3": "c83d6adba55681acfe5eb3a1fecbaab01351f5e69e1d0fc1f4a8a86bf3f8ce4d"
+  },
+  "output_schema_ref": {
+    "schema_id": "repro-report",
+    "blake3": "28325dbaca5df579398127bb692f364e35b7b723befc5fb2a1d2d6051430c010"
+  },
+  "model_policy": {
+    "provider_class": "local",
+    "model_id": "qwen3:14b",
+    "require_structured_output": true
+  },
+  "tool_refs": [],
+  "allowed_handoffs": [],
+  "context_policy": {
+    "allowed_context_fields": [
+      "idea"
+    ]
+  },
+  "memory_policy": "none",
+  "guardrail_refs": [],
+  "approval_policy": "never",
+  "budget": {
+    "max_total_tokens": 200000,
+    "max_cost_micro_usd": 2000000,
+    "max_wall_clock_seconds": 1200,
+    "max_turns": 10
+  }
+}

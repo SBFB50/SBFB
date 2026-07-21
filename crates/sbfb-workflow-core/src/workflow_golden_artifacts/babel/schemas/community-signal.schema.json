@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Typed community review-complete signal.",
+  "type": "object",
+  "properties": {
+    "approvals": {
+      "type": "integer"
+    }
+  },
+  "required": [
+    "approvals"
+  ],
+  "additionalProperties": false
+}

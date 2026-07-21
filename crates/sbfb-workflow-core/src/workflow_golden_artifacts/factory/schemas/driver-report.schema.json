@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Driver implementation report.",
+  "type": "object",
+  "properties": {
+    "diff_summary": {
+      "type": "string"
+    },
+    "tests_added": {
+      "type": "integer"
+    }
+  },
+  "required": [
+    "diff_summary",
+    "tests_added"
+  ],
+  "additionalProperties": false
+}

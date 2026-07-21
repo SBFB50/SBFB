@@ -1,0 +1,336 @@
+{
+  "workflow_id": "conception-studio",
+  "workflow_version": 1,
+  "description": "Conception studio: bounded variant fan-out, parallel checks, judged shortlist handed to the editor, polish rounds, scaffolded record.",
+  "input_schema_ref": {
+    "schema_id": "design-brief",
+    "blake3": "d9ca7988b7e6597fb95a3d73ead13c7067fc99e1fbfd8dadcf99a1d74db9b771"
+  },
+  "output_schema_ref": {
+    "schema_id": "record-receipt",
+    "blake3": "9cb0aa90d8f99f853dd1deaa95eea2ba68805026b003dfbf0d302152edd7aeb1"
+  },
+  "entrypoints": [
+    "brief-in"
+  ],
+  "nodes": {
+    "brief-in": {
+      "kind": "input",
+      "schema_ref": {
+        "schema_id": "design-brief",
+        "blake3": "d9ca7988b7e6597fb95a3d73ead13c7067fc99e1fbfd8dadcf99a1d74db9b771"
+      }
+    },
+    "checks": {
+      "kind": "parallel",
+      "branch_labels": [
+        "docs",
+        "feasibility"
+      ]
+    },
+    "checks-join": {
+      "kind": "join",
+      "policy": {
+        "mode": "all"
+      },
+      "source_node_ids": [
+        "docs-check",
+        "feasibility-check"
+      ]
+    },
+    "design-out": {
+      "kind": "output",
+      "schema_ref": {
+        "schema_id": "record-receipt",
+        "blake3": "9cb0aa90d8f99f853dd1deaa95eea2ba68805026b003dfbf0d302152edd7aeb1"
+      },
+      "artifact_name": "design-receipt"
+    },
+    "docs-check": {
+      "kind": "knowledge.query",
+      "corpus_ref": {
+        "corpus_id": "design-patterns",
+        "blake3": "899b65ff822ae201b5c7b2c9051f06dfba50e107f26da600c963c9192bdc6d5f"
+      },
+      "query_schema_ref": {
+        "schema_id": "design-brief",
+        "blake3": "d9ca7988b7e6597fb95a3d73ead13c7067fc99e1fbfd8dadcf99a1d74db9b771"
+      },
+      "output_schema_ref": {
+        "schema_id": "checks-report",
+        "blake3": "ca2f4ff02378c2174b885bf14dca9ef0b7a3f96e31eacee8478cadc5ac6cc511"
+      }
+    },
+    "editor-handoff": {
+      "kind": "handoff",
+      "target_agent_id": "conception-editor",
+      "payload_schema_ref": {
+        "schema_id": "shortlist",
+        "blake3": "4547aeae2197c346378f9d2f41ab7932c62704a293efaba301687c76ef8a4ebd"
+      },
+      "context_policy": {
+        "allowed_context_fields": [
+          "shortlist",
+          "brief"
+        ]
+      }
+    },
+    "editor-pass": {
+      "kind": "agent.invoke",
+      "agent_id": "conception-editor",
+      "budget": {
+        "max_total_tokens": 400000,
+        "max_cost_micro_usd": 4000000,
+        "max_wall_clock_seconds": 1800,
+        "max_turns": 20
+      }
+    },
+    "expand": {
+      "kind": "model.invoke",
+      "prompt_ref": {
+        "prompt_id": "expand-brief",
+        "blake3": "9695b2d2275305e4b10550fd1e1673cbc69249f92fc5590e9ad69363c29e4fc1"
+      },
+      "input_schema_ref": {
+        "schema_id": "design-brief",
+        "blake3": "d9ca7988b7e6597fb95a3d73ead13c7067fc99e1fbfd8dadcf99a1d74db9b771"
+      },
+      "output_schema_ref": {
+        "schema_id": "angle-list",
+        "blake3": "dda5ace3b8a6de521768c300f163aec89eefb6cdc734dbbe77d516da4fa703bd"
+      },
+      "model_policy": {
+        "provider_class": "cloud",
+        "model_id": "claude-opus-4-8",
+        "require_structured_output": true
+      },
+      "budget": {
+        "max_total_tokens": 100000,
+        "max_cost_micro_usd": 1000000,
+        "max_wall_clock_seconds": 600,
+        "max_turns": 2
+      }
+    },
+    "feasibility-check": {
+      "kind": "model.invoke",
+      "prompt_ref": {
+        "prompt_id": "feasibility",
+        "blake3": "0cbfee50643fcd6d230da98e43640188d0d40e83b9d07e4bdd2dba66da6aa8e1"
+      },
+      "input_schema_ref": {
+        "schema_id": "design-brief",
+        "blake3": "d9ca7988b7e6597fb95a3d73ead13c7067fc99e1fbfd8dadcf99a1d74db9b771"
+      },
+      "output_schema_ref": {
+        "schema_id": "checks-report",
+        "blake3": "ca2f4ff02378c2174b885bf14dca9ef0b7a3f96e31eacee8478cadc5ac6cc511"
+      },
+      "model_policy": {
+        "provider_class": "local",
+        "model_id": "qwen3:14b",
+        "require_structured_output": true
+      },
+      "budget": {
+        "max_total_tokens": 60000,
+        "max_cost_micro_usd": 600000,
+        "max_wall_clock_seconds": 300,
+        "max_turns": 2
+      }
+    },
+    "judge": {
+      "kind": "agent.invoke",
+      "agent_id": "conception-judge",
+      "budget": {
+        "max_total_tokens": 600000,
+        "max_cost_micro_usd": 6000000,
+        "max_wall_clock_seconds": 2700,
+        "max_turns": 25
+      }
+    },
+    "polish-rounds": {
+      "kind": "repeat",
+      "max_iterations": 3,
+      "body_subworkflow_ref": {
+        "workflow_id": "conception-polish-round",
+        "blake3": "79ebbcb9191f0b59f2391aa0cae0009f3c8a201adf3d28d0eca60ee6ba842faa"
+      },
+      "until_output_flag": "approved"
+    },
+    "record-design": {
+      "kind": "capability.call",
+      "capability_ref": "storage.set",
+      "args_schema_ref": {
+        "schema_id": "record-args",
+        "blake3": "c4183bc349dc317daf79813b220ac7418d886d8cdd7e835eacedc1e86b54a8f3"
+      },
+      "output_schema_ref": {
+        "schema_id": "record-receipt",
+        "blake3": "9cb0aa90d8f99f853dd1deaa95eea2ba68805026b003dfbf0d302152edd7aeb1"
+      }
+    },
+    "scaffold": {
+      "kind": "subworkflow",
+      "subworkflow_ref": {
+        "workflow_id": "conception-scaffold",
+        "blake3": "c7b38558a7ef9ae3ff4a182512e078de867a7468e51ac0977d99f1053e730e25"
+      }
+    },
+    "variant-fanout": {
+      "kind": "map",
+      "collection_field": "angles",
+      "max_cardinality": 4,
+      "body_subworkflow_ref": {
+        "workflow_id": "conception-variant",
+        "blake3": "b012df2320811594a576b3173bf854ab7e7be82e359cd4570b03a10174195688"
+      }
+    }
+  },
+  "edges": [
+    {
+      "from": "brief-in",
+      "from_port": "out",
+      "to": "expand",
+      "to_port": "in"
+    },
+    {
+      "from": "expand",
+      "from_port": "out",
+      "to": "variant-fanout",
+      "to_port": "in"
+    },
+    {
+      "from": "brief-in",
+      "from_port": "out",
+      "to": "checks",
+      "to_port": "in"
+    },
+    {
+      "from": "checks",
+      "from_port": "docs",
+      "to": "docs-check",
+      "to_port": "in"
+    },
+    {
+      "from": "checks",
+      "from_port": "feasibility",
+      "to": "feasibility-check",
+      "to_port": "in"
+    },
+    {
+      "from": "docs-check",
+      "from_port": "out",
+      "to": "checks-join",
+      "to_port": "in"
+    },
+    {
+      "from": "feasibility-check",
+      "from_port": "out",
+      "to": "checks-join",
+      "to_port": "in"
+    },
+    {
+      "from": "variant-fanout",
+      "from_port": "out",
+      "to": "judge",
+      "to_port": "in"
+    },
+    {
+      "from": "checks-join",
+      "from_port": "out",
+      "to": "judge",
+      "to_port": "checks"
+    },
+    {
+      "from": "judge",
+      "from_port": "out",
+      "to": "editor-handoff",
+      "to_port": "in"
+    },
+    {
+      "from": "editor-handoff",
+      "from_port": "to",
+      "to": "editor-pass",
+      "to_port": "in"
+    },
+    {
+      "from": "editor-pass",
+      "from_port": "out",
+      "to": "polish-rounds",
+      "to_port": "in"
+    },
+    {
+      "from": "polish-rounds",
+      "from_port": "out",
+      "to": "scaffold",
+      "to_port": "in"
+    },
+    {
+      "from": "scaffold",
+      "from_port": "out",
+      "to": "record-design",
+      "to_port": "in"
+    },
+    {
+      "from": "record-design",
+      "from_port": "out",
+      "to": "design-out",
+      "to_port": "in"
+    }
+  ],
+  "error_policy": {
+    "on_node_failure": "fail-workflow",
+    "max_retries_per_node": 1
+  },
+  "timeout_policy": {
+    "workflow_timeout_seconds": 10800,
+    "default_node_timeout_seconds": 2700
+  },
+  "budget_policy": {
+    "max_total_tokens": 3000000,
+    "max_cost_micro_usd": 30000000,
+    "max_wall_clock_seconds": 10800,
+    "max_turns": 120
+  },
+  "cancellation_policy": {
+    "cancel_on_budget_exhausted": true,
+    "cancel_on_timeout": true,
+    "allow_host_operator_cancel": true
+  },
+  "capability_requests": [
+    "storage.set"
+  ],
+  "agent_refs": [
+    {
+      "agent_id": "conception-judge",
+      "blake3": "4e4ae104d6bebfd0962470b05be82ec949427d792624722ff98ed2b8970ec63a"
+    },
+    {
+      "agent_id": "conception-editor",
+      "blake3": "c9449df8f8b0d3b13ea9de93568c70df05d76311b41a032860ba19f1303d4270"
+    }
+  ],
+  "subworkflow_refs": [
+    {
+      "workflow_id": "conception-variant",
+      "blake3": "b012df2320811594a576b3173bf854ab7e7be82e359cd4570b03a10174195688"
+    },
+    {
+      "workflow_id": "conception-polish-round",
+      "blake3": "79ebbcb9191f0b59f2391aa0cae0009f3c8a201adf3d28d0eca60ee6ba842faa"
+    },
+    {
+      "workflow_id": "conception-scaffold",
+      "blake3": "c7b38558a7ef9ae3ff4a182512e078de867a7468e51ac0977d99f1053e730e25"
+    }
+  ],
+  "artifact_outputs": [
+    {
+      "name": "design-receipt",
+      "schema_ref": {
+        "schema_id": "record-receipt",
+        "blake3": "9cb0aa90d8f99f853dd1deaa95eea2ba68805026b003dfbf0d302152edd7aeb1"
+      },
+      "from_node": "design-out"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Storage write receipt.",
+  "type": "object",
+  "properties": {
+    "stored": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "stored"
+  ],
+  "additionalProperties": false
+}

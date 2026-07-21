@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "One polish round report.",
+  "type": "object",
+  "properties": {
+    "draft": {
+      "type": "string"
+    },
+    "quality_ok": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "draft",
+    "quality_ok"
+  ],
+  "additionalProperties": false
+}

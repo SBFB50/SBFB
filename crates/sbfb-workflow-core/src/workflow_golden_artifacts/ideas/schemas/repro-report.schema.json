@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Bug reproduction report.",
+  "type": "object",
+  "properties": {
+    "repro_steps": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "confirmed": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "repro_steps",
+    "confirmed"
+  ],
+  "additionalProperties": false
+}

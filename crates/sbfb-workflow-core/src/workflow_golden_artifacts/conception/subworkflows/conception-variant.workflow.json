@@ -1,0 +1,105 @@
+{
+  "workflow_id": "conception-variant",
+  "workflow_version": 1,
+  "description": "Produce one design variant for one angle.",
+  "input_schema_ref": {
+    "schema_id": "design-angle",
+    "blake3": "660f53c8aa528368826ccc5baba30448e9b0e9d79b810522168baa99bb9e069e"
+  },
+  "output_schema_ref": {
+    "schema_id": "variant",
+    "blake3": "1664e598453c1ea0fee0045d07e844f21f43776f5484890307bee8f5d013e64c"
+  },
+  "entrypoints": [
+    "cv-in"
+  ],
+  "nodes": {
+    "cv-in": {
+      "kind": "input",
+      "schema_ref": {
+        "schema_id": "design-angle",
+        "blake3": "660f53c8aa528368826ccc5baba30448e9b0e9d79b810522168baa99bb9e069e"
+      }
+    },
+    "cv-out": {
+      "kind": "output",
+      "schema_ref": {
+        "schema_id": "variant",
+        "blake3": "1664e598453c1ea0fee0045d07e844f21f43776f5484890307bee8f5d013e64c"
+      },
+      "artifact_name": "variant"
+    },
+    "propose": {
+      "kind": "model.invoke",
+      "prompt_ref": {
+        "prompt_id": "design-variant",
+        "blake3": "49abe700fa4a4f5ad5dcf8996f85821b667071e6b8522880d481175c48542f57"
+      },
+      "input_schema_ref": {
+        "schema_id": "design-angle",
+        "blake3": "660f53c8aa528368826ccc5baba30448e9b0e9d79b810522168baa99bb9e069e"
+      },
+      "output_schema_ref": {
+        "schema_id": "variant",
+        "blake3": "1664e598453c1ea0fee0045d07e844f21f43776f5484890307bee8f5d013e64c"
+      },
+      "model_policy": {
+        "provider_class": "cloud",
+        "model_id": "claude-opus-4-8",
+        "require_structured_output": true
+      },
+      "budget": {
+        "max_total_tokens": 120000,
+        "max_cost_micro_usd": 1200000,
+        "max_wall_clock_seconds": 600,
+        "max_turns": 2
+      }
+    }
+  },
+  "edges": [
+    {
+      "from": "cv-in",
+      "from_port": "out",
+      "to": "propose",
+      "to_port": "in"
+    },
+    {
+      "from": "propose",
+      "from_port": "out",
+      "to": "cv-out",
+      "to_port": "in"
+    }
+  ],
+  "error_policy": {
+    "on_node_failure": "fail-workflow",
+    "max_retries_per_node": 1
+  },
+  "timeout_policy": {
+    "workflow_timeout_seconds": 900,
+    "default_node_timeout_seconds": 600
+  },
+  "budget_policy": {
+    "max_total_tokens": 150000,
+    "max_cost_micro_usd": 1500000,
+    "max_wall_clock_seconds": 900,
+    "max_turns": 4
+  },
+  "cancellation_policy": {
+    "cancel_on_budget_exhausted": true,
+    "cancel_on_timeout": true,
+    "allow_host_operator_cancel": true
+  },
+  "capability_requests": [],
+  "agent_refs": [],
+  "subworkflow_refs": [],
+  "artifact_outputs": [
+    {
+      "name": "variant",
+      "schema_ref": {
+        "schema_id": "variant",
+        "blake3": "1664e598453c1ea0fee0045d07e844f21f43776f5484890307bee8f5d013e64c"
+      },
+      "from_node": "cv-out"
+    }
+  ]
+}

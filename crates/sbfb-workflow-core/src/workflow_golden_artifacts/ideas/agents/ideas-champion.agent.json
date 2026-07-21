@@ -1,0 +1,39 @@
+{
+  "agent_id": "ideas-champion",
+  "agent_version": 1,
+  "display_name": "Idea champion",
+  "description": "Owns the researched idea and its refinement.",
+  "instructions_ref": {
+    "prompt_id": "champion-instructions",
+    "blake3": "60acc0f372dbaaf9cab89490d1381b7f365dba9b47b3110fd7ed4235fef60697"
+  },
+  "input_schema_ref": {
+    "schema_id": "champion-payload",
+    "blake3": "826065b844aec82a80de3de8adcc0aaa9c7797a3335c5fd62bb34b990074a623"
+  },
+  "output_schema_ref": {
+    "schema_id": "champion-verdict",
+    "blake3": "dff06c20872ee88f2b08e9731b82fb8d6fb2014c9363d6bc3929611833d4b9b8"
+  },
+  "model_policy": {
+    "provider_class": "claude-code",
+    "model_id": "claude-opus-4-8",
+    "require_structured_output": true
+  },
+  "tool_refs": [],
+  "allowed_handoffs": [],
+  "context_policy": {
+    "allowed_context_fields": [
+      "champion-payload"
+    ]
+  },
+  "memory_policy": "agent-scoped",
+  "guardrail_refs": [],
+  "approval_policy": "on-sensitive-effect",
+  "budget": {
+    "max_total_tokens": 600000,
+    "max_cost_micro_usd": 6000000,
+    "max_wall_clock_seconds": 2700,
+    "max_turns": 30
+  }
+}

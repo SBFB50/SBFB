@@ -2,15 +2,16 @@
 //! Versioned contract identities for the Workflow Agents chantier.
 //!
 //! Each type below is a NAMED FRONTIER reserved in Sprint 83 Phase A. Bodies are
-//! authored in a dedicated contract phase per identity (pack format, workflow
-//! graph, run journal, and so on) — most are still empty stubs; the first to be
-//! filled is `FactoryProcessProfile.v1` (Phase D, defined in
-//! [`crate::factory_profile`] and re-exported here). What Phase A locks is the
-//! IDENTITY — the schemars `title` carries the `.v1` contract name — and that
-//! every identity emits a valid JSON Schema draft 2020-12 object. The generated
-//! schemas are pinned by the `schema_snapshot_stub` golden test against
-//! `contracts.schema.json` next to this module so an identity cannot drift
-//! silently as fields are added.
+//! authored in a dedicated contract phase per identity: `FactoryProcessProfile.v1`
+//! (Phase D, [`crate::factory_profile`]), `SBFBPromptAgentPack.v1` (Phase F,
+//! [`crate::pack`]), then `SBFBWorkflowGraph.v1` + `SBFBAgentDefinition.v1`
+//! (Phase G, [`crate::graph`] / [`crate::agent_definition`]); the run-journal,
+//! compiled-plan and public-projection identities are still empty stubs. What
+//! Phase A locks is the IDENTITY — the schemars `title` carries the `.v1`
+//! contract name — and that every identity emits a valid JSON Schema draft
+//! 2020-12 object. The generated schemas are pinned by the
+//! `schema_snapshot_stub` golden test against `contracts.schema.json` next to
+//! this module so an identity cannot drift silently as fields are added.
 //!
 //! Pre-launch protocol: these are NEW contract identities, not a bump of any
 //! existing wire format. No `*_FORMAT_VERSION` const and no `DOMAIN_*_V1`
@@ -47,22 +48,24 @@ pub use crate::factory_profile::FactoryProcessProfile;
 pub use crate::pack::SbfbPromptAgentPack;
 
 /// `SBFBWorkflowGraph.v1` — the data-flow workflow graph (D4): typed ports,
-/// bounded `repeat`, subworkflows, `human.review`, `wait.signal`. The signed
-/// graph IS the plan; no LLM extends it. Frontier stub — node profile
-/// authored in the workflow-language phase.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[schemars(title = "SBFBWorkflowGraph.v1")]
-pub struct SbfbWorkflowGraph {}
+/// bounded `repeat`/`map` over pinned subworkflows, static routing labels,
+/// `human.review`, `wait.signal`. The signed graph IS the plan; no LLM
+/// extends it. Sprint 83 Phase A reserved this identity as an empty stub;
+/// Phase G authored its fields in the dedicated [`crate::graph`] module (the
+/// frozen 18-kind node roster, required multi-dimensional budgets, the four
+/// committed workflow goldens). It is re-exported here so it stays entry 2/7
+/// of [`all_contract_schemas`]; filling it refreshed `contracts.schema.json`
+/// while keeping the registry `len == 7`.
+pub use crate::graph::SbfbWorkflowGraph;
 
 /// `SBFBAgentDefinition.v1` — one bounded agent island inside a pack (D4):
-/// prompt, policies, budgets, declared dependencies. `handoff` (explicit
-/// transfer) is distinct from `agent.as_tool`. Frontier stub — fields
-/// authored in the workflow-language phase.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[schemars(title = "SBFBAgentDefinition.v1")]
-pub struct SbfbAgentDefinition {}
+/// pinned instructions, policies, budgets, declared dependencies. `handoff`
+/// (explicit transfer) is distinct from `agent.as_tool`. Sprint 83 Phase A
+/// reserved this identity as an empty stub; Phase G authored its fields in
+/// the dedicated [`crate::agent_definition`] module. It is re-exported here
+/// so it stays entry 3/7 of [`all_contract_schemas`]; filling it refreshed
+/// `contracts.schema.json` while keeping the registry `len == 7`.
+pub use crate::agent_definition::SbfbAgentDefinition;
 
 /// `RunEvent.v1` — one append-only run-journal entry (D3), primary key
 /// `(run_id, sequence)`, with an idempotency key on effects. The journal is

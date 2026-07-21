@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Design angles to explore; each item is one design-angle object, the exact input of the map body subworkflow.",
+  "type": "object",
+  "properties": {
+    "angles": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "angle": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "angle"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "angles"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Docs + feasibility checks result.",
+  "type": "object",
+  "properties": {
+    "docs_ok": {
+      "type": "boolean"
+    },
+    "feasible": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "docs_ok",
+    "feasible"
+  ],
+  "additionalProperties": false
+}

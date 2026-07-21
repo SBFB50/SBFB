@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "One submitted idea. Publication is decided later by the human champion gate, never by a submitted or model-produced field.",
+  "type": "object",
+  "properties": {
+    "idea": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "idea"
+  ],
+  "additionalProperties": false
+}

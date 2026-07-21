@@ -1,0 +1,39 @@
+{
+  "agent_id": "factory-codex-verifier",
+  "agent_version": 1,
+  "display_name": "Codex verifier",
+  "description": "External cross-verification; raw output.",
+  "instructions_ref": {
+    "prompt_id": "codex-instructions",
+    "blake3": "a93374ff30a05b14871cd327f0281e0efc74df4e1749e606004878bd058d45c1"
+  },
+  "input_schema_ref": {
+    "schema_id": "round-input",
+    "blake3": "02ddfcc915bf870726e28f1266789373569ab3abb9c2e17ea3c79c57cb758acd"
+  },
+  "output_schema_ref": {
+    "schema_id": "round-report",
+    "blake3": "c785c6039ff3399f49cb28b8607ae4c8bf13f58a6536815c03fe5fa16dabce20"
+  },
+  "model_policy": {
+    "provider_class": "codex",
+    "model_id": "gpt-5.6-sol",
+    "require_structured_output": true
+  },
+  "tool_refs": [],
+  "allowed_handoffs": [],
+  "context_policy": {
+    "allowed_context_fields": [
+      "round-input"
+    ]
+  },
+  "memory_policy": "none",
+  "guardrail_refs": [],
+  "approval_policy": "never",
+  "budget": {
+    "max_total_tokens": 800000,
+    "max_cost_micro_usd": 8000000,
+    "max_wall_clock_seconds": 3600,
+    "max_turns": 40
+  }
+}

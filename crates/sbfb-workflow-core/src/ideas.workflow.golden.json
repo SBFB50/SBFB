@@ -1,0 +1,377 @@
+{
+  "workflow_id": "ideas-hub-intake",
+  "workflow_version": 1,
+  "description": "Ideas Hub intake: classifier triage, bounded research, champion handoff, refinement rounds, deterministic publish gate.",
+  "input_schema_ref": {
+    "schema_id": "idea-submission",
+    "blake3": "c83d6adba55681acfe5eb3a1fecbaab01351f5e69e1d0fc1f4a8a86bf3f8ce4d"
+  },
+  "output_schema_ref": {
+    "schema_id": "store-receipt",
+    "blake3": "9cb0aa90d8f99f853dd1deaa95eea2ba68805026b003dfbf0d302152edd7aeb1"
+  },
+  "entrypoints": [
+    "idea-in"
+  ],
+  "nodes": {
+    "champion-handoff": {
+      "kind": "handoff",
+      "target_agent_id": "ideas-champion",
+      "payload_schema_ref": {
+        "schema_id": "champion-payload",
+        "blake3": "826065b844aec82a80de3de8adcc0aaa9c7797a3335c5fd62bb34b990074a623"
+      },
+      "context_policy": {
+        "allowed_context_fields": [
+          "idea",
+          "research-summary"
+        ]
+      }
+    },
+    "champion-review": {
+      "kind": "agent.invoke",
+      "agent_id": "ideas-champion",
+      "budget": {
+        "max_total_tokens": 400000,
+        "max_cost_micro_usd": 4000000,
+        "max_wall_clock_seconds": 1800,
+        "max_turns": 20
+      }
+    },
+    "collect": {
+      "kind": "join",
+      "policy": {
+        "mode": "any"
+      },
+      "source_node_ids": [
+        "normalise-refined",
+        "synthesise",
+        "vision-note"
+      ]
+    },
+    "deep-research": {
+      "kind": "agent.invoke",
+      "agent_id": "ideas-researcher",
+      "budget": {
+        "max_total_tokens": 600000,
+        "max_cost_micro_usd": 6000000,
+        "max_wall_clock_seconds": 2700,
+        "max_turns": 30
+      }
+    },
+    "idea-in": {
+      "kind": "input",
+      "schema_ref": {
+        "schema_id": "idea-submission",
+        "blake3": "c83d6adba55681acfe5eb3a1fecbaab01351f5e69e1d0fc1f4a8a86bf3f8ce4d"
+      }
+    },
+    "normalise-refined": {
+      "kind": "transform",
+      "input_schema_ref": {
+        "schema_id": "refine-report",
+        "blake3": "e615e53ebbc4fa6c0fe19b2e52d14d76bab4f89aff3c459e297c744a05306ea3"
+      },
+      "output_schema_ref": {
+        "schema_id": "idea-note",
+        "blake3": "44769d1b9cb5449f033ec75f3dab88b76be1bbebe8fa3b19ccb719c1b2347f77"
+      },
+      "field_map": {
+        "summary": "draft"
+      }
+    },
+    "private-note": {
+      "kind": "output",
+      "schema_ref": {
+        "schema_id": "idea-note",
+        "blake3": "44769d1b9cb5449f033ec75f3dab88b76be1bbebe8fa3b19ccb719c1b2347f77"
+      },
+      "artifact_name": "private-idea"
+    },
+    "publish-decision": {
+      "kind": "human.review",
+      "payload_schema_ref": {
+        "schema_id": "idea-note",
+        "blake3": "44769d1b9cb5449f033ec75f3dab88b76be1bbebe8fa3b19ccb719c1b2347f77"
+      },
+      "decision_labels": [
+        "publish",
+        "keep-private"
+      ]
+    },
+    "published": {
+      "kind": "output",
+      "schema_ref": {
+        "schema_id": "store-receipt",
+        "blake3": "9cb0aa90d8f99f853dd1deaa95eea2ba68805026b003dfbf0d302152edd7aeb1"
+      },
+      "artifact_name": "published-idea"
+    },
+    "refine-rounds": {
+      "kind": "repeat",
+      "max_iterations": 3,
+      "body_subworkflow_ref": {
+        "workflow_id": "ideas-refine-round",
+        "blake3": "8451efa51373bbc374af323989907a907d60402de3ecbb35fd5ba3d543cadde7"
+      },
+      "until_output_flag": "ready"
+    },
+    "repro-check": {
+      "kind": "agent.as_tool",
+      "agent_id": "ideas-triage-helper",
+      "input_schema_ref": {
+        "schema_id": "idea-submission",
+        "blake3": "c83d6adba55681acfe5eb3a1fecbaab01351f5e69e1d0fc1f4a8a86bf3f8ce4d"
+      },
+      "output_schema_ref": {
+        "schema_id": "repro-report",
+        "blake3": "28325dbaca5df579398127bb692f364e35b7b723befc5fb2a1d2d6051430c010"
+      },
+      "budget": {
+        "max_total_tokens": 150000,
+        "max_cost_micro_usd": 1500000,
+        "max_wall_clock_seconds": 900,
+        "max_turns": 8
+      }
+    },
+    "store-idea": {
+      "kind": "capability.call",
+      "capability_ref": "storage.set",
+      "args_schema_ref": {
+        "schema_id": "store-args",
+        "blake3": "c4183bc349dc317daf79813b220ac7418d886d8cdd7e835eacedc1e86b54a8f3"
+      },
+      "output_schema_ref": {
+        "schema_id": "store-receipt",
+        "blake3": "9cb0aa90d8f99f853dd1deaa95eea2ba68805026b003dfbf0d302152edd7aeb1"
+      }
+    },
+    "synthesise": {
+      "kind": "model.invoke",
+      "prompt_ref": {
+        "prompt_id": "synthesis",
+        "blake3": "542fee8d1125e71e42034eca9fe3ca524c9e0ed1fce9e65f5d10be8502a4c669"
+      },
+      "input_schema_ref": {
+        "schema_id": "repro-report",
+        "blake3": "28325dbaca5df579398127bb692f364e35b7b723befc5fb2a1d2d6051430c010"
+      },
+      "output_schema_ref": {
+        "schema_id": "idea-note",
+        "blake3": "44769d1b9cb5449f033ec75f3dab88b76be1bbebe8fa3b19ccb719c1b2347f77"
+      },
+      "model_policy": {
+        "provider_class": "local",
+        "model_id": "qwen3:14b",
+        "require_structured_output": true
+      },
+      "budget": {
+        "max_total_tokens": 80000,
+        "max_cost_micro_usd": 800000,
+        "max_wall_clock_seconds": 600,
+        "max_turns": 2
+      }
+    },
+    "triage": {
+      "kind": "classifier",
+      "prompt_ref": {
+        "prompt_id": "triage",
+        "blake3": "abc7c68be7f23f3ac78f3f66570cd83fdbdc1a8a881f1ad272c486d6bea84f38"
+      },
+      "model_policy": {
+        "provider_class": "local",
+        "model_id": "qwen3:14b",
+        "require_structured_output": true
+      },
+      "branch_labels": [
+        "feature",
+        "bug",
+        "vision"
+      ],
+      "budget": {
+        "max_total_tokens": 50000,
+        "max_cost_micro_usd": 500000,
+        "max_wall_clock_seconds": 300,
+        "max_turns": 2
+      }
+    },
+    "vision-note": {
+      "kind": "transform",
+      "input_schema_ref": {
+        "schema_id": "idea-submission",
+        "blake3": "c83d6adba55681acfe5eb3a1fecbaab01351f5e69e1d0fc1f4a8a86bf3f8ce4d"
+      },
+      "output_schema_ref": {
+        "schema_id": "idea-note",
+        "blake3": "44769d1b9cb5449f033ec75f3dab88b76be1bbebe8fa3b19ccb719c1b2347f77"
+      },
+      "field_map": {
+        "summary": "idea"
+      }
+    }
+  },
+  "edges": [
+    {
+      "from": "idea-in",
+      "from_port": "out",
+      "to": "triage",
+      "to_port": "in"
+    },
+    {
+      "from": "triage",
+      "from_port": "feature",
+      "to": "deep-research",
+      "to_port": "in"
+    },
+    {
+      "from": "triage",
+      "from_port": "bug",
+      "to": "repro-check",
+      "to_port": "in"
+    },
+    {
+      "from": "triage",
+      "from_port": "vision",
+      "to": "vision-note",
+      "to_port": "in"
+    },
+    {
+      "from": "triage",
+      "from_port": "default",
+      "to": "vision-note",
+      "to_port": "in"
+    },
+    {
+      "from": "deep-research",
+      "from_port": "out",
+      "to": "champion-handoff",
+      "to_port": "in"
+    },
+    {
+      "from": "champion-handoff",
+      "from_port": "to",
+      "to": "champion-review",
+      "to_port": "in"
+    },
+    {
+      "from": "champion-review",
+      "from_port": "out",
+      "to": "refine-rounds",
+      "to_port": "in"
+    },
+    {
+      "from": "repro-check",
+      "from_port": "out",
+      "to": "synthesise",
+      "to_port": "in"
+    },
+    {
+      "from": "refine-rounds",
+      "from_port": "out",
+      "to": "normalise-refined",
+      "to_port": "in"
+    },
+    {
+      "from": "normalise-refined",
+      "from_port": "out",
+      "to": "collect",
+      "to_port": "in"
+    },
+    {
+      "from": "synthesise",
+      "from_port": "out",
+      "to": "collect",
+      "to_port": "in"
+    },
+    {
+      "from": "vision-note",
+      "from_port": "out",
+      "to": "collect",
+      "to_port": "in"
+    },
+    {
+      "from": "collect",
+      "from_port": "out",
+      "to": "publish-decision",
+      "to_port": "in"
+    },
+    {
+      "from": "publish-decision",
+      "from_port": "publish",
+      "to": "store-idea",
+      "to_port": "in"
+    },
+    {
+      "from": "publish-decision",
+      "from_port": "keep-private",
+      "to": "private-note",
+      "to_port": "in"
+    },
+    {
+      "from": "store-idea",
+      "from_port": "out",
+      "to": "published",
+      "to_port": "in"
+    }
+  ],
+  "error_policy": {
+    "on_node_failure": "fail-workflow",
+    "max_retries_per_node": 1
+  },
+  "timeout_policy": {
+    "workflow_timeout_seconds": 7200,
+    "default_node_timeout_seconds": 2700
+  },
+  "budget_policy": {
+    "max_total_tokens": 2000000,
+    "max_cost_micro_usd": 20000000,
+    "max_wall_clock_seconds": 7200,
+    "max_turns": 100
+  },
+  "cancellation_policy": {
+    "cancel_on_budget_exhausted": true,
+    "cancel_on_timeout": true,
+    "allow_host_operator_cancel": true
+  },
+  "capability_requests": [
+    "storage.set"
+  ],
+  "agent_refs": [
+    {
+      "agent_id": "ideas-researcher",
+      "blake3": "bf5b62e001971c804adc00e88bddb17c3ff801de5d658996102ab05989dfe608"
+    },
+    {
+      "agent_id": "ideas-triage-helper",
+      "blake3": "90b20fc9e4736e8bb63ae0b58c51077ee808a86926cf23b3499b53852aa762c5"
+    },
+    {
+      "agent_id": "ideas-champion",
+      "blake3": "2c1cae823d92331cb6966391a9850c2bdba0d36f4a4388a48614fa049c423dbe"
+    }
+  ],
+  "subworkflow_refs": [
+    {
+      "workflow_id": "ideas-refine-round",
+      "blake3": "8451efa51373bbc374af323989907a907d60402de3ecbb35fd5ba3d543cadde7"
+    }
+  ],
+  "artifact_outputs": [
+    {
+      "name": "published-idea",
+      "schema_ref": {
+        "schema_id": "store-receipt",
+        "blake3": "9cb0aa90d8f99f853dd1deaa95eea2ba68805026b003dfbf0d302152edd7aeb1"
+      },
+      "from_node": "published"
+    },
+    {
+      "name": "private-idea",
+      "schema_ref": {
+        "schema_id": "idea-note",
+        "blake3": "44769d1b9cb5449f033ec75f3dab88b76be1bbebe8fa3b19ccb719c1b2347f77"
+      },
+      "from_node": "private-note"
+    }
+  ]
+}

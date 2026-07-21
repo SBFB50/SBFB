@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "What the judge consumes: the aggregated variant objects from the map and the checks report from the join.",
+  "type": "object",
+  "properties": {
+    "variants": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "proposal": {
+            "type": "string"
+          },
+          "angle": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "proposal",
+          "angle"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "checks": {
+      "type": "object",
+      "properties": {
+        "docs_ok": {
+          "type": "boolean"
+        },
+        "feasible": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "docs_ok",
+        "feasible"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "variants",
+    "checks"
+  ],
+  "additionalProperties": false
+}
