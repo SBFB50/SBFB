@@ -1,0 +1,76 @@
+{
+  "comment": "JCS RFC 8785 cross-language parity vectors. Rust reads this file in pack::tests::jcs_cross_lang_parity; TypeScript reads the SAME file in web/src/workflow/__tests__/pack_digest.test.ts. Both compute BLAKE3(<domain> 0x00 <JCS(value)>) and must produce the byte-identical digest below. Adverse cases on purpose: key ordering by UTF-16 code unit — including the discriminant U+FFFF-vs-emoji vector, where code-point order and UTF-16 code-unit order DISAGREE (RFC 8785 wants the emoji first) — non-BMP keys, escapes, exponent forms (1e+21 / 1e-7 spellings), negative zero (-0.0, which RFC 8785 serialises as '0'). Non-finite floats are absent BY DESIGN: every canonicalisation door (verify AND digest_for) refuses them via the null-collapse guard. Integers beyond 2^53 are refused by the VERIFY pipeline's enforce_bounds; digest_for alone does not bound integers, which is documented on that function.",
+  "domain": "nexus-workflow-pack-v1",
+  "vectors": [
+    {
+      "name": "empty-object",
+      "value": {}
+    },
+    {
+      "name": "key-order-ascii",
+      "value": { "b": 1, "a": 2, "C": 3, "_": 4 }
+    },
+    {
+      "name": "key-order-utf16-code-units",
+      "value": { "é": 1, "z": 2, "😀": 3, "中": 4, "a": 5 }
+    },
+    {
+      "name": "key-order-utf16-vs-codepoint-discriminant",
+      "value": { "￿": 1, "😀": 2, "a": 3 }
+    },
+    {
+      "name": "string-escapes",
+      "value": {
+        "quote": "he said \"hi\"",
+        "backslash": "a\\b",
+        "control": "line\nbreak\ttab",
+        "unicode": "café 中文 🚀"
+      }
+    },
+    {
+      "name": "number-forms",
+      "value": {
+        "int": 42,
+        "negative": -17,
+        "zero": 0,
+        "large-exact": 9007199254740991,
+        "small-exact": -9007199254740991
+      }
+    },
+    {
+      "name": "number-exponent-forms",
+      "value": {
+        "large": 1e21,
+        "small": 1e-7,
+        "fraction": 0.5
+      }
+    },
+    {
+      "name": "negative-zero",
+      "value": {
+        "z": -0.0,
+        "plain": 0
+      }
+    },
+    {
+      "name": "nested-arrays",
+      "value": {
+        "outer": [
+          { "z": [1, 2, 3], "a": "first" },
+          { "nested": { "deep": { "deeper": ["x", "y"] } } }
+        ]
+      }
+    },
+    {
+      "name": "pack-shaped",
+      "value": {
+        "format_version": 1,
+        "pack_revision": 7,
+        "name": "example.pack",
+        "description": "A pack shaped like the real thing",
+        "requested_capabilities": ["storage_get", "task_submit"],
+        "secret_refs": ["llm.api_key"]
+      }
+    }
+  ]
+}

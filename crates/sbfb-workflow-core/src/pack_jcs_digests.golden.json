@@ -1,0 +1,42 @@
+{
+  "empty-object": {
+    "canonical": "{}",
+    "digest": "e8726ad1f77d18246c44923a6a731a16fe1d0d994004f6d5b209e70d738ed0c7"
+  },
+  "key-order-ascii": {
+    "canonical": "{\"C\":3,\"_\":4,\"a\":2,\"b\":1}",
+    "digest": "1d2f4a91b805ff0430e2e918d6a05f27ce286a6081f75eab7f4c88ca30ed2fa6"
+  },
+  "key-order-utf16-code-units": {
+    "canonical": "{\"a\":5,\"z\":2,\"é\":1,\"中\":4,\"😀\":3}",
+    "digest": "bee2f29e9a900d741ff6876c3e0444f27cbaf4e8df7d370701180f294b6c6448"
+  },
+  "key-order-utf16-vs-codepoint-discriminant": {
+    "canonical": "{\"a\":3,\"😀\":2,\"￿\":1}",
+    "digest": "a9b6862095d94f51fae322962bccc0784ea2503b17feff785ed608c48ada6024"
+  },
+  "negative-zero": {
+    "canonical": "{\"plain\":0,\"z\":0}",
+    "digest": "59bdc273cfd2801636201773b98894d63e91a9f9992259dc088ae8138759273c"
+  },
+  "nested-arrays": {
+    "canonical": "{\"outer\":[{\"a\":\"first\",\"z\":[1,2,3]},{\"nested\":{\"deep\":{\"deeper\":[\"x\",\"y\"]}}}]}",
+    "digest": "1119864d0dcffb048502ce32604517e87b90239937302c41bbb81591fac53dde"
+  },
+  "number-exponent-forms": {
+    "canonical": "{\"fraction\":0.5,\"large\":1e+21,\"small\":1e-7}",
+    "digest": "5913f2e939803ff96e21a6b662dc842e7b09929b22e91c96ac9889920ea93a05"
+  },
+  "number-forms": {
+    "canonical": "{\"int\":42,\"large-exact\":9007199254740991,\"negative\":-17,\"small-exact\":-9007199254740991,\"zero\":0}",
+    "digest": "de4ec1677edadc80ecff6e6371c08aff328853830a9859ca4b01e73036bd4dad"
+  },
+  "pack-shaped": {
+    "canonical": "{\"description\":\"A pack shaped like the real thing\",\"format_version\":1,\"name\":\"example.pack\",\"pack_revision\":7,\"requested_capabilities\":[\"storage_get\",\"task_submit\"],\"secret_refs\":[\"llm.api_key\"]}",
+    "digest": "355579fb6905bde8dee9f636283a11699cf801c81b850394d9c8066dfed65ae2"
+  },
+  "string-escapes": {
+    "canonical": "{\"backslash\":\"a\\\\b\",\"control\":\"line\\nbreak\\ttab\",\"quote\":\"he said \\\"hi\\\"\",\"unicode\":\"café 中文 🚀\"}",
+    "digest": "ca2807f7db1670254e88f4b361d8df0e3496731c4ae27a50a6e9fa9b3878ec58"
+  }
+}

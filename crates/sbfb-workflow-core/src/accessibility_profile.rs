@@ -802,9 +802,10 @@ mod tests {
     ///
     /// NOT fail-open (Codex S83-B): the snapshot self-writes ONLY under
     /// `UPDATE_SNAPSHOTS`. A missing or empty committed golden FAILS the test
-    /// (asking to regenerate + commit) instead of silently going green — a
-    /// stricter variant than the §P75 bootstrap self-write used by
-    /// `contracts::tests::schema_snapshot_stub`.
+    /// (asking to regenerate + commit) instead of silently going green — the
+    /// discipline `contracts::tests::schema_snapshot_stub` adopted in turn in
+    /// Phase F (both are strict now; the §P75 bootstrap self-write is gone
+    /// from this crate).
     #[test]
     fn schema_snapshot() {
         let live = resolved_profile_schema();

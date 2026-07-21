@@ -7515,8 +7515,10 @@ name = "sbfb-workflow-core"
 version = "1.0.0"
 dependencies = [
  "blake3",
+ "ed25519-dalek 2.2.0",
  "schemars 1.2.1",
  "serde",
+ "serde_jcs",
  "serde_json",
 ]
 

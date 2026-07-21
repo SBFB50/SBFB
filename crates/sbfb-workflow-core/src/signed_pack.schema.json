@@ -1,0 +1,232 @@
+{
+  "$defs": {
+    "PackDigestSet": {
+      "additionalProperties": false,
+      "description": "A single-algorithm digest set, in-toto's `digest` shape.\n\nin-toto allows several algorithms per subject; v1 admits exactly one, BLAKE3,\nbecause a multi-algorithm set invites the weakest-link question (\"which one\ndid the verifier actually check?\"). BLAKE3 is not a standardised in-toto\nalgorithm — the borrowing is of the SHAPE, hence \"in-toto style\".",
+      "properties": {
+        "blake3": {
+          "description": "BLAKE3 hex digest.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "blake3"
+      ],
+      "title": "PackDigestSet.v1",
+      "type": "object"
+    },
+    "PackDigests": {
+      "additionalProperties": false,
+      "description": "The six digests as a signed struct. No member is optional: a missing digest\nis a refusal, not a default.\n\nWhat each one binds, from this crate's point of view: `content` is\nRECOMPUTED by the verifier from the lock ([`content_digest_of_lock`]), so it\ncannot drift from what the pack pins; `graph_semantic` and `presentation`\nare recomputable from a graph document through [`graph_semantic_view`] /\n[`presentation_view`]; `compiled_plan`, `evaluation` and `publication` are\nvalidated for SHAPE only here — the documents they cover are lock-pinned\nfiles this crate never opens.",
+      "properties": {
+        "compiled_plan": {
+          "description": "BLAKE3 hex of the compiled plan.",
+          "type": "string"
+        },
+        "content": {
+          "description": "BLAKE3 hex of every byte pinned by `PACK.lock`.",
+          "type": "string"
+        },
+        "evaluation": {
+          "description": "BLAKE3 hex of the evaluation suite.",
+          "type": "string"
+        },
+        "graph_semantic": {
+          "description": "BLAKE3 hex of the presentation-free graph meaning.",
+          "type": "string"
+        },
+        "presentation": {
+          "description": "BLAKE3 hex of the presentation layer.",
+          "type": "string"
+        },
+        "publication": {
+          "description": "BLAKE3 hex of the publication metadata.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "content",
+        "graph_semantic",
+        "presentation",
+        "compiled_plan",
+        "evaluation",
+        "publication"
+      ],
+      "title": "PackDigests.v1",
+      "type": "object"
+    },
+    "PackLock": {
+      "additionalProperties": false,
+      "description": "`PACK.lock` — every file of the pack pinned by digest.\n\nThe signature covers the lock, and the lock names the digest of every byte —\nthat chain is the rug-pull resistance of the FORMAT. What THIS crate can\nenforce ends at the lock: it never sees file bytes, so checking that a\nmaterialised file matches its pinned digest belongs to whoever extracts the\npack. A verifier that skipped that check would re-open the rug-pull.",
+      "properties": {
+        "entries": {
+          "description": "Pinned files, paths unique and sorted by the producer.",
+          "items": {
+            "$ref": "#/$defs/PackLockEntry"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "entries"
+      ],
+      "title": "PackLock.v1",
+      "type": "object"
+    },
+    "PackLockEntry": {
+      "additionalProperties": false,
+      "description": "One file pinned by `PACK.lock`.",
+      "properties": {
+        "blake3": {
+          "description": "BLAKE3 hex of the file bytes.",
+          "type": "string"
+        },
+        "path": {
+          "description": "Pack-relative path, forward slashes, no `.` or `..` segment, no drive\nletter, no leading separator.",
+          "type": "string"
+        },
+        "size_bytes": {
+          "description": "Size of the file in bytes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "blake3",
+        "size_bytes"
+      ],
+      "title": "PackLockEntry.v1",
+      "type": "object"
+    },
+    "PackProvenance": {
+      "additionalProperties": false,
+      "description": "Provenance of the pack, in-toto style.",
+      "properties": {
+        "builder_id": {
+          "description": "Free-form builder identifier, e.g. the tool that assembled the pack.",
+          "type": "string"
+        },
+        "subject": {
+          "description": "The attested artefacts. At least one, names unique.",
+          "items": {
+            "$ref": "#/$defs/PackSubject"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "subject",
+        "builder_id"
+      ],
+      "title": "PackProvenance.v1",
+      "type": "object"
+    },
+    "PackSubject": {
+      "additionalProperties": false,
+      "description": "One named artefact this pack attests to.",
+      "properties": {
+        "digest": {
+          "$ref": "#/$defs/PackDigestSet",
+          "description": "Its digest set."
+        },
+        "name": {
+          "description": "Name of the artefact, unique within the pack.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "digest"
+      ],
+      "title": "PackSubject.v1",
+      "type": "object"
+    },
+    "SbfbPromptAgentPack": {
+      "additionalProperties": false,
+      "description": "`SBFBPromptAgentPack.v1` — root of the signed, portable prompt+agent pack\n(D2). NAMES AND PINS — by digest, never by embedding — the workflow graph,\nagent definitions, prompts, pinned schemas and evals, and carries requested\n(never granted) capabilities and provenance. Documented v1 limitation: the\nroot does not yet REQUIRE any particular artefact set in its lock (no\nrole→path rule says \"a workflow graph must be pinned\") — those requirements\nbelong to the graph/agent contracts, and until they land a syntactically\nvalid pack may pin any file set.\nPresentation is kept out of the semantic digest by the\n[`PRESENTATION_KEYS`] reservation (the kickoff's \"`layout/` outside the\nsemantic digest\" intent, realised as reserved member names).\n\nThe graph and agent bodies are pinned here BY DIGEST rather than embedded:\n`SBFBWorkflowGraph.v1` and `SBFBAgentDefinition.v1` are reserved identities\nwhose fields are authored in the workflow-language phase, and a root that\nembedded them would have to change shape when they land. Pinning by digest\nis what lets this root be frozen first.",
+      "properties": {
+        "description": {
+          "description": "Human description.",
+          "type": "string"
+        },
+        "digests": {
+          "$ref": "#/$defs/PackDigests",
+          "description": "The six semantic digests."
+        },
+        "format_version": {
+          "description": "Envelope format version; must equal [`PACK_FORMAT_VERSION`].",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lock": {
+          "$ref": "#/$defs/PackLock",
+          "description": "Every file of the pack, pinned by digest."
+        },
+        "name": {
+          "description": "Stable identity of the pack, unique per publisher.",
+          "type": "string"
+        },
+        "pack_revision": {
+          "description": "Monotonic revision of THIS pack identity, minted by the publisher.\n\nReserved in v1 so that anti-rollback enforcement has a field to stand on\nwithout a later wire bump. Enforcing it is stateful (a floor per pack\nidentity, the `iroh_runtime` pattern) and belongs to whoever installs a\npack; this crate is pure and holds no state, so it validates the field's\npresence and range, never its history.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "provenance": {
+          "$ref": "#/$defs/PackProvenance",
+          "description": "in-toto style provenance."
+        },
+        "requested_capabilities": {
+          "description": "Capabilities the pack REQUESTS. Requesting is not obtaining: an\nauthority intersects these against a grant and a policy elsewhere.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "secret_refs": {
+          "description": "Opaque LOGICAL secret references, e.g. `\"llm.api_key\"` — the format\nRULE is that a value here names a slot, never a secret or a\ndeployment's credential name. Enforcement is shape-heuristic only\n(`looks_like_materialised_secret`): a 64-hex secret or one split\nacross fields walks past it, and the other free-text fields are not\nchecked at all — the rule stops the honest-mistake paste, nothing\nstronger.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "format_version",
+        "pack_revision",
+        "name",
+        "description",
+        "digests",
+        "lock",
+        "provenance",
+        "requested_capabilities",
+        "secret_refs"
+      ],
+      "title": "SBFBPromptAgentPack.v1",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A pack together with the signature over its canonical bytes.\n\nSignature and payload stay separable so that a DSSE envelope can wrap the\nsame payload later without breaking anything already published.",
+  "properties": {
+    "payload": {
+      "$ref": "#/$defs/SbfbPromptAgentPack",
+      "description": "The signed payload."
+    },
+    "signature": {
+      "description": "Ed25519 signature over [`canonical_bytes`] of the payload, hex encoded.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "payload",
+    "signature"
+  ],
+  "title": "SignedPack.v1",
+  "type": "object"
+}

@@ -5,7 +5,7 @@
 # Canonises the docs-contract cadence in the SBFB process itself
 # (docs/claude/README.md, docs/agent/AGENT_SYSTEM.md, docs/rust/PATTERNS.md
 # §P70, doctrine .planning/research/doctrine_contrat_pour_llm.md §2/§7).
-# Five deterministic checks (mirrors scripts/check-sharding-docs.sh
+# Deterministic checks (mirrors scripts/check-sharding-docs.sh
 # discipline — BusyBox-safe so it also runs on the Woodpecker bash:5
 # image: no grep -P, no --include, no \b, no \s, no mapfile/readarray):
 #
@@ -41,8 +41,8 @@
 #       "// FRONTIER-NO-SCHEMA: <name> <reason>" exemption. UNannotated
 #       wire types are NOT violations — the registry is opt-in and grows
 #       incrementally. The backlog is accept-and-closed (S82 Phase G, D8):
-#       the DOMAIN_*_V1 family census is FROZEN by check (2b) below — 25
-#       families, 22 without a generated schema — and a NEW family must
+#       the DOMAIN_*_V1 family census is FROZEN by check (2b) below — 29
+#       named families, 25 without a generated schema — and a NEW family must
 #       make its own conscious schema/no-schema decision instead of the
 #       count drifting silently (no exhaustive tagging of the backlog).
 #   (3) BLOB_SERVE_CSP non-regression — the canonical sandbox CSP
@@ -176,25 +176,83 @@ if ! grep -rqF "// FRONTIER: ShardPlan " crates; then
   echo "FRONTIER registry: required dogfood tag '// FRONTIER: ShardPlan' is missing"
   fail=1
 fi
+# Same rule for the signed pack (S83 Phase F): the tag count is not frozen, so
+# without this pin, dropping the pack's tag would shrink the registry silently.
+if ! grep -rqF "// FRONTIER: SbfbPromptAgentPack " crates; then
+  echo "FRONTIER registry: required tag '// FRONTIER: SbfbPromptAgentPack' is missing"
+  fail=1
+fi
 
-# ── (2b) DOMAIN_*_V1 frozen family census (S82 Phase G, D8) ───────
-# The deterministic, BusyBox-safe grep below IS the committed metric that
-# ends the 21/22/23 drift (docs/rust/PATTERNS.md §P70): 25 distinct
-# `const DOMAIN_*_V<n>` families across crates/ (23 in canonical.rs +
-# DOMAIN_KEYSTORE_V1 + DOMAIN_TRACE_EVENT_V1), of which 3 carry a
-# generated schema (COMPUTE_GROUP, SHARD_PLAN, RUN_PROOF) -> 22
-# unschematised, accept-and-closed. A NEW family must make a conscious
-# D8 decision (schema_for! + snapshot, or a motivated no-schema
-# rationale) and refresh this frozen count — silent census growth is
-# exactly the drift this tripwire exists to catch.
-DOMAIN_CENSUS_FROZEN=25
-domain_census="$({ find crates -type f -name '*.rs' ! -path '*/llama.cpp/*' ! -path '*/target/*' \
-  -exec grep -hoE 'const DOMAIN_[A-Z0-9_]+_V[0-9]+' {} + 2>/dev/null || true; } | sort -u | wc -l | tr -d ' ')"
-if [ "$domain_census" -ne "$DOMAIN_CENSUS_FROZEN" ]; then
-  echo "DOMAIN_*_V1 census drift: found $domain_census distinct const families, frozen count is $DOMAIN_CENSUS_FROZEN"
-  echo "  -> a new DOMAIN family needs its own D8 decision (generated schema or motivated no-schema),"
-  echo "     then refresh DOMAIN_CENSUS_FROZEN + the census prose in this file (header (2), comment (2b))"
-  echo "     + docs/rust/PATTERNS.md §P70."
+# ── (2c) pack JCS parity mirror existence (S83 Phase F) ───────────
+# The Rust side of the cross-language parity claim stays green if the
+# TypeScript mirror is deleted — the crate tests never open web/. Pin the
+# mirror's existence and its two fixture reads here, the bridge-parity
+# arrangement: the claim "byte-identical cross-language" must not be able to
+# outlive the file that measures its other half.
+pack_mirror="web/src/workflow/__tests__/pack_digest.test.ts"
+if [ ! -f "$pack_mirror" ]; then
+  echo "PACK-PARITY: TypeScript mirror $pack_mirror is missing"
+  fail=1
+elif ! grep -qF "pack_jcs_vectors.json" "$pack_mirror" \
+  || ! grep -qF "pack_jcs_digests.golden.json" "$pack_mirror"; then
+  echo "PACK-PARITY: $pack_mirror no longer reads the shared vectors + golden"
+  fail=1
+fi
+
+# ── (2b) DOMAIN_*_V1 frozen family census (S82 Phase G, D8; S83 F) ─
+# The census is a frozen NAME LIST since S83 Phase F (it was a bare count
+# before, which a net-zero add+remove could fool — docs/rust/PATTERNS.md
+# §P70): 29 distinct `const DOMAIN_*_V<n>` families across crates/ (27 in
+# canonical.rs + DOMAIN_KEYSTORE_V1 + DOMAIN_TRACE_EVENT_V1), of which 4
+# carry a generated schema (COMPUTE_GROUP, SHARD_PLAN, RUN_PROOF,
+# WORKFLOW_PACK) -> 25 unschematised: 22 accept-and-closed (S82 G) + 3
+# RESERVED tags with no payload yet (COMPILED_PLAN / RUN_EVENT /
+# PACK_INSTALL_RECEIPT, S83 F, D8 rationale = no-schema until their
+# contract identities are filled — the DOMAIN_KUDOS_V1 arrangement).
+# A NEW family must make a conscious D8 decision (schema_for! + snapshot,
+# or a motivated no-schema rationale) and add its NAME here — silent
+# census growth, removal or rename is exactly what this tripwire catches.
+# Honest bound: a commented-out `const DOMAIN_...` line still matches the
+# grep; catching that class stays with the per-sprint review of canonical.rs.
+# S83 Phase F took the census 25 -> 29 (WORKFLOW_PACK filled + 3 reserved).
+DOMAIN_CENSUS_FROZEN="DOMAIN_ACTIVATION_COMMIT_V1
+DOMAIN_AGE_WITNESS_V1
+DOMAIN_CLAIM_V1
+DOMAIN_COMPILED_PLAN_V1
+DOMAIN_COMPUTE_GROUP_V1
+DOMAIN_CONTRIBUTOR_ATTESTATION_V1
+DOMAIN_CURATOR_LIST_V1
+DOMAIN_DELEGATION_CERT_V1
+DOMAIN_DURESS_ACK_V1
+DOMAIN_FEED_V1
+DOMAIN_INVITE_V1
+DOMAIN_KEYSTORE_V1
+DOMAIN_KEY_ROTATION_V1
+DOMAIN_KUDOS_V1
+DOMAIN_NODE_DIRECTORY_V1
+DOMAIN_PACK_INSTALL_RECEIPT_V1
+DOMAIN_POW_V1
+DOMAIN_PROVENANCE_V1
+DOMAIN_RESULT_V1
+DOMAIN_RUN_EVENT_V1
+DOMAIN_RUN_PROOF_V1
+DOMAIN_SEED_REQUEST_V1
+DOMAIN_SEED_RESPONSE_V1
+DOMAIN_SHARD_PLAN_V1
+DOMAIN_TASK_V1
+DOMAIN_TRACE_EVENT_V1
+DOMAIN_VRF_DRAW_V1
+DOMAIN_WARRANT_CANARY_V1
+DOMAIN_WORKFLOW_PACK_V1"
+domain_census_live="$({ find crates -type f -name '*.rs' ! -path '*/llama.cpp/*' ! -path '*/target/*' \
+  -exec grep -hoE 'const DOMAIN_[A-Z0-9_]+_V[0-9]+' {} + 2>/dev/null || true; } | sed 's/^const //' | LC_ALL=C sort -u)"
+domain_census="$(printf '%s\n' "$domain_census_live" | grep -c . || true)"
+if [ "$domain_census_live" != "$DOMAIN_CENSUS_FROZEN" ]; then
+  echo "DOMAIN_*_V1 census drift: live registry does not match the frozen name list"
+  diff <(printf '%s\n' "$DOMAIN_CENSUS_FROZEN") <(printf '%s\n' "$domain_census_live") | sed 's/^/  /' || true
+  echo "  -> a new/renamed/removed DOMAIN family needs its own D8 decision (generated schema or"
+  echo "     motivated no-schema), then refresh the frozen NAME LIST + the census prose in this"
+  echo "     file (header (2), comment (2b)) + docs/rust/PATTERNS.md §P70."
   fail=1
 fi
 
@@ -318,5 +376,5 @@ if [ "$fail" -ne 0 ]; then
   exit 1
 fi
 
-echo "check-frontier-contracts: clean (anti-promise + frontier-tag coverage [$frontier_count tagged] + DOMAIN census [$domain_census frozen] + BLOB_SERVE_CSP non-regression + prompt-kind provenance + bridge-parity [${ts_count:-?} methods])"
+echo "check-frontier-contracts: clean (anti-promise + frontier-tag coverage [$frontier_count tagged] + DOMAIN census [$domain_census frozen] + BLOB_SERVE_CSP non-regression + prompt-kind provenance + bridge-parity [${ts_count:-?} methods] + pack-parity mirror)"
 exit 0

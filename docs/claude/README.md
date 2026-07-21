@@ -2175,8 +2175,9 @@ couverture-étiquette sur le registre opt-in `// FRONTIER: <name>
 domain=DOMAIN_X_V1 version=X_FORMAT_VERSION` (un type annoté DOIT avoir un schéma
 généré ou une exemption `// FRONTIER-NO-SCHEMA:`) ; (3) non-régression
 `BLOB_SERVE_CSP`. Le registre est **incrémental** : un type non-annoté n'est pas
-une violation (les 22 des 25 familles `DOMAIN_*_V1` sans schéma généré sont un
-carry routé vers l'audit-plan S80, créé à la clôture du sprint).
+une violation (les familles `DOMAIN_*_V1` sans schéma généré — 22 sur 25 à
+l'époque S79 ; 25 sur 29 depuis S83-F, dont 4 schématisées et 3 tags réservés —
+sont un carry routé vers l'audit-plan S80, créé à la clôture du sprint).
 
 Truth-Stack canonique de la couche GUIDE :
 `repo files > .planning/active/ > commits > prompts > chat` (+ « Not evidenced »

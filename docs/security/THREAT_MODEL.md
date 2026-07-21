@@ -1692,8 +1692,9 @@ quitte JAMAIS l'hote**.
 
 **Wire / census** : `ResolvedAccessibilityProfile.v1` est une projection
 hote→app LOCALE, non-signee, non-gossipee → 0 `DOMAIN_*_V1`, 0
-`*_FORMAT_VERSION`, census DOMAIN inchange (25). Frontiere docs-contrat gatee
-par son propre golden `accessibility_profile.schema.json` (drift-gate).
+`*_FORMAT_VERSION`, census DOMAIN inchange par cette surface (25 a l'epoque
+S83-B ; 29 depuis S83-F, `DOMAIN_WORKFLOW_PACK_V1` + 3 tags reserves). Frontiere docs-contrat
+gatee par son propre golden `accessibility_profile.schema.json` (drift-gate).
 
 ## 18. Revue et evolution
 
@@ -1957,7 +1958,8 @@ Historique versions :
   canal host→app cable (sender + receiver strict), gate durci+cable, e2e
   smoke honnete + tags WCAG cumulatifs, fixtures de parite, golden non
   fail-open. Wire : projection hote→app LOCALE non-signee → 0 `DOMAIN_*_V1`,
-  census DOMAIN inchange (25), frontiere gatee par son golden
+  census DOMAIN inchange par cette surface (25 a l'epoque S83-B ; 29 depuis
+  S83-F), frontiere gatee par son golden
   `accessibility_profile.schema.json`. 0 bump wire, 2 deps DEV neuves
   (`axe-core` + `@axe-core/playwright`, hors archive, CSP inchangee). DoD
   Phase B = **fondation, pas conformite** (AM-8) : la conformite WCAG 2.2 AA
@@ -1994,6 +1996,7 @@ Historique versions :
   verbe). Apres correction, declare ⊇ appele est tenu ; le gate CI
   declare-⊇-appele-transitif reste un carry (non construit ce sprint). Wire :
   grant v0 =
-  etat host-side ⇒ 0 `DOMAIN_*_V1`, census DOMAIN inchange (25), 0 bump wire
+  etat host-side ⇒ 0 `DOMAIN_*_V1`, census DOMAIN inchange par cette surface
+  (25 a l'epoque S83-C ; 29 depuis S83-F), 0 bump wire
   (`FEED_FORMAT_VERSION`/`*_ANNOUNCEMENT_VERSION`=1), gate `SENSITIVE_ACTIONS`
   substring NON etendu. 0 dep runtime neuve.

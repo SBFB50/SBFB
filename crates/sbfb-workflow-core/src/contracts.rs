@@ -14,12 +14,16 @@
 //!
 //! Pre-launch protocol: these are NEW contract identities, not a bump of any
 //! existing wire format. No `*_FORMAT_VERSION` const and no `DOMAIN_*_V1`
-//! const is declared here — a signing domain and format version are added when
-//! a SIGNED wire contract is filled (the pack/graph/run identities), whereas a
-//! LOCAL contract declares neither: `FactoryProcessProfile.v1` (Phase D) is
-//! filled and intentionally carries no domain and no format version. Either way
-//! the frozen `DOMAIN_*_V1` family census stays untouched (cf.
-//! `CLAUDE.md §Pre-launch protocol policy`).
+//! const is declared in THIS module — a signing domain and a format version
+//! belong to the module that authors a SIGNED contract, whereas a LOCAL
+//! contract declares neither: `FactoryProcessProfile.v1` (Phase D) is filled
+//! and intentionally carries no domain and no format version.
+//! `SBFBPromptAgentPack.v1` (Phase F) is the first signed identity filled, and
+//! declares both from [`crate::pack`]: `PACK_FORMAT_VERSION` there, and
+//! `DOMAIN_WORKFLOW_PACK_V1` in `nexus_core_rs::canonical`, which — with the
+//! three RESERVED tags of the remaining D2 roles — took the frozen
+//! `DOMAIN_*_V1` family census from 25 to 29 (cf. `CLAUDE.md §Pre-launch
+//! protocol policy`).
 
 use schemars::{JsonSchema, schema_for};
 use serde::{Deserialize, Serialize};
@@ -34,14 +38,13 @@ use serde::{Deserialize, Serialize};
 pub use crate::factory_profile::FactoryProcessProfile;
 
 /// `SBFBPromptAgentPack.v1` — root of the signed, portable prompt+agent pack
-/// (D2). Carries the workflow graph, agent definitions, prompts, pinned
-/// schemas, requested (never granted) capabilities, evals and provenance;
-/// `layout/` stays outside the semantic digest. Frontier stub — fields
-/// authored in the pack-format phase.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[schemars(title = "SBFBPromptAgentPack.v1")]
-pub struct SbfbPromptAgentPack {}
+/// (D2). Sprint 83 Phase A reserved this identity as an empty stub; Phase F
+/// authored its fields in the dedicated [`crate::pack`] module (six separate
+/// semantic digests, `PACK.lock` digest pinning, in-toto-style `subject[]`,
+/// and the bounded verification path). It is re-exported here so it stays entry
+/// 1/7 of [`all_contract_schemas`]; filling it refreshed
+/// `contracts.schema.json` while keeping the registry `len == 7`.
+pub use crate::pack::SbfbPromptAgentPack;
 
 /// `SBFBWorkflowGraph.v1` — the data-flow workflow graph (D4): typed ports,
 /// bounded `repeat`, subworkflows, `human.review`, `wait.signal`. The signed
@@ -173,11 +176,13 @@ mod tests {
     /// after an intentional change with
     /// `UPDATE_SNAPSHOTS=1 cargo test -p sbfb-workflow-core schema_snapshot_stub`.
     ///
-    /// Bootstrap semantics (canonical §P75, mirrors `nexus-core-rs`
-    /// `schema_snapshot_matches_struct`): a missing/empty snapshot self-writes
-    /// then returns green so the golden can be generated on first run; once the
-    /// snapshot is committed, every run (CI included) takes the compare path.
-    /// The committed `contracts.schema.json` is what pins the seven identities.
+    /// STRICT since Phase F (an assumed divergence from the `nexus-core-rs`
+    /// self-write bootstrap, decided in the F preflight A1 arbitration): a
+    /// missing or empty snapshot is a FAILURE, never a self-write that returns
+    /// green. The bootstrap convenience made sense while the registry held
+    /// seven empty stubs; now that filled contracts are pinned here, deleting
+    /// the file must not be a way to regenerate the drift-gate into silence
+    /// (`factory_profile.rs` set the precedent).
     #[test]
     fn schema_snapshot_stub() {
         let live = all_contract_schemas();
@@ -187,20 +192,21 @@ mod tests {
             .join("src")
             .join("contracts.schema.json");
 
-        let needs_write = std::env::var_os("UPDATE_SNAPSHOTS").is_some()
-            || !snapshot_path.exists()
-            || std::fs::read_to_string(&snapshot_path)
-                .map(|s| s.trim().is_empty())
-                .unwrap_or(true);
-
-        if needs_write {
+        if std::env::var_os("UPDATE_SNAPSHOTS").is_some() {
             std::fs::write(&snapshot_path, format!("{live_pretty}\n"))
                 .expect("write contracts.schema.json snapshot");
             return;
         }
 
-        let snapshot_str =
-            std::fs::read_to_string(&snapshot_path).expect("read contracts.schema.json snapshot");
+        let snapshot_str = std::fs::read_to_string(&snapshot_path).unwrap_or_else(|e| {
+            panic!(
+                "contracts.schema.json must be committed ({e}); regenerate with UPDATE_SNAPSHOTS=1"
+            )
+        });
+        assert!(
+            !snapshot_str.trim().is_empty(),
+            "contracts.schema.json must not be empty; regenerate with UPDATE_SNAPSHOTS=1"
+        );
         let snapshot: serde_json::Value =
             serde_json::from_str(&snapshot_str).expect("contracts.schema.json must be valid JSON");
 

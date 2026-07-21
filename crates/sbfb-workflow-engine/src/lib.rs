@@ -102,8 +102,8 @@
 //! side-output log are). No other node, no external client, no sandboxed
 //! app, no other model. Hence no frontier tag and no contract-doc entry.
 //! Accessorily — never as the criterion itself — nothing here leaves the
-//! node, so the crate declares no `DOMAIN_*` signing family and the frozen
-//! `DOMAIN_*_V1` census stays untouched (cf.
+//! node, so the crate declares no `DOMAIN_*` signing family and leaves the
+//! frozen `DOMAIN_*_V1` census where it stands (29 since S83 Phase F; cf.
 //! `CLAUDE.md §Pre-launch protocol policy`). Taking that second fact FOR the
 //! criterion is the conflation that once let real frontiers go undocumented
 //! for a whole sprint; the order of the two sentences here is deliberate.

@@ -4065,21 +4065,29 @@ find crates -type f -name '*.rs' ! -path '*/llama.cpp/*' ! -path '*/target/*' \
   -exec grep -hoE 'const DOMAIN_[A-Z0-9_]+_V[0-9]+' {} + | sort -u | wc -l
 ```
 
-= **25** distinct const families across all crates (23 in `canonical.rs` +
+= **29** distinct const families across all crates (27 in `canonical.rs` +
 `DOMAIN_KEYSTORE_V1` in `keystore.rs` + `DOMAIN_TRACE_EVENT_V1` in
-`nexus-trace-core`), of which **3** carry a generated schema (COMPUTE_GROUP,
-SHARD_PLAN — `ShardPlan` + `ShardedSessionManifest` —, RUN_PROOF) → **22**
-unschematised, **accept-and-closed** (no exhaustive tagging of the backlog,
-D8). The prior 23 was the `canonical.rs`-only scope; 21 was never derivable
+`nexus-trace-core`), of which **4** carry a generated schema (COMPUTE_GROUP,
+SHARD_PLAN — `ShardPlan` + `ShardedSessionManifest` —, RUN_PROOF,
+WORKFLOW_PACK) → **25** unschematised: 22 **accept-and-closed** (no exhaustive
+tagging of the backlog, D8) + 3 RESERVED tags (COMPILED_PLAN, RUN_EVENT,
+PACK_INSTALL_RECEIPT — the `DOMAIN_KUDOS_V1` arrangement: tag fixed before its
+payload contract lands, D8 rationale = no-schema until the reserved identity is
+filled). The prior 23 was the `canonical.rs`-only scope; 21 was never derivable
 (WI-10 S79). `TASK_RESPONSE_V1` (the schematised `TaskResponse` tag) is not a
-`DOMAIN_*_V1` const — outside the census by construction.
-`scripts/check-frontier-contracts.sh` check (2b) freezes the count
-(`DOMAIN_CENSUS_FROZEN=25`): the census cannot GROW silently — a net-new
-family that raises the count fails the gate until it makes its own conscious
-schema/no-schema decision and refreshes the frozen count. Honest bound: a
-count tripwire does not see a net-zero add+remove or a rename in the same
-commit — that class stays with the per-sprint adversarial review of
-`canonical.rs`, not this gate.
+`DOMAIN_*_V1` const — outside the census by construction. S83 Phase F is the
+first sprint-phase to exercise the refresh path the tripwire prescribes: it
+took the census 25 → 29 (`DOMAIN_WORKFLOW_PACK_V1` filled, D8 = **generated
+schema** pinned by `contracts.schema.json`, + the 3 reserved tags above). The
+pack bytes are mirrored in `sbfb-workflow-core` — a crate that cannot depend on
+`nexus-core-rs` — under a test that asserts the declaration exists EXACTLY once
+in `canonical.rs` and matches.
+`scripts/check-frontier-contracts.sh` check (2b) freezes the sorted NAME LIST
+(no longer a bare count, S83 F): the census cannot grow, shrink or rename silently — a net-new
+family fails the gate until it makes its own conscious schema/no-schema
+decision and adds its name to the frozen list. Honest bound: the grep still
+counts a commented-out `const DOMAIN_...` line — that class stays with the
+per-sprint adversarial review of `canonical.rs`, not this gate.
 
 **Loopback request/response DTOs carry NO `// FRONTIER:` tag.** The registry is
 for signed `DOMAIN_*_V1` families (the gate resolves the domain/version consts

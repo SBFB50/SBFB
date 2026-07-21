@@ -17,5 +17,13 @@ schemars = { workspace = true }
 # here adds no new lock node. Pure hashing — no I/O, keeps the crate charter
 # (no Tokio, no network, no database) intact.
 blake3 = { workspace = true }
+# JCS RFC 8785 canonicalisation for the signed pack (Phase F). Already a
+# workspace dependency of the crypto crates, so it adds no new lock node. Pure
+# serialisation — no I/O, keeps the crate charter intact.
+serde_jcs = { workspace = true }
+# Ed25519 verification of a pack signature (Phase F). Verification is pure
+# arithmetic on bytes the caller supplies: no key store, no filesystem, no
+# network. Already a workspace dependency, so no new lock node.
+ed25519-dalek = { workspace = true }
 
 [dev-dependencies]

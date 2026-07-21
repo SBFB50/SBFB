@@ -1,9 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Canonical byte serialization for signing and verifying.
 //!
-//! All signed payloads in the nexus-grid system go through
+//! Signed payloads in the nexus-grid system go through
 //! [`canonical_bytes`], which produces RFC 8785 JCS output with a
-//! type-specific **domain separation prefix**.
+//! type-specific **domain separation prefix**. The two payload
+//! families minted in crates that cannot depend on this one
+//! (`nexus-trace-core` trace events, and `sbfb-workflow-core` packs
+//! since S83 Phase F) rebuild the SAME `<domain> 0x00 <JCS>` shape
+//! locally; the pack crate additionally proves its domain bytes
+//! against this file with a disk-reading test.
 //!
 //! # Why JCS?
 //!
@@ -52,8 +57,10 @@
 //! - [`DOMAIN_CLAIM_V1`]        — [`crate::task::Claim`]
 //! - [`DOMAIN_INVITE_V1`]       — invite payloads in
 //!   `nexus_worker_core::invite::InvitePayload`
-//! - [`DOMAIN_KUDOS_V1`]        — kudos ledger entries in the Python
-//!   coordinator (reserved here so both sides agree on the tag)
+//! - [`DOMAIN_KUDOS_V1`]        — kudos ledger entries in
+//!   `nexus-coordinator-rs` (`kudos_ledger.rs`; the tag was minted here in
+//!   the Python-coordinator era and the payload type still lives outside
+//!   this crate)
 //! - [`DOMAIN_CURATOR_LIST_V1`] — [`crate::curator::CuratorList`]
 //!   (Sprint 7 Phase B; consumed by the shell-daemon Phase C
 //!   gossip subscribe pipeline)
@@ -63,6 +70,17 @@
 //! - [`DOMAIN_VRF_DRAW_V1`]      — the N1 spot-check verifiable draw in
 //!   [`crate::verifiable_draw`] (Sprint 77 Phase H; a deterministic
 //!   Ed25519 draw, NOT an ECVRF — see the constant's note)
+//! - [`DOMAIN_WORKFLOW_PACK_V1`] — signed prompt+agent packs in
+//!   `sbfb_workflow_core::pack` (Sprint 83 Phase F; reserved here like
+//!   [`DOMAIN_KUDOS_V1`] because the payload type lives in a crate that
+//!   does not depend on this one)
+//! - [`DOMAIN_COMPILED_PLAN_V1`], [`DOMAIN_RUN_EVENT_V1`],
+//!   [`DOMAIN_PACK_INSTALL_RECEIPT_V1`] — reserved tags for the remaining
+//!   S83 D2 roles (compiled plan, exported run event, install receipt).
+//!   `CompiledPlan.v1` and `RunEvent.v1` are reserved identities (stubs) in
+//!   `sbfb-workflow-core::contracts`; `PackInstallReceipt.v1` has no contract
+//!   identity yet. The constants alone confer no acceptance — nothing signs
+//!   under these tags
 //!
 //! The `v1` suffix is the domain version, independent from any
 //! struct version field. Bumping it changes the signature surface
@@ -330,6 +348,70 @@ pub const DOMAIN_VRF_DRAW_V1: &[u8] = b"nexus-vrf-draw-v1";
 /// first place). N4 zkML stays out of scope. Purely additive, 0-bump of every
 /// existing `*_FORMAT_VERSION` (the S74 `DOMAIN_SEED_REQUEST_V1` pattern).
 pub const DOMAIN_ACTIVATION_COMMIT_V1: &[u8] = b"nexus-activation-commit-v1";
+
+/// Domain separation tag for a signed, portable prompt+agent pack
+/// (`SBFBPromptAgentPack.v1`).
+///
+/// Sprint 83 Phase F — the pack is the distribution unit of the Workflow Agents
+/// chantier: a workflow graph, agent definitions, prompts, pinned schemas,
+/// *requested* (never granted) capabilities, evals and provenance. The struct
+/// lives in the pure contract crate [`sbfb_workflow_core::pack`], which carries
+/// no `nexus-core-rs` dependency (its charter forbids Tokio, network and
+/// database); the constant is reserved *here* so the pack domain appears in
+/// this module's roster of core signing domains instead of only in a leaf
+/// crate — the [`DOMAIN_KUDOS_V1`] arrangement, whose payload type also lives
+/// outside this crate. (The roster is a reference list, not an exhaustive one:
+/// `DOMAIN_KEYSTORE_V1` and `DOMAIN_TRACE_EVENT_V1` are declared at their
+/// point of use, and the frontier-contracts census counts all sites.)
+/// `sbfb-workflow-core` mirrors these bytes in `pack::PACK_SIGNING_DOMAIN` and
+/// a test there reads THIS file from disk and fails if the declared bytes
+/// diverge. That is a lexical binding to this declaration, not a compiler
+/// link: it is not proof against every pathological edit (a commented-out
+/// duplicate, a `#[cfg(any())]` shadow), which the test's own doc states.
+///
+/// The tag keeps a pack signature from being replayed as a task / result /
+/// curator-list / … signature even though it is minted with the same node
+/// Ed25519 key — the pre-image spaces are disjoint by construction.
+///
+/// **Honesty:** a valid signature proves that the holder of one Ed25519 key
+/// signed exactly these canonical bytes under this domain — not an identity,
+/// not a publication event, and nothing about the trustworthiness of the
+/// prompts inside. The pack format grants no capability: it declares requests
+/// that an authority intersects elsewhere. Purely additive, 0-bump of every
+/// existing `*_FORMAT_VERSION` (the S74 `DOMAIN_SEED_REQUEST_V1` pattern).
+pub const DOMAIN_WORKFLOW_PACK_V1: &[u8] = b"nexus-workflow-pack-v1";
+
+/// Domain separation tag for a compiled workflow plan (`CompiledPlan.v1`).
+///
+/// Sprint 83 Phase F — RESERVED tag, the [`DOMAIN_KUDOS_V1`] arrangement: the
+/// bytes are fixed here so every signer and verifier agrees on the tag from
+/// day one, while the payload contract (`CompiledPlan.v1`, a reserved identity
+/// in `sbfb-workflow-core::contracts`) is still an empty stub. Reserving the
+/// tag is a decision D2 of the S83 kickoff (one domain per §17.1 role);
+/// filling the payload is the compiler contract's own phase. This constant
+/// alone confers NO acceptance: no in-tree producer or typed verifier under
+/// this domain is defined yet, so it cannot by itself make a signature
+/// acceptable.
+pub const DOMAIN_COMPILED_PLAN_V1: &[u8] = b"nexus-compiled-plan-v1";
+
+/// Domain separation tag for an exported run-journal event (`RunEvent.v1`).
+///
+/// Sprint 83 Phase F — RESERVED tag (same arrangement as
+/// [`DOMAIN_COMPILED_PLAN_V1`] above). The run journal itself is LOCAL to
+/// `sbfb-workflow-engine` and unsigned; this tag exists for the moment a
+/// journal entry has to leave the node in signed form, so that moment cannot
+/// mint an ad-hoc domain. This constant alone confers no acceptance.
+pub const DOMAIN_RUN_EVENT_V1: &[u8] = b"nexus-run-event-v1";
+
+/// Domain separation tag for a pack installation receipt.
+///
+/// Sprint 83 Phase F — RESERVED tag (same arrangement as
+/// [`DOMAIN_COMPILED_PLAN_V1`] above). An install receipt is what makes the
+/// pack's `pack_revision` anti-rollback floor enforceable by a stateful
+/// installer; the receipt's contract (`PackInstallReceipt.v1`) is not yet a
+/// reserved identity — it is authored by the phase that installs. This
+/// constant alone confers no acceptance.
+pub const DOMAIN_PACK_INSTALL_RECEIPT_V1: &[u8] = b"nexus-pack-install-receipt-v1";
 
 /// Produce the canonical byte representation of any serializable
 /// value for signing.

@@ -41,12 +41,22 @@
 //! ## Pre-launch protocol
 //!
 //! These are NEW contract identities, not a bump of any existing wire
-//! format. No `*_FORMAT_VERSION` and no `DOMAIN_*_V1` constant is declared
-//! here: a signing domain and format version are added when a SIGNED wire
-//! contract is filled (the pack/graph/run identities), whereas a LOCAL contract
-//! declares neither — `FactoryProcessProfile.v1` (Phase D) is filled and
-//! carries no domain and no format version. Either way the frozen `DOMAIN_*_V1`
-//! family census stays untouched (cf. `CLAUDE.md §Pre-launch protocol policy`).
+//! format. A signing domain and a format version are declared when a SIGNED
+//! wire contract is filled, whereas a LOCAL contract declares neither —
+//! `FactoryProcessProfile.v1` (Phase D) and `ResolvedAccessibilityProfile.v1`
+//! (Phase B) are filled and carry no domain and no format version.
+//!
+//! `SBFBPromptAgentPack.v1` (Phase F) is the first SIGNED identity to be
+//! filled, so it is the first to declare both: [`pack::PACK_FORMAT_VERSION`]
+//! here, and `DOMAIN_WORKFLOW_PACK_V1` in `nexus_core_rs::canonical` — this
+//! crate cannot import that constant (its charter forbids Tokio, network and
+//! database, and `nexus-core-rs` pulls iroh), so [`pack::PACK_SIGNING_DOMAIN`]
+//! mirrors the bytes under a disk-reading test that fails on divergence. Phase F
+//! took the frozen `DOMAIN_*_V1` census from 25 to 29 (the pack family filled,
+//! plus three RESERVED tags for the remaining D2 roles), refreshed in the same
+//! commit across `scripts/check-frontier-contracts.sh` (a frozen NAME LIST
+//! since F) and `docs/rust/PATTERNS.md` §P70 (cf. `CLAUDE.md §Pre-launch
+//! protocol policy`).
 //!
 //! ## Sprint 83 Phase D — the Factory/process contract
 //!
@@ -71,7 +81,19 @@
 //! preserves the `len == 7` invariant of that registry. Like the seven
 //! identities it declares no `DOMAIN_*_V1` — it is a LOCAL host→app
 //! projection, never signed or gossiped.
+//!
+//! ## Sprint 83 Phase F — the signed portable pack
+//!
+//! [`pack`] fills `SBFBPromptAgentPack.v1`: the root of the signed, portable
+//! prompt+agent pack, its `PACK.lock` digest pinning, its six separate semantic
+//! digests, in-toto-style provenance, and the bounded verification path
+//! (size bound, then structural parse, then Ed25519, then the rich typed parse).
+//! Like `FactoryProcessProfile.v1` it is defined in its own module and
+//! re-exported from [`contracts`], so it stays entry 1/7 of
+//! [`contracts::all_contract_schemas`] (`len == 7`) while its filled schema
+//! refreshes `contracts.schema.json`.
 
 pub mod accessibility_profile;
 pub mod contracts;
 pub mod factory_profile;
+pub mod pack;

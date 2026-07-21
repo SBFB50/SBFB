@@ -1,0 +1,228 @@
+{
+  "comment": "Hostile corpus for SBFBPromptAgentPack.v1 (Sprint 83 Phase F). Every entry carries the RAW envelope bytes a caller could hand to verify_signed_pack, plus the error variant that MUST come back; entries sharing a variant also pin WHICH rule fired via expect_detail_contains. Enumerating the corpus in a committed file is what makes '100% refused' a measurable claim instead of a slogan: the test iterates this file, and an entry whose refusal changes shape fails loudly. Entries here are refused BEFORE the signature is even considered — their 'signature' fields are deliberately junk, so any entry that reached Ed25519 verification would surface as SignatureInvalid and fail its expectation. Post-signature refusals (valid signature over an unacceptable body) cannot live in a static file — they need a real signing key — and are built in code in the same module (valid_signature_over_hostile_body_is_terminal), which asserts BY NAME that every post_signature_entries row below is exercised. The one exception is cross-domain-signature, exercised in tests::cross_domain_signature_rejected because it needs the domain-injectable door. SVG/Markdown/script content classes are absent BY CONSTRUCTION of the v1 root: the pack embeds no file content at all (PACK.lock carries path+digest+size only), so there is nothing to sanitise at this layer; the content-level hostile surface belongs to whatever materialises the pinned files. The TypeScript parity mirror lives at web/src/workflow/__tests__/pack_digest.test.ts.",
+  "entries": [
+    {
+      "name": "not-json",
+      "why": "raw bytes that are not JSON at all",
+      "raw": "this is not json",
+      "expect": "MalformedEnvelope"
+    },
+    {
+      "name": "envelope-is-array",
+      "why": "top level must be an object, not an array",
+      "raw": "[{\"payload\": {}, \"signature\": \"00\"}]",
+      "expect": "MalformedEnvelope",
+      "expect_detail_contains": "not an object"
+    },
+    {
+      "name": "envelope-extra-member",
+      "why": "an unknown envelope member could smuggle a second interpretation",
+      "raw": "{\"payload\": {}, \"signature\": \"00\", \"extra\": 1}",
+      "expect": "MalformedEnvelope",
+      "expect_detail_contains": "unknown envelope member"
+    },
+    {
+      "name": "envelope-no-signature",
+      "why": "an unsigned envelope must never be treated as a draft to render",
+      "raw": "{\"payload\": {}}",
+      "expect": "MalformedEnvelope",
+      "expect_detail_contains": "signature"
+    },
+    {
+      "name": "envelope-signature-not-string",
+      "why": "signature must be a hex string, not a structure",
+      "raw": "{\"payload\": {}, \"signature\": {\"r\": 1}}",
+      "expect": "MalformedEnvelope",
+      "expect_detail_contains": "signature"
+    },
+    {
+      "name": "duplicate-key-in-envelope",
+      "why": "serde_json keeps the last duplicate; a first-wins parser elsewhere reads a different envelope out of the same bytes",
+      "raw": "{\"payload\": {}, \"payload\": {}, \"signature\": \"00\"}",
+      "expect": "MalformedEnvelope",
+      "expect_detail_contains": "duplicate object key"
+    },
+    {
+      "name": "duplicate-key-in-payload",
+      "why": "same cross-parser differential, one level down — the signed name would depend on which parser you ask",
+      "raw": "{\"payload\": {\"name\": \"benign\", \"name\": \"evil\"}, \"signature\": \"00\"}",
+      "expect": "MalformedEnvelope",
+      "expect_detail_contains": "duplicate object key"
+    },
+    {
+      "name": "payload-null-member",
+      "why": "null is not canonically representable (nested non-finite floats collapse to it; absent-vs-null is a consumer ambiguity)",
+      "raw": "{\"payload\": {\"name\": null}, \"signature\": \"00\"}",
+      "expect": "NonRepresentable",
+      "expect_detail_contains": "$.name"
+    },
+    {
+      "name": "payload-null-nested-in-array",
+      "why": "the null rejection must reach inside arrays, not only top-level members",
+      "raw": "{\"payload\": {\"lock\": {\"entries\": [null]}}, \"signature\": \"00\"}",
+      "expect": "NonRepresentable",
+      "expect_detail_contains": "entries[0]"
+    },
+    {
+      "name": "integer-beyond-2-53",
+      "why": "beyond IEEE-754 exact range a TypeScript verifier reads a different number back",
+      "raw": "{\"payload\": {\"pack_revision\": 9007199254740993}, \"signature\": \"00\"}",
+      "expect": "Unbounded",
+      "expect_detail_contains": "I-JSON"
+    },
+    {
+      "name": "negative-integer-beyond-2-53",
+      "why": "same hazard, negative side",
+      "raw": "{\"payload\": {\"pack_revision\": -9007199254740993}, \"signature\": \"00\"}",
+      "expect": "Unbounded",
+      "expect_detail_contains": "I-JSON"
+    },
+    {
+      "name": "oversized-array",
+      "why": "cardinality bomb: a huge array of cheap values",
+      "raw_generator": "array_of_len 513",
+      "expect": "Unbounded",
+      "expect_detail_contains": "array of 513 entries"
+    },
+    {
+      "name": "oversized-object",
+      "why": "cardinality bomb on member count",
+      "raw_generator": "object_of_len 513",
+      "expect": "Unbounded",
+      "expect_detail_contains": "object of 513 members"
+    },
+    {
+      "name": "oversized-string",
+      "why": "a single string larger than the string cap",
+      "raw_generator": "string_of_len 8193",
+      "expect": "Unbounded",
+      "expect_detail_contains": "string of 8193 bytes"
+    },
+    {
+      "name": "deep-nesting",
+      "why": "depth bomb: recursion beyond the depth cap",
+      "raw_generator": "nested_depth 40",
+      "expect": "Unbounded",
+      "expect_detail_contains": "nesting deeper"
+    },
+    {
+      "name": "oversized-envelope",
+      "why": "an envelope past the byte cap dies on the size bound (checked on the raw slice before any parse; the corpus can only observe the resulting TooLarge, not instrument serde)",
+      "raw_generator": "envelope_of_bytes 1048577",
+      "expect": "TooLarge"
+    },
+    {
+      "name": "lone-surrogate-escape",
+      "why": "a lone UTF-16 surrogate escape has no scalar value; JSON text carrying one must die at the parser, never reach canonicalisation (generated: the corpus file itself must stay parseable)",
+      "raw_generator": "lone_surrogate 0",
+      "expect": "MalformedEnvelope"
+    }
+  ],
+  "post_signature_entries": [
+    {
+      "name": "valid-signature-over-unknown-field",
+      "why": "the cosign failure mode: a genuine signature over a body that fails the typed parse must be a TERMINAL refusal, never a degraded 'verified' status",
+      "expect": "SchemaViolation"
+    },
+    {
+      "name": "valid-signature-over-wrong-format-version",
+      "why": "a signature does not make a future format version acceptable",
+      "expect": "Semantic"
+    },
+    {
+      "name": "valid-signature-over-zip-slip-path",
+      "why": "path traversal in PACK.lock, refused by shape since this crate cannot resolve paths",
+      "expect": "Semantic"
+    },
+    {
+      "name": "valid-signature-over-backslash-path",
+      "why": "Windows separator refused outright rather than normalised",
+      "expect": "Semantic"
+    },
+    {
+      "name": "valid-signature-over-absolute-path",
+      "why": "an absolute path escapes the pack root at materialisation time",
+      "expect": "Semantic"
+    },
+    {
+      "name": "valid-signature-over-drive-letter-path",
+      "why": "a drive or NTFS stream separator escapes the pack root",
+      "expect": "Semantic"
+    },
+    {
+      "name": "valid-signature-over-reserved-device-name",
+      "why": "all 22 DOS device names resolve to devices on Windows regardless of directory",
+      "expect": "Semantic"
+    },
+    {
+      "name": "valid-signature-over-duplicate-lock-path",
+      "why": "two entries for one path make the content digest ambiguous",
+      "expect": "Semantic"
+    },
+    {
+      "name": "valid-signature-over-case-colliding-paths",
+      "why": "paths differing only by case are one file on Windows/macOS filesystems",
+      "expect": "Semantic"
+    },
+    {
+      "name": "valid-signature-over-trailing-dot-segment",
+      "why": "Win32 strips trailing dots: two spellings, one file",
+      "expect": "Semantic"
+    },
+    {
+      "name": "valid-signature-over-confusable-path",
+      "why": "Unicode confusables fall outside the ASCII-only v1 lock-path alphabet",
+      "expect": "Semantic"
+    },
+    {
+      "name": "valid-signature-over-unsorted-lock",
+      "why": "one file set must have one canonical entry order; a producer free to reorder would mint several content digests for one pack",
+      "expect": "Semantic"
+    },
+    {
+      "name": "valid-signature-over-oversized-file",
+      "why": "a declared size beyond the per-file cap promises a materialiser more than the format admits",
+      "expect": "Semantic"
+    },
+    {
+      "name": "valid-signature-over-empty-lock",
+      "why": "a lock that pins no file attests to nothing",
+      "expect": "Semantic"
+    },
+    {
+      "name": "valid-signature-over-mismatched-content-digest",
+      "why": "the content digest is recomputed from the lock, never taken at its word",
+      "expect": "Semantic"
+    },
+    {
+      "name": "valid-signature-over-duplicate-subject-name",
+      "why": "duplicate subject names make provenance ambiguous",
+      "expect": "Semantic"
+    },
+    {
+      "name": "valid-signature-over-empty-subject-list",
+      "why": "provenance with no subject attests to nothing",
+      "expect": "Semantic"
+    },
+    {
+      "name": "valid-signature-over-materialised-secret",
+      "why": "secret_refs must stay opaque logical references; a pasted credential is refused by the format itself",
+      "expect": "Semantic"
+    },
+    {
+      "name": "valid-signature-over-truncated-digest",
+      "why": "a digest that is not 64 lowercase hex chars cannot pin anything (mutates graph_semantic so the content-binding rule cannot mask the syntax rule)",
+      "expect": "Semantic"
+    },
+    {
+      "name": "valid-signature-over-uppercase-digest",
+      "why": "hex has two spellings per digest; the format admits exactly one (mutates graph_semantic, same masking discipline)",
+      "expect": "Semantic"
+    },
+    {
+      "name": "cross-domain-signature",
+      "why": "a signature minted under another SBFB domain must not verify as a pack",
+      "expect": "SignatureInvalid"
+    }
+  ]
+}
