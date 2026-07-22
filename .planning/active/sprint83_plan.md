@@ -785,6 +785,49 @@ G-UPGRADE-REPLAY/G-SINGLE-WRITER).
 
 ---
 
+## Phase I1 — Routes daemon run store (re-coupe B6, ajoutée mid-sprint)
+
+*Section ajoutée 2026-07-22 en exécution de la re-coupe B6 (autorisée par I.1
+« Candidate à re-coupe suffixée (I1) si mid-sprint », plan:743 ; DÉCIDÉE au
+preflight Phase I adaptation 22, committée au body I `e48d8280` §Scope cuts).*
+
+### I1.1 Scope
+Surface loopback du run store Phase I : module NEUF `workflow_api.rs` daemon +
+inventaire D7 + famille golden_http + compte routes 89→89+N + clôture
+docs-contrat par-famille (llms.txt/REFERENCE). Autorité d'exécution =
+`sprint83_phase_i1_preflight.md` (delta-scan sur socle I §11.2, verdict
+PLAN-ADAPT A1..A13) : coupe **READS-ONLY** — la famille mutante
+restore/GC/lease-force est tier-classée T1 dans D7 avec implémentation DATÉE
+J/K (T1 design-only, restore exige store CLOSED, GC sans clock avant J,
+lease-force sans appelant légitime).
+
+### I1.2 Livrables
+- `crates/nexus-shell-daemon/src/workflow_api.rs` : 2 GET
+  (`/api/daemon/workflow/run/{run_id}` agrégat scalaire allowlist +
+  `/api/daemon/workflow/lease` row brute), `run_id` serveur-validé,
+  dans `authed_routes` (auth complète), 0 RunEvent brut/snapshot/receipt.
+- Câblage : dep intra-workspace engine (sans `spike-faults`), champ
+  `DaemonHttpState.run_store`, boot eager miroir coordinator.db, AUCUN
+  lease daemon (lecture seule).
+- D7 : +1 row T0 représentative + 3 rows T1 FUTURES datées J/K ;
+  THREAT_MODEL v24 (concrétisation §19) ; `docs/workflow/` layer neuf.
+- Famille `golden_http_workflow_domain` + sondes `golden_families_stable`.
+
+### I1.3 Tests plan
+Projections pures 3 statuts + allowlist key-set + garde run_id + contrat
+HTTP + duress-identique avec seed + golden famille. Mutations actives sur
+chaque garde. T1 = `N-A-no-frontend-change` ; integration-nightly N-A.
+
+### I1.4 Critère d'acceptation
+`cargo nextest run -p nexus-shell-daemon --locked` exit 0 Win + Docker ;
+routes == 91 ; engine/core BYTE-INTACTS ; census DOMAIN 29 ; frontier +
+SPDX exit 0.
+
+### I1.5 Commit cible
+`feat(daemon): Sprint 83 Phase I1 — run store loopback read routes (D7 inventory, golden_http)`.
+
+---
+
 ## Phase J — Orchestrateur local déterministe
 
 ### J.1 Scope

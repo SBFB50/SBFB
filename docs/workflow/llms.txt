@@ -1,0 +1,62 @@
+# SBFB workflow agents — agent index
+
+> Deterministic multi-agent workflows executed by a host-side Rust runtime:
+> signed portable packs (`SBFBPromptAgentPack.v1`), an authoritative compiler
+> (`CompiledPlan.v1`), and a durable SQLite run store. This index points an
+> agent at the rank-1 sources for the parts DELIVERED so far — it is seeded at
+> **S83 Phase I1** with the run store loopback read family and grows with each
+> phase; the chantier-wide closure (full GUIDE + every contract) is the S83
+> wrap-up (Phase AJ1).
+>
+> **Status: UNDER CONSTRUCTION (S83).** Delivered at this seed: pack format
+> (F), language + agent definitions (G), compiler (H), durable run store (I),
+> run store loopback READ surface (I1). The orchestrator (J), effects (K),
+> permissions (L), adapters (N/O) and the Workflow Hub app are later phases —
+> a fact about them absent from a rank-1 repo file is **`Not evidenced`**.
+>
+> **Truth Stack** (trust the higher rank on conflict):
+> `repo files > .planning/active/ > commits > prompts > chat`.
+
+## Start here
+
+- [WORKFLOW_AGENTS_OVERVIEW.md](../factory/WORKFLOW_AGENTS_OVERVIEW.md): the
+  chantier GUIDE (4 authority layers, invariants, phase map). Grows each
+  phase; finalized at AJ1.
+- [REFERENCE.md](./REFERENCE.md): human twin of this index — the run store
+  loopback API family (envelopes, tiers, invariants).
+
+## Run store loopback surface (rank-1 source, S83 Phase I1)
+
+- [workflow_api.rs](../../crates/nexus-shell-daemon/src/workflow_api.rs): the 2
+  `/api/daemon/workflow/*` route handlers (READ-ONLY family; routes stay
+  registered in `http.rs` `build_router`/`authed_routes` — loopback bearer +
+  Host + Origin, peer creds at the listener). Aggregate per-run projection
+  `crates/nexus-shell-daemon/src/workflow_api.rs:workflow_run_response`
+  (scalar allowlist — never a raw `RunEvent`, snapshot or effect receipt) +
+  raw lease row `crates/nexus-shell-daemon/src/workflow_api.rs:workflow_lease_response`.
+  `run_id` is server-validated at the route
+  (`crates/nexus-shell-daemon/src/workflow_api.rs:valid_run_id`, bounded
+  charset, 400 on violation; a run_id never forms a filesystem path).
+- [store.rs](../../crates/sbfb-workflow-engine/src/store.rs): the durable run
+  store the routes read (journal + outbox + inbox + snapshots + lease;
+  single-writer epoch-CAS fencing; forward-only migrations, downgrade guard
+  at open). The daemon holds ONE boot-opened handle and acquires NO lease at
+  I1 — reads are unfenced-safe under WAL; the write path is the Phase J
+  runtime.
+- [run_event.rs](../../crates/sbfb-workflow-core/src/run_event.rs): the
+  `RunEvent.v1` envelope (LOCAL store format, `RUN_EVENT_FORMAT_VERSION`
+  never a wire version; `DOMAIN_RUN_EVENT_V1` stays RESERVED 0-producer).
+- [LOOPBACK_ENDPOINTS_TRUST_TIERS.md](../security/LOOPBACK_ENDPOINTS_TRUST_TIERS.md):
+  D7 inventory §3 — the T0 representative row for this family, plus the 3
+  MUTATING endpoints (restore / gc / lease-force) tier-classified **T1 with
+  implementation dated J/K** (they do NOT exist in the router today).
+- [THREAT_MODEL.md](../security/THREAT_MODEL.md): §19 asset A11 + the 7
+  T-RUN-* rows bounding this surface (v24 = the I1 concretization).
+
+## Contract tests (drift gates)
+
+- `golden_http_workflow_domain` + `golden_families_stable` probes in
+  [test_support.rs](../../crates/nexus-shell-daemon/src/test_support.rs):
+  the EMPTY-NODE contract of both routes, replayed against two fresh nodes.
+- In-module tests in `workflow_api.rs`: projection allowlist key-set pin,
+  duress-identical behaviour, bounded `run_id` guard.

@@ -74,6 +74,7 @@ mod test_support;
 mod uds_server;
 mod validator_loop;
 mod worker_state_api;
+mod workflow_api;
 
 use anyhow::{Context, Result};
 use clap::Parser;

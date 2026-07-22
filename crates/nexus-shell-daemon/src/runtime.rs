@@ -739,6 +739,20 @@ impl DaemonRuntime {
         // Held both on the runtime (for shutdown) and in the HTTP state
         // (so the task submit handler can spawn the worker lazily).
         let local_worker = Arc::new(crate::local_worker::LocalWorkerSupervisor::new());
+        // Sprint 83 Phase I1: open the workflow run store once at boot
+        // (mirror of coordinator.db in step 2 — single open, later
+        // consumers reuse the handle). Sibling of coordinator.db under
+        // the daemon data root, NEVER under the ~/.sbfb security root.
+        // Fail-closed on open: `UnsupportedSchemaVersion` here means the
+        // operator downgraded the binary under an existing store — the
+        // Phase I downgrade guard refuses to misread it, and masking
+        // that refusal with a degraded boot would hide it.
+        // No lease is acquired: the daemon performs ZERO run-store
+        // writes until the Phase J runtime drives runs.
+        let run_store_path = opts.paths.root.join(crate::workflow_api::RUN_STORE_FILE);
+        let run_store = sbfb_workflow_engine::RunStore::open(&run_store_path)
+            .map_err(|e| anyhow::anyhow!("workflow run store open failed: {e}"))?;
+        let run_store = Arc::new(std::sync::Mutex::new(run_store));
         let http_state = Arc::new(DaemonHttpState {
             node_id,
             daemon_version: opts.daemon_version.clone(),
@@ -806,6 +820,7 @@ impl DaemonRuntime {
             // S77 stub was the seam for). Starts empty; the operator mount
             // route populates it behind the signature + membership gate.
             shard_sessions: Arc::new(crate::shard_session::ShardSessionRegistry::default()),
+            run_store,
         });
         // Sprint 16 Phase A (D1) + Sprint 18 audit fix D-1: resolve
         // the loopback bearer auth state (env token > rotated

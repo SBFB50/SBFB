@@ -5194,6 +5194,7 @@ dependencies = [
  "rand 0.8.6",
  "reqwest 0.12.28",
  "sbfb-manifest",
+ "sbfb-workflow-engine",
  "serde",
  "serde_json",
  "serial_test",

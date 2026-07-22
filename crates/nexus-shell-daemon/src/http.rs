@@ -200,6 +200,16 @@ pub struct DaemonHttpState {
     /// signature + `is_member` checks BEFORE insert; the projections stay
     /// privacy-whitelisted (SI-3/SI-4).
     pub shard_sessions: Arc<crate::shard_session::ShardSessionRegistry>,
+    /// Sprint 83 Phase I1: shared workflow run store handle backing the
+    /// read-only `/api/daemon/workflow/*` routes. Opened ONCE at boot
+    /// from `<paths.root>/workflow_runs.sqlite3` (WAL — mirror of
+    /// `coordinator_db` above); handlers lock briefly per query. The
+    /// daemon holds this SINGLE handle and never acquires the writer
+    /// lease at this phase — reads are unfenced and safe under WAL,
+    /// lease acquisition belongs to the Phase J runtime write path.
+    /// Mutex (not RwLock) because `RunStore` wraps one rusqlite
+    /// `Connection` (`Send + !Sync`).
+    pub run_store: Arc<std::sync::Mutex<sbfb_workflow_engine::RunStore>>,
 }
 
 impl DaemonHttpState {
@@ -372,6 +382,20 @@ pub fn build_router(
         .route(
             "/api/daemon/shard-session/{session_id}/drop-shard",
             post(crate::shard_session_http_api::shard_session_drop_shard),
+        )
+        // Sprint 83 Phase I1: read-only surface over the Phase I workflow
+        // run store — aggregate per-run progress + raw lease row. D7
+        // inventory rows in LOOPBACK_ENDPOINTS_TRUST_TIERS §3 (tier T0
+        // read-only family); the MUTATING family (restore / GC /
+        // lease-force) is tier-classified T1 there with implementation
+        // dated J/K — it is deliberately NOT registered here.
+        .route(
+            "/api/daemon/workflow/run/{run_id}",
+            get(crate::workflow_api::workflow_run_status),
+        )
+        .route(
+            "/api/daemon/workflow/lease",
+            get(crate::workflow_api::workflow_lease),
         )
         .route(
             "/api/daemon/publish",

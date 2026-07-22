@@ -5,12 +5,13 @@
 > distributes it; clients render it in a sandboxed iframe via the Rust blob-serve
 > daemon. AGPL-3.0.
 >
-> **Scope of this index — the sharding and factory subsystems.** This `llms.txt`
-> indexes the two subsystems that have a dedicated agent-consumable docs layer:
-> **distributed-inference (sharding)** and **app-authoring (factory)**. A
-> whole-repo agent index is **deferred** (its own future phase/sprint). For
-> everything else, read `CLAUDE.md` (project overview) and `docs/claude/README.md`
-> (workflow).
+> **Scope of this index — the sharding, factory and workflow subsystems.** This
+> `llms.txt` indexes the subsystems that have a dedicated agent-consumable docs
+> layer: **distributed-inference (sharding)**, **app-authoring (factory)** and
+> **workflow agents (runtime)** — the latter seeded S83 and still under
+> construction. A whole-repo agent index is **deferred** (its own future
+> phase/sprint). For everything else, read `CLAUDE.md` (project overview) and
+> `docs/claude/README.md` (workflow).
 
 ## Sharding (distributed LLM inference)
 
@@ -24,7 +25,13 @@
 - [Wiring spec for agents](docs/factory/WIRING_SPEC.md): contract-dense, source-anchored — the sealed-iframe CSP contract, the non-delegable gate, the prompt-kind, INVIOLABLE invariants.
 - [Factory gates](docs/factory/FACTORY_GATES.md): the 11 publish gates; FG-CSP-authoring (static scan) + its runtime net (self-check viewer).
 
-*Both indexed subsystems have their own agent docs layer; everything else is
+## Workflow agents (host runtime, under construction S83)
+
+- [Workflow agent index](docs/workflow/llms.txt): the entry point — Truth Stack, delivered-so-far map (pack format, compiler, durable run store, run store loopback read surface), rank-1 sources.
+- [Workflow reference](docs/workflow/REFERENCE.md): the run store loopback API family — envelopes, D7 tiers, deferred mutating family.
+- [Chantier GUIDE](docs/factory/WORKFLOW_AGENTS_OVERVIEW.md): the 4 authority layers + phase map; grows each phase, finalized at the S83 wrap-up.
+
+*The indexed subsystems have their own agent docs layer; everything else is
 intentionally not agent-indexed yet (whole-repo index deferred). For project
 orientation read the human files named in the scope banner above (`CLAUDE.md`,
 `docs/claude/README.md`).*

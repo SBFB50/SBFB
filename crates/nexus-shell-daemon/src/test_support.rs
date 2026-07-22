@@ -142,6 +142,13 @@ pub(crate) async fn mk_state_with_mode_tx(
         tmp.path().join("blob-cache"),
         Arc::new(crate::panic::RealExit) as Arc<dyn crate::panic::ExitStrategy>,
     ));
+    // Sprint 83 Phase I1: file-backed workflow run store in the same
+    // leaked tempdir (no in-memory constructor exists — the store is
+    // WAL, file-only — so this diverges from the coordinator_db
+    // `open_in_memory()` shortcut by necessity, not by choice).
+    let run_store =
+        sbfb_workflow_engine::RunStore::open(&tmp.path().join(crate::workflow_api::RUN_STORE_FILE))
+            .expect("test run store");
     // The tempdir is intentionally leaked so the panic service's
     // keystore can still reference its directory across the
     // state's lifetime. Unit tests never actually invoke the
@@ -199,6 +206,7 @@ pub(crate) async fn mk_state_with_mode_tx(
         ),
         seed_registry: Arc::new(crate::seed_registry::SeedRegistry::new()),
         shard_sessions: Arc::new(crate::shard_session::ShardSessionRegistry::default()),
+        run_store: std::sync::Arc::new(std::sync::Mutex::new(run_store)),
     })
 }
 
@@ -621,6 +629,19 @@ async fn golden_families_stable() {
             "/api/v1/project/deadbeef/provenance",
             None,
         ),
+        // Sprint 83 Phase I1: workflow run store read family.
+        (
+            "workflow_run",
+            Method::GET,
+            "/api/daemon/workflow/run/nonexistent-run",
+            None,
+        ),
+        (
+            "workflow_lease",
+            Method::GET,
+            "/api/daemon/workflow/lease",
+            None,
+        ),
     ];
 
     async fn hit(
@@ -692,6 +713,51 @@ async fn golden_http_shard_session_domain() {
                 "Failed to deserialize the JSON body into the target type: \
                  missing field `group_id` at line 1 column 2",
             ),
+        },
+    ])
+    .await;
+}
+
+/// Workflow run store read domain (Sprint 83 Phase I1): the 2
+/// loopback GETs over the Phase I durable store. EMPTY-NODE contract
+/// captured by executing the surfaces on a fresh node.
+#[tokio::test]
+async fn golden_http_workflow_domain() {
+    golden_run(&[
+        GoldenCase {
+            name: "workflow_run_missing",
+            method: Method::GET,
+            uri: "/api/daemon/workflow/run/nonexistent-run",
+            json_body: None,
+            want_status: 200,
+            want_headers: &[("content-type", "application/json")],
+            want_body: GoldenBody::Json(serde_json::json!({
+                "found": false,
+                "run": null
+            })),
+        },
+        GoldenCase {
+            name: "workflow_run_invalid_id",
+            method: Method::GET,
+            uri: "/api/daemon/workflow/run/bad!id",
+            json_body: None,
+            want_status: 400,
+            want_headers: &[("content-type", "application/json")],
+            want_body: GoldenBody::Json(serde_json::json!({
+                "error": "invalid run_id"
+            })),
+        },
+        GoldenCase {
+            name: "workflow_lease_empty",
+            method: Method::GET,
+            uri: "/api/daemon/workflow/lease",
+            json_body: None,
+            want_status: 200,
+            want_headers: &[("content-type", "application/json")],
+            want_body: GoldenBody::Json(serde_json::json!({
+                "found": false,
+                "lease": null
+            })),
         },
     ])
     .await;

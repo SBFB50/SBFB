@@ -494,6 +494,13 @@ mod tests {
             tmp.path().join("blob-cache"),
             Arc::new(crate::panic::RealExit) as Arc<dyn crate::panic::ExitStrategy>,
         ));
+        // Sprint 83 Phase I1: file-backed run store in the same leaked
+        // tempdir (mirror of test_support::mk_state — no in-memory
+        // constructor exists for the WAL store).
+        let run_store = sbfb_workflow_engine::RunStore::open(
+            &tmp.path().join(crate::workflow_api::RUN_STORE_FILE),
+        )
+        .expect("test run store");
         std::mem::forget(tmp);
         let state = Arc::new(DaemonHttpState {
             node_id: node.node_id(),
@@ -550,6 +557,7 @@ mod tests {
             ),
             seed_registry: Arc::new(crate::seed_registry::SeedRegistry::new()),
             shard_sessions: Arc::new(crate::shard_session::ShardSessionRegistry::default()),
+            run_store: std::sync::Arc::new(std::sync::Mutex::new(run_store)),
         });
         let app = build_test_router(state);
         let resp = app

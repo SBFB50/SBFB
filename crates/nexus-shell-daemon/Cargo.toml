@@ -30,6 +30,12 @@ nexus-core-rs = { path = "../nexus-core-rs" }
 nexus-coordinator-rs = { path = "../nexus-coordinator-rs" }
 nexus-worker-core = { path = "../nexus-worker-core" }
 sbfb-manifest = { path = "../sbfb-manifest" }
+# Sprint 83 Phase I1: read-only loopback surface over the workflow run
+# store (D1: the workflow runtime is hosted by the daemon). Intra-
+# workspace path dep, zero external tree growth; the daemon build NEVER
+# enables the engine's `spike-faults` feature (fault hooks stay
+# test-only, and the raw journal doors stay pub(crate) in the engine).
+sbfb-workflow-engine = { path = "../sbfb-workflow-engine" }
 
 tokio = { workspace = true }
 futures-lite = "2.3"
