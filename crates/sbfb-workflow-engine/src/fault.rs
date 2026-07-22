@@ -18,7 +18,9 @@
 
 /// A point in the engine where the process can be interrupted.
 ///
-/// The names are the crash frontiers of the spike, in execution order.
+/// The names are the crash frontiers of the spike, in execution order —
+/// plus, since Phase I, the maintenance transaction point of the GC purge
+/// (a composite write of its own, not a run frontier).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum FaultPoint {
     /// INSIDE the guaranteed intent transaction, between the journal append
@@ -47,6 +49,27 @@ pub enum FaultPoint {
     AfterEffectBeforeResult,
     /// B3 — the result is journaled, the run has not advanced past the step.
     AfterResult,
+    /// INSIDE one per-run GC purge transaction (Phase I), between the
+    /// child-table deletes and the final step. Halting here must roll the
+    /// WHOLE purge back: a run is either fully purged or fully intact,
+    /// never a journal amputated while its `runs` row survives.
+    ///
+    /// The OTHER Phase I writes deliberately carry NO fault point: the lease
+    /// CAS is a read-shaped no-op (nothing of it can be half-committed), and
+    /// inbox insert / snapshot upsert are single statements whose atomicity
+    /// is SQLite's own — a removal arm there would test the database, not
+    /// this crate (the same rule the module doc states for unique indexes).
+    InsideGcTransaction,
+    /// BETWEEN the GC candidate scan and one run's purge transaction —
+    /// OUTSIDE any transaction, unlike every point above. Exists so a
+    /// harness can interleave a concurrent mutation (through a SEPARATE
+    /// connection) exactly where the scan's snapshot of the world goes
+    /// stale, proving the in-transaction re-read of status/eligibility is
+    /// load-bearing (Codex r1: acting on the scanned status could route a
+    /// freshly-terminal run through the completed branch and delete its
+    /// diagnosis). The no-call-back rule below is about the SAME handle
+    /// inside an open transaction; at this point there is none.
+    BeforeGcPurgeOfRun,
 }
 
 /// What the engine should do when it reaches a fault point.

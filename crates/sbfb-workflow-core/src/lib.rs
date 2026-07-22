@@ -14,9 +14,11 @@
 //! Sprint 83 Phase A reserved the seven versioned contract identities as
 //! named [`schemars`] types. Each is a frontier whose wire shape is authored
 //! in its own dedicated contract phase (the pack format, the workflow graph,
-//! the run journal, and so on); most bodies are still empty stubs, and the
-//! first to be filled is `FactoryProcessProfile.v1` (Phase D, see
-//! [`factory_profile`] below). What Phase A locked is the IDENTITY — the
+//! the run journal, and so on); at Phase A every body was an empty stub, and
+//! the first to be filled was `FactoryProcessProfile.v1` (Phase D, see
+//! [`factory_profile`] below) — 6/7 are filled as of Phase I, with
+//! `WorkflowPublicProjection.v1` the one remaining stub (publication/RRV
+//! phase). What Phase A locked is the IDENTITY — the
 //! schemars `title` carries the `.v1` contract name — and the fact that every
 //! identity emits a valid JSON Schema draft 2020-12 object. The generated
 //! schemas are pinned by the `schema_snapshot_stub` golden test against a
@@ -107,6 +109,22 @@
 //! pinned artefact stores, and the node-profile freeze decision lives in
 //! `.planning/active/sprint83_node_profile_freeze.md`.
 //!
+//! ## Sprint 83 Phase I — the run journal envelope
+//!
+//! [`run_event`] fills `RunEvent.v1`: the versioned-once envelope of the
+//! append-only run journal (D3) and the PURE upcasting door
+//! ([`run_event::upcast_payload`]) that interprets older payloads at read
+//! time — with its fail-closed downgrade guard (a row written by a newer
+//! engine is refused, never mis-read). The types lived in
+//! `sbfb-workflow-engine::event` during the Phase E spike; the spike
+//! returned GO, so the envelope moved here following the cadence of the
+//! other filled identities and the engine now depends on this crate and
+//! re-exports them. Like the graph and compile contracts it is a LOCAL,
+//! never-signed artefact: no `DOMAIN_*_V1` (`DOMAIN_RUN_EVENT_V1` stays a
+//! RESERVED tag with zero producers — it names a FUTURE exported form, not
+//! this journal), and the identity stays entry 5/7 of
+//! [`contracts::all_contract_schemas`] (`len == 7`).
+//!
 //! ## Sprint 83 Phase H — the authoritative compiler
 //!
 //! [`compile`] fills `CompiledPlan.v1`: the single semantic authority
@@ -133,3 +151,4 @@ pub mod factory_profile;
 pub(crate) mod golden_store;
 pub mod graph;
 pub mod pack;
+pub mod run_event;

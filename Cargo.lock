@@ -7529,6 +7529,7 @@ dependencies = [
  "blake3",
  "rusqlite",
  "rusqlite_migration",
+ "sbfb-workflow-core",
  "sbfb-workflow-engine",
  "serde",
  "serde_jcs",

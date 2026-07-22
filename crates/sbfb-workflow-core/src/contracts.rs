@@ -4,9 +4,11 @@
 //! Each type below is a NAMED FRONTIER reserved in Sprint 83 Phase A. Bodies are
 //! authored in a dedicated contract phase per identity: `FactoryProcessProfile.v1`
 //! (Phase D, [`crate::factory_profile`]), `SBFBPromptAgentPack.v1` (Phase F,
-//! [`crate::pack`]), then `SBFBWorkflowGraph.v1` + `SBFBAgentDefinition.v1`
-//! (Phase G, [`crate::graph`] / [`crate::agent_definition`]); the run-journal,
-//! compiled-plan and public-projection identities are still empty stubs. What
+//! [`crate::pack`]), `SBFBWorkflowGraph.v1` + `SBFBAgentDefinition.v1`
+//! (Phase G, [`crate::graph`] / [`crate::agent_definition`]), `CompiledPlan.v1`
+//! (Phase H, [`crate::compile`]) and `RunEvent.v1` (Phase I,
+//! [`crate::run_event`]); the public-projection identity is the one still
+//! empty stub (6/7 filled — authored in the publication/RRV phase). What
 //! Phase A locks is the IDENTITY — the schemars `title` carries the `.v1`
 //! contract name — and that every identity emits a valid JSON Schema draft
 //! 2020-12 object. The generated schemas are pinned by the
@@ -68,13 +70,17 @@ pub use crate::graph::SbfbWorkflowGraph;
 pub use crate::agent_definition::SbfbAgentDefinition;
 
 /// `RunEvent.v1` — one append-only run-journal entry (D3), primary key
-/// `(run_id, sequence)`, with an idempotency key on effects. The journal is
-/// the source of truth for durable replay. Frontier stub — envelope authored
-/// in the run-store phase.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[schemars(title = "RunEvent.v1")]
-pub struct RunEvent {}
+/// `(run_id, sequence)`. The DURABLE STORE (journal + outbox) is the source
+/// of truth for durable replay. Sprint 83 Phase A reserved this identity as
+/// an empty stub; the Phase E spike deliberately kept its envelope local to
+/// the engine while the GO/NO-GO question was open; Phase I (the run-store
+/// phase `contracts.rs` assigned it to) authored its fields in the dedicated
+/// [`crate::run_event`] module (versioned-once envelope, payload-free-by-type
+/// event kinds, the pure upcasting door with its downgrade guard). It is
+/// re-exported here so it stays entry 5/7 of [`all_contract_schemas`];
+/// filling it refreshed `contracts.schema.json` while keeping the registry
+/// `len == 7`.
+pub use crate::run_event::RunEvent;
 
 /// `CompiledPlan.v1` — the immutable plan produced by the authoritative Rust
 /// compiler (D3/D4): normalised graph, closed capabilities, semantic

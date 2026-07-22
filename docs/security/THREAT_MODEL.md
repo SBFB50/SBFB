@@ -65,6 +65,8 @@ pattern OWASP Threat Dragon.
 | A7 | Task results + kudos ledger | Moyenne | **Haute** | Moyenne | iroh-docs + hash-chain append-only |
 | A8 | Activations sharding + RunProof | **Haute** (activations en clair, SI-1) | **Critique** (verdict N0-N3) | Moyenne | frames `sbfb/shard/1` en transit (groupe prive) + `RunProof` signe (slot `activation_fingerprint`) |
 | A9 | `needs[]` accessibilite (PII sante/handicap) | **Critique** (LINDDUN, categorie sensible > A4) | Moyenne | Faible | Host-local UNIQUEMENT (`AccessibilityPreferences`) ; JAMAIS dans la projection `ResolvedAccessibilityProfile.v1` (le type de sortie n'a pas de champ `needs`) ni au DOM/bridge/prompt/trace du Hub. Cf. §17. |
+| A10 | Plan compile immuable (`CompiledPlan.v1`) | Faible (derive du pack) | **Critique** (autorite Plan-Then-Execute) | Moyenne | Artefact LOCAL derive par `compile()` (jamais signe ni gossipe) ; autorite = digest `content` du pack Ed25519-verifie en amont. Cf. §18. *(Row versee en v23 — l'asset etait defini §18 sans ligne ici.)* |
+| A11 | Etat d'execution durable (run store) | Moyenne (identifiants caller-chosen, cf. T-RUN-ID-PII) | **Critique** (journal + outbox = verite du replay) | **Haute** (un run doit survivre au crash) | Fichier SQLite local injecte par l'hote (journal `run_events` + `outbox` + `inbox` + `snapshots` + `lease`) ; jamais signe ni gossipe. Cf. §19. |
 
 ---
 
@@ -1725,8 +1727,9 @@ dimension par dimension, gates HITL epingles (`human_gates`).
 | **T-PLAN-DIGEST-MALLEABILITY** | *Spoofing* — deux plans differents partagent un digest (cle de presentation en position data, ordre d'edges, id de schema re-pinne sous d'autres bytes) | **fermee** | Refus `PresentationKeyAsData` (node ids + cles `field_map` ∌ `PRESENTATION_KEYS`, ferme la malleabilite `graph_semantic` §6 freeze) ; ordre des edges NORMALISE avant digest (`graph_semantic_digest_order_independent`) ; UN id = UN digest a l'echelle du plan pour TOUTES les categories d'artefacts (schemas via `PortTypeMismatch`, workflows/agents/prompts/tools/corpora/guardrails via `record_digest` fail-closed, cache agents re-confronte a chaque reference — Codex r2 : plus aucun ecrasement silencieux d'homonymes) ; determinisme byte-identique sous les 2 profils de build (`compile_is_deterministic`, piege `preserve_order`). |
 | **T-PLAN-SCAN-EVASION** | *Tampering* — un secret/endpoint fractionne ou encode echappe au scan des documents graphe/agent | **L (accepte)** | Le scan (secret-shape + `://` + marqueurs executables) est **best-effort fail-closed sur ce qu'il reconnait** — la detection endpoint = sous-chaine `://` UNIQUEMENT (les schemas URI sans slash `data:`/`javascript:` ne sont pas reconnus, meme residuel) ; la garantie enforced reste le FORMAT (aucun champ endpoint/code, `secret_ref` opaques, capacites fermees). Les bytes des prompts/corpus (fichiers pinnes par digest) sont scannes a l'assemblage du pack (phase Hub/T), pas ici. |
 
-**Bornes honnetes (ce que H ne ferme PAS)** : run store durable = I ;
-reducer/scheduler, revalidation runtime des tool-calls, cancel honnete = J ;
+**Bornes honnetes (ce que H ne ferme PAS)** : run store durable = **LIVRE
+§19 (Phase I)** ; reducer/scheduler, revalidation runtime des tool-calls,
+cancel honnete = J ;
 `effect_id`/idempotence = K ; intersection 7 couches, attenuation per-effet,
 coffre `secret_ref`, HITL signe = L/L1 ; SSRF/DNS = P ; miroir TS/canvas = T ;
 signature « attestation compilateur » (§17.1 research) = role separe differe.
@@ -1737,7 +1740,47 @@ verification materialisante ulterieure. **La confrontation adversariale
 complete de cette surface est Phase AH** (H seme l'asset, AH confronte —
 decision preflight B5).
 
-## 19. Revue et evolution
+## 19. Surface run store durable (Sprint 83 Phase I)
+
+Le run store (`crates/sbfb-workflow-engine/src/store.rs`) est l'**etat
+d'execution durable** du moteur : journal `run_events` append-only + outbox
+transactionnel (Phase E, GO) + inbox dedupliquante + snapshots jetables +
+lease single-writer + retention/GC + backup/restore (Phase I). Il est
+**LOCAL au noeud** : 0 octet cross-noeud, 0 signature d'entree
+(`DOMAIN_RUN_EVENT_V1` reste un tag RESERVE 0-producteur — il nomme une
+future forme EXPORTEE, pas ce journal ; census 29 inchange). L'enveloppe
+`RunEvent.v1` est remplie cote core (`sbfb-workflow-core/src/run_event.rs`,
+registre 6/7).
+
+**Asset A11 — l'etat d'execution durable.** Trust boundary : la frontiere OS
+mono-utilisateur (le fichier vit ou l'hote l'injecte — la crate ne resout ni
+home ni env). L'INPUT non-fiable n'est pas le store, c'est le SPEC/pack —
+verifie Ed25519 EN AMONT par le compilateur (§18) ; le store n'enregistre
+que ce que le moteur single-writer a decide. Les horloges (`now_ms`) sont
+INJECTEES par l'appelant : le journal lui-meme ne porte aucune valeur
+d'environnement (byte-reproducible, goldens committes).
+
+| # | Menace (STRIDE) | Sev | Mitigation cablee |
+|---|---|---|---|
+| **T-RUN-DOWNGRADE-MISREAD** | *Tampering* — un binaire ANCIEN ouvre un store ecrit par un moteur plus recent et mal-interprete des formes qu'il ne connait pas (la moitie « downgrade dangereux » du plan) | **fermee** | Garde DOUBLE, chacune mutation-testee : (1) niveau SCHEMA — `RunStore::open` refuse `user_version > migrations connues` (`UnsupportedSchemaVersion`) AVANT `to_latest`, ce qui couvre aussi le restore d'un backup trop recent ; (2) niveau EVENT — `load_events` passe par l'unique porte `upcast_payload` qui refuse `format_version > courant` (`NewerThanSupported`) et refuse une chaine trouee (`ChainGap` LOUD, jamais un skip silencieux). L'upcast est a l'INTERPRETATION (`Value`→`Value`, jamais de reecriture des rows), chaine testee PAR-HOP. |
+| **T-RUN-DOUBLE-EMIT-STALE-WRITER** | *Elevation of privilege* — deux runtimes ouvrent le meme store et font AVANCER la meme outbox ; variante : un owner PERIME (takeover subi) commet encore | **fermee (couche STORE, mode leased)** | Fencing par **epoch monotone** (table `lease` a 1 row) : CAS `UPDATE … WHERE owner = ? AND epoch = ?` + `rows_affected == 1` DANS chaque write-transaction, sinon rollback TOTAL (`LeaseLost` — un writer fenced-out n'emet NI entree NI outbox, teste + mutation M1). L'expiry mur-horloge n'est JAMAIS une condition de commit — seulement l'heuristique de takeover d'un aspirant (Kleppmann fencing tokens ; Temporal `rangeID`). Chaque ACQUISITION bumpe l'epoch (y compris meme owner : invalide les handles zombies d'une incarnation morte). Bras out-of-process : owner reellement MORT → takeover epoch+1 → le run finit sous le nouveau fence (record_run_completed asserte). **Bornes honnetes** : (1) un handle SANS lease ecrit unfenced (posture spike E mono-process, documentee sur `RunStore`) — le chemin daemon (I1/J) acquiert ; le fencing est une posture ACQUISE, pas un defaut ambiant ; (2) le CAS fence les ECRITURES DU STORE (journal/outbox), PAS la fenetre d'effet EXTERNE : un writer suspendu entre son intent committe et `target.apply`, depossede entre-temps, peut encore appliquer l'effet cote cible — cette fenetre reste bornee par la dedup de la CIBLE (clause 2 du spike : `dedup_scope` journalise, cle stable) et sa fermeture par fencing-token verifie PAR LA CIBLE = couche effets **Phase K** (Codex r1 L3, carry trace). |
+| **T-RUN-RESTORE-ROLLBACK** | *Tampering/Repudiation* — un restore rembobine le journal a l'instant du backup : evenements posterieurs perdus, effets deja appliques re-tentables | **M (accepte, opere)** | Le restore est par NATURE une surface anti-rollback : assume et documente, jamais masque. Gardes cablees : validation du backup AVANT tout remplacement (ouverture read-only ; `user_version` connu ET >= 1 ; INVENTAIRE COMPLET tables + COLONNES exigees par la version reclamee [v1 = tables E, v2 = les 6, chaque table verifiee colonne par colonne via le pragma type table_info] + index `outbox_one_effect_per_node` verifie SEMANTIQUEMENT [UNIQUE + colonnes exactes (run_id, node_instance_id), pragmas index_list/index_info — un homonyme non-unique ou mal cible est refuse, Codex r3 P1] + flags PK des colonnes porteuses de semantique + presence des FK declarees des 4 tables enfants + `PRAGMA quick_check` == ok — un SQLite valide aux bons NOMS mais au schema etranger est refuse [Codex r1/r2/r3 P1] ; index NON partiel exige, PK comparees en ENSEMBLE EXACT, FK exigee MONO-COLONNE exacte run_id REFERENCES runs(run_id) [groupe de contrainte a une seule ligne — une FK composite a composante enfant NULLable ne contraindrait plus rien, Codex r5] ; bornes restantes honnetes ENUMEREES : types, NOT NULL, clauses CHECK, defauts, collations, violations FK preexistantes et colonnes surnumeraires non compares — la frontiere reste OS mono-utilisateur), store CIBLE ferme (sur Windows la copie sur un store ouvert echoue en sharing violation = la garde qui marche), siblings `-wal`/`-shm` perimes supprimes (un WAL de l'ANCIEN fichier rejoue sur le nouveau = corruption). Contre le double-effet post-restore, la garde reste cote CIBLE (`dedup_scope` journalise + `TargetScopeChanged` fail-closed, clause 2 du spike). Le geste reste OPERATEUR-LOCAL en I (aucune route reseau) ; l'exposition loopback eventuelle = Phase I1, tier D7 delibere (restore/GC = candidats T1). |
+| **T-RUN-GC-EVIDENCE-LOSS** | *Repudiation* — la purge de retention efface la preuve d'audit d'un incident | **bornee par politique** | GC = perte d'evidence ACCEPTEE et BORNEE, dite par la signature (`RetentionPolicy` sans defaut implicite : l'appelant DOIT dire ce qu'il accepte). Jamais purges, mutation-testes : un run EN VOL (jamais candidat), une outbox PENDING (completed porteur = skip compte ; terminal les conserve), le DIAGNOSTIC terminal (la row `runs` + l'entree `run_terminal` survivent a chaque passe — le post-mortem `outcome_unknown` reste possible pour toujours). `closed_at_ms` NULL = jamais purge (fail-safe : pas de date, pas de purge). Purge PER-RUN atomique (`FaultPoint::InsideGcTransaction` : crash au milieu → run entierement intact) ; statut + eligibilite + fenetre `keep_last` RE-CLASSEE + pending RELUS DANS la transaction de purge (le scan candidats n'est qu'un pre-filtre ; un run re-date devenu le plus recent est epargne — Codex r2 P2) — un diagnostic terminal pose ENTRE le scan et la purge est re-dispatche sur la row courante et survit (Codex r1 P1, teste par interleaving `BeforeGcPurgeOfRun` via connexion separee) ; et les etats clos sont ABSORBANTS (`InvalidTransition` : un terminal ne peut plus etre re-etiquete completed, la voie de purge du diagnostic par re-labelling est fermee — Codex r2 P1, mutation M9). |
+| **T-RUN-SNAPSHOT-POISON** | *Tampering* — un snapshot empoisonne devient l'etat du run | **fermee** | Un snapshot n'est JAMAIS une source de verite : cache invalide par version de FORMAT (`Stale`) et par digest BLAKE3 sur le **RUN PROPRIETAIRE + TUPLE SERVI ENTIER** (`run_id`, version, `upto_sequence`, `state` — pas le state seul, sinon une borne mensongere sous state intact passerait [review D4-1], et pas sans run_id, sinon le tuple intact d'un AUTRE run se substituerait [Codex r1 L5]) (`Poisoned` — DETECTE, jamais servi ; porte degradee `read_snapshot_unverified` derriere `spike-faults` = le controle rouge qui prouve la garde load-bearing, mutation M3). Supprimer le snapshot ne change RIEN d'observable (teste) : le journal re-derive le meme etat. Etat donnees-pures JSON, `null` refuse par la porte de digest (meme regle que tous les digests du crate). |
+| **T-RUN-SQLI-DESERIAL** | *Tampering/EoP* — la chaine CVE checkpointer LangGraph 2026 (CVE-2025-67644 SQLi + CVE-2026-28277 msgpack→RCE) transposee au run store | **fermee** | Doctrine D3.6 appliquee : requetes parametrees PARTOUT (`params!`, 0 concatenation SQL — verifie mecaniquement ; les seuls `format!` du module produisent des messages d'erreur ou des noms de fichiers freres `-wal`/`-shm`/`.tmp`, aucun n'atteint le SQL) ; etat serialise DONNEES-PURES JSON (jamais pickle/msgpack, enveloppe typee `deny_unknown_fields`) ; upcasters = transforms `Value`→`Value` COMPILES dans ce binaire — le store ne porte jamais de code. |
+| **T-RUN-ID-PII** | *Information disclosure* (LINDDUN) — `run_id`/`node_instance_id` sont des `String` caller-chosen persistees : un identifiant portant un token/email survit au process dans le journal | **M (residuel documente)** | Le journal est payload-free PAR TYPE (`RunEventKind` sans champ de contenu, receipts en DIGEST seul) — la garantie porte sur les CHAMPS, pas sur ce que l'appelant nomme. Validation longueur + caracteres de controle seulement (`validate_identity_component`, y compris `message_id` d'inbox et `lease_owner`). Des qu'une route daemon accepte un `run_id` d'iframe/Hub (I1), il devra etre genere/valide cote serveur. |
+
+**Bornes honnetes (ce que I ne ferme PAS)** : exposition loopback des
+operations du store (routes `workflow_api.rs`, inventaire D7, tiers
+deliberes, golden_http) = **Phase I1** (re-coupe B6 du preflight) ;
+reducer/scheduler et autorite du run = J ; `effect_id`/`attempt_id`/receipts
+runtime = K ; le mode UNFENCED reste possible par construction (posture
+documentee, cf. T-RUN-DOUBLE-EMIT) ; la retention temporelle exige un
+appelant qui fournit `closed_at_ms` (le SpikeEngine clockless passe `None` —
+le trait `clock` arrive en J) ; l'artefact T2 par classe de store (pattern
+S82 T) reste `NOT-RUN` jusqu'a AI2.
+
+## 20. Revue et evolution
 
 Ce document est vivant. Chaque sprint qui livre une mitigation
 ou deplace un residual doit :
@@ -2056,3 +2099,27 @@ Historique versions :
   la garantie = le format). `CompiledPlan.v1` = artefact LOCAL derive non
   signe : 0 `DOMAIN_*_V1` produit, `DOMAIN_COMPILED_PLAN_V1` reste RESERVE
   0-producteur, census 29 INCHANGE, 0 bump wire, 0 dep runtime neuve.
+- **v23 (Sprint 83 Phase I, 2026-07-22)** : ajout **§19 Surface run store
+  durable** (Asset A11 — journal + outbox + inbox + snapshots + lease,
+  fichier SQLite local jamais signe/gossipe), renommage §19→§20. Rows A10
+  et A11 versees a la table §2 Assets (A10 etait defini §18 sans ligne —
+  reconciliation). T-RUN-DOWNGRADE-MISREAD ferme (garde DOUBLE schema
+  `user_version` a l'open + event `format_version` via l'unique porte
+  `upcast_payload`, chaine par-hop `ChainGap` LOUD, mutation-testee) ;
+  T-RUN-DOUBLE-EMIT-STALE-WRITER ferme mode leased (epoch CAS monotone
+  dans CHAQUE write-txn, expiry = heuristique de takeover jamais condition
+  de commit, bras out-of-process owner mort reel ; borne honnete : mode
+  unfenced documente, le daemon acquiert en I1/J) ; T-RUN-RESTORE-ROLLBACK
+  residuel M accepte opere (validation backup avant remplacement, siblings
+  WAL purges, geste operateur-local en I) ; T-RUN-GC-EVIDENCE-LOSS borne
+  par politique (jamais running/pending/diagnostic terminal, per-run
+  atomique `InsideGcTransaction`) ; T-RUN-SNAPSHOT-POISON ferme (cache
+  jamais-verite, digest BLAKE3 + version, red control `unverified`) ;
+  T-RUN-SQLI-DESERIAL ferme (doctrine D3.6 : parametre partout,
+  donnees-pures, upcasters compiles jamais stockes) ; T-RUN-ID-PII residuel
+  M documente (identifiants caller-chosen, server-side en I1).
+  `RunEvent.v1` REMPLI cote core (registre 6/7, `contracts.schema.json`
+  rafraichi) ; `DOMAIN_RUN_EVENT_V1` reste RESERVE 0-producteur, census 29
+  INCHANGE, 0 bump wire, 0 dep runtime neuve (dep intra-workspace
+  engine→core seule). Re-coupe B6 : routes daemon + D7 + golden_http +
+  clôture docs-contrat = Phase I1.

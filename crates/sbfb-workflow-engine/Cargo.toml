@@ -9,6 +9,10 @@ authors.workspace = true
 repository.workspace = true
 
 [dependencies]
+# The pure contract core: `RunEvent.v1` (envelope + upcasting door) moved
+# there in Phase I, following the cadence of the other filled identities.
+# Intra-workspace path dependency — no new external lock node.
+sbfb-workflow-core = { path = "../sbfb-workflow-core" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 # JCS (RFC 8785) canonicalisation feeds every digest in this crate. Plain

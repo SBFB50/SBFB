@@ -78,7 +78,7 @@ fn one_step_run(pairs: &[(&str, &str)]) -> RunSpec {
 }
 
 fn engine(db: &Path, knobs: SpikeKnobs) -> SpikeEngine {
-    SpikeEngine::new(RunStore::open(db).expect("open store"), knobs)
+    SpikeEngine::new_with_knobs(RunStore::open(db).expect("open store"), knobs)
 }
 
 /// The idempotency key the engine derives for a step — recomputed here so the
@@ -170,7 +170,7 @@ fn store_journal_outbox_atomic() {
     let mut inside_eng = engine(&inside.db, SpikeKnobs::guaranteed());
     let mut inside_target = FileEchoTarget::idempotent(&inside.log);
     expect_halt(
-        inside_eng.execute(
+        inside_eng.execute_with_faults(
             &one_step_run(&[("a", "1")]),
             &mut inside_target,
             &HaltAt::new(FaultPoint::InsideIntentTransaction),
@@ -209,7 +209,7 @@ fn store_journal_outbox_atomic() {
     let hook = HaltAt::new(FaultPoint::AfterIntentBeforeEffect);
 
     expect_halt(
-        eng.execute(&one_step_run(&[("a", "1")]), &mut target, &hook),
+        eng.execute_with_faults(&one_step_run(&[("a", "1")]), &mut target, &hook),
         FaultPoint::AfterIntentBeforeEffect,
     );
 
@@ -248,7 +248,7 @@ fn store_journal_outbox_atomic() {
     let red_hook = HaltAt::new(FaultPoint::BetweenOutboxAndIntentEvent);
 
     expect_halt(
-        red_eng.execute(&one_step_run(&[("a", "1")]), &mut red_target, &red_hook),
+        red_eng.execute_with_faults(&one_step_run(&[("a", "1")]), &mut red_target, &red_hook),
         FaultPoint::BetweenOutboxAndIntentEvent,
     );
 
@@ -287,7 +287,7 @@ fn store_kill_restart_replay_no_duplicate_side_output() {
             let mut eng = engine(&c.db, SpikeKnobs::guaranteed());
             let mut target = FileEchoTarget::idempotent(&c.log);
             expect_halt(
-                eng.execute(
+                eng.execute_with_faults(
                     &one_step_run(&[("a", "1")]),
                     &mut target,
                     &HaltAt::new(frontier),
@@ -300,7 +300,7 @@ fn store_kill_restart_replay_no_duplicate_side_output() {
         let mut resumed = engine(&c.db, SpikeKnobs::guaranteed());
         let mut target = FileEchoTarget::idempotent(&c.log);
         let outcome = resumed
-            .execute(&one_step_run(&[("a", "1")]), &mut target, &NoFaults)
+            .execute_with_faults(&one_step_run(&[("a", "1")]), &mut target, &NoFaults)
             .unwrap_or_else(|e| panic!("resume after {frontier:?} failed: {e}"));
 
         assert_eq!(
@@ -336,7 +336,7 @@ fn store_kill_restart_replay_no_duplicate_side_output() {
         let mut eng = engine(&red.db, SpikeKnobs::guaranteed());
         let mut target = FileEchoTarget::lying(&red.log);
         expect_halt(
-            eng.execute(
+            eng.execute_with_faults(
                 &one_step_run(&[("a", "1")]),
                 &mut target,
                 &HaltAt::new(FaultPoint::AfterEffectBeforeResult),
@@ -347,7 +347,7 @@ fn store_kill_restart_replay_no_duplicate_side_output() {
     let mut resumed = engine(&red.db, SpikeKnobs::guaranteed());
     let mut target = FileEchoTarget::lying(&red.log);
     resumed
-        .execute(&one_step_run(&[("a", "1")]), &mut target, &NoFaults)
+        .execute_with_faults(&one_step_run(&[("a", "1")]), &mut target, &NoFaults)
         .expect("resume against the lying target");
     assert_eq!(
         side_output_count(&red.log, &key).expect("count"),
@@ -359,8 +359,11 @@ fn store_kill_restart_replay_no_duplicate_side_output() {
 // ── (3) fail-closed on a divergent replay ─────────────────────────────────
 
 /// GUARANTEED: a replayed step whose request hash differs from the journaled
-/// one stops the run in a TERMINAL state with a typed error — no stale answer,
-/// no panic, no automatic re-drive.
+/// one fails closed with a typed error — no stale answer, no panic, no
+/// automatic re-drive. A RUNNING run goes terminal on this; a COMPLETED run
+/// keeps its honest history (absorbing closed states, Phase I — supersedes
+/// the Phase E behaviour recorded in sprint83_e_durable_spike.json, whose
+/// historical artifact is deliberately NOT rewritten).
 ///
 /// RED CONTROL: with `without_step_hash_verification` the same divergence is
 /// swallowed and the run happily serves the OLD answer for the NEW question.
@@ -369,11 +372,11 @@ fn store_replay_diverges_fails_closed() {
     let c = ctx();
     let mut eng = engine(&c.db, SpikeKnobs::guaranteed());
     let mut target = FileEchoTarget::idempotent(&c.log);
-    eng.execute(&one_step_run(&[("a", "1")]), &mut target, &NoFaults)
+    eng.execute_with_faults(&one_step_run(&[("a", "1")]), &mut target, &NoFaults)
         .expect("first run");
 
     let err = eng
-        .execute(&one_step_run(&[("a", "2")]), &mut target, &NoFaults)
+        .execute_with_faults(&one_step_run(&[("a", "2")]), &mut target, &NoFaults)
         .expect_err("a divergent replay must fail closed");
     match err {
         EngineError::StepHashMismatch {
@@ -386,37 +389,45 @@ fn store_replay_diverges_fails_closed() {
         }
         other => panic!("expected StepHashMismatch, got {other:?}"),
     }
+    // ABSORBING closed states (S83 Phase I, Codex r2): the divergent call
+    // is the CALLER's error — the completed run's history is not rewritten.
     assert_eq!(
         eng.store().run_status(RUN_ID).expect("status"),
-        Some(RunStatus::Terminal)
+        Some(RunStatus::Completed)
     );
     assert_eq!(
         eng.store()
             .terminal_reason(RUN_ID)
             .expect("reason")
             .as_deref(),
-        Some("step_hash_mismatch")
+        None
     );
     assert_eq!(
         side_output_count(&c.log, &key_for(RUN_ID, NODE, &[("a", "2")])).expect("count"),
         0,
         "the divergent request must never reach the target"
     );
-    // A terminal run is never re-driven automatically.
-    match eng.execute(&one_step_run(&[("a", "2")]), &mut target, &NoFaults) {
-        Err(EngineError::RunAlreadyTerminal { .. }) => {}
-        other => panic!("a terminal run must stay terminal, got {other:?}"),
+    // The refusal is DETERMINISTIC: the same divergent call fails the same
+    // way (the run's history was not rewritten), and the ORIGINAL question
+    // still replays memoised — absorbing states preserve the success.
+    match eng.execute_with_faults(&one_step_run(&[("a", "2")]), &mut target, &NoFaults) {
+        Err(EngineError::StepHashMismatch { .. }) => {}
+        other => panic!("the divergent call must keep failing closed, got {other:?}"),
     }
+    let replay = eng
+        .execute_with_faults(&one_step_run(&[("a", "1")]), &mut target, &NoFaults)
+        .expect("the original question still replays");
+    assert_eq!(replay.steps_memoised, 1);
 
     // RED CONTROL: same divergence, verification off.
     let red = ctx();
     let mut red_eng = engine(&red.db, SpikeKnobs::without_step_hash_verification());
     let mut red_target = FileEchoTarget::idempotent(&red.log);
     let first = red_eng
-        .execute(&one_step_run(&[("a", "1")]), &mut red_target, &NoFaults)
+        .execute_with_faults(&one_step_run(&[("a", "1")]), &mut red_target, &NoFaults)
         .expect("first run");
     let second = red_eng
-        .execute(&one_step_run(&[("a", "2")]), &mut red_target, &NoFaults)
+        .execute_with_faults(&one_step_run(&[("a", "2")]), &mut red_target, &NoFaults)
         .expect("red control: without verification the divergent replay continues");
     assert_eq!(
         second.steps_memoised, 1,
@@ -543,7 +554,7 @@ fn store_outcome_unknown_on_non_idempotent_target() {
         let mut eng = engine(&c.db, SpikeKnobs::guaranteed());
         let mut target = FileEchoTarget::non_idempotent(&c.log);
         expect_halt(
-            eng.execute(
+            eng.execute_with_faults(
                 &one_step_run(&[("a", "1")]),
                 &mut target,
                 &HaltAt::new(FaultPoint::AfterEffectBeforeResult),
@@ -555,7 +566,7 @@ fn store_outcome_unknown_on_non_idempotent_target() {
 
     let mut resumed = engine(&c.db, SpikeKnobs::guaranteed());
     let mut target = FileEchoTarget::non_idempotent(&c.log);
-    match resumed.execute(&one_step_run(&[("a", "1")]), &mut target, &NoFaults) {
+    match resumed.execute_with_faults(&one_step_run(&[("a", "1")]), &mut target, &NoFaults) {
         Err(EngineError::OutcomeUnknown {
             ref node_instance_id,
             ..
@@ -593,10 +604,10 @@ fn store_replay_of_completed_run_appends_no_events() {
     let mut target = FileEchoTarget::idempotent(&c.log);
     let spec = one_step_run(&[("a", "1")]);
 
-    eng.execute(&spec, &mut target, &NoFaults).expect("first");
+    eng.execute(&spec, &mut target).expect("first");
     let after_first = eng.store().event_count(RUN_ID).expect("count");
 
-    let replay = eng.execute(&spec, &mut target, &NoFaults).expect("replay");
+    let replay = eng.execute(&spec, &mut target).expect("replay");
     assert_eq!(replay.steps_memoised, 1);
     assert_eq!(replay.steps_executed, 0);
     assert_eq!(
@@ -637,7 +648,7 @@ fn store_run_event_stream_matches_golden() {
             },
         ],
     };
-    eng.execute(&spec, &mut target, &NoFaults).expect("run");
+    eng.execute(&spec, &mut target).expect("run");
 
     let events = eng.store().load_events("run-golden").expect("events");
     assert_golden(
@@ -705,7 +716,17 @@ fn store_terminal_event_stream_matches_golden() {
             input: input(&[("a", "1")]),
         }],
     };
-    eng.execute(&first, &mut target, &NoFaults).expect("run");
+    // Crash at B1 leaves the run RUNNING with a pending intent; the
+    // divergent resume then records the terminal diagnosis — the only
+    // route to a terminal since closed states became absorbing (Phase I).
+    expect_halt(
+        eng.execute_with_faults(
+            &first,
+            &mut target,
+            &HaltAt::new(FaultPoint::AfterIntentBeforeEffect),
+        ),
+        FaultPoint::AfterIntentBeforeEffect,
+    );
 
     let diverged = RunSpec {
         steps: vec![StepSpec {
@@ -714,8 +735,7 @@ fn store_terminal_event_stream_matches_golden() {
         }],
         ..first.clone()
     };
-    eng.execute(&diverged, &mut target, &NoFaults)
-        .expect_err("divergence");
+    eng.execute(&diverged, &mut target).expect_err("divergence");
 
     let events = eng
         .store()
@@ -1033,7 +1053,7 @@ fn store_process_exit_recovers_frontier_without_duplicate() {
         let mut resumed = engine(&c.db, SpikeKnobs::guaranteed());
         let mut target = FileEchoTarget::idempotent(&c.log);
         resumed
-            .execute(&one_step_run(&[("a", "1")]), &mut target, &NoFaults)
+            .execute_with_faults(&one_step_run(&[("a", "1")]), &mut target, &NoFaults)
             .unwrap_or_else(|e| panic!("recovery after a real process death at {frontier}: {e}"));
 
         assert_eq!(
@@ -1077,7 +1097,7 @@ fn store_child_writer_exits_mid_run() {
 
     let mut eng = engine(&db, SpikeKnobs::guaranteed());
     let mut target = FileEchoTarget::idempotent(&log);
-    let _ = eng.execute(&one_step_run(&[("a", "1")]), &mut target, &ExitAt { point });
+    let _ = eng.execute_with_faults(&one_step_run(&[("a", "1")]), &mut target, &ExitAt { point });
     panic!("the child writer was expected to die at {frontier}");
 }
 
@@ -1094,7 +1114,7 @@ fn store_completion_transaction_is_atomic() {
     let mut eng = engine(&c.db, SpikeKnobs::guaranteed());
     let mut target = FileEchoTarget::idempotent(&c.log);
     expect_halt(
-        eng.execute(
+        eng.execute_with_faults(
             &one_step_run(&[("a", "1")]),
             &mut target,
             &HaltAt::new(FaultPoint::InsideCompletionTransaction),
@@ -1131,7 +1151,7 @@ fn store_completion_transaction_is_atomic() {
     let mut resumed = engine(&c.db, SpikeKnobs::guaranteed());
     let mut target = FileEchoTarget::idempotent(&c.log);
     resumed
-        .execute(&one_step_run(&[("a", "1")]), &mut target, &NoFaults)
+        .execute_with_faults(&one_step_run(&[("a", "1")]), &mut target, &NoFaults)
         .expect("resume");
     assert_eq!(read_side_outputs(&c.log).expect("outputs").len(), 1);
     assert_eq!(
@@ -1148,7 +1168,7 @@ fn store_completion_transaction_is_atomic() {
     let mut red_eng = engine(&red.db, SpikeKnobs::without_atomic_completion());
     let mut red_target = FileEchoTarget::idempotent(&red.log);
     red_eng
-        .execute(&one_step_run(&[("a", "1")]), &mut red_target, &NoFaults)
+        .execute_with_faults(&one_step_run(&[("a", "1")]), &mut red_target, &NoFaults)
         .expect("the split path still returns Ok — that is the danger");
     assert!(
         red_eng
@@ -1210,7 +1230,7 @@ fn store_pending_branch_diverges_fails_closed() {
         let mut eng = engine(&c.db, SpikeKnobs::guaranteed());
         let mut target = FileEchoTarget::idempotent(&c.log);
         expect_halt(
-            eng.execute(
+            eng.execute_with_faults(
                 &one_step_run(&[("a", "1")]),
                 &mut target,
                 &HaltAt::new(FaultPoint::AfterIntentBeforeEffect),
@@ -1222,7 +1242,7 @@ fn store_pending_branch_diverges_fails_closed() {
     // Resume with a DIFFERENT input: the pending branch must fail closed.
     let mut resumed = engine(&c.db, SpikeKnobs::guaranteed());
     let mut target = FileEchoTarget::idempotent(&c.log);
-    match resumed.execute(&one_step_run(&[("a", "2")]), &mut target, &NoFaults) {
+    match resumed.execute_with_faults(&one_step_run(&[("a", "2")]), &mut target, &NoFaults) {
         Err(EngineError::StepHashMismatch { .. }) => {}
         other => panic!("the pending branch must fail closed, got {other:?}"),
     }
@@ -1242,7 +1262,7 @@ fn store_pending_branch_diverges_fails_closed() {
         let mut eng = engine(&d.db, SpikeKnobs::guaranteed());
         let mut target = FileEchoTarget::idempotent(&d.log);
         expect_halt(
-            eng.execute(
+            eng.execute_with_faults(
                 &one_step_run(&[("a", "1")]),
                 &mut target,
                 &HaltAt::new(FaultPoint::AfterEffectBeforeResult),
@@ -1253,7 +1273,7 @@ fn store_pending_branch_diverges_fails_closed() {
     let mut resumed = engine(&d.db, SpikeKnobs::guaranteed());
     let mut target = FileEchoTarget::idempotent(&d.log);
     resumed
-        .execute(&one_step_run(&[("a", "1")]), &mut target, &NoFaults)
+        .execute_with_faults(&one_step_run(&[("a", "1")]), &mut target, &NoFaults)
         .expect("resume");
     let intents = resumed
         .store()
@@ -1283,7 +1303,7 @@ fn store_target_dedup_scope_is_journaled() {
         let mut eng = engine(&c.db, SpikeKnobs::guaranteed());
         let mut target = FileEchoTarget::idempotent(&c.log);
         expect_halt(
-            eng.execute(
+            eng.execute_with_faults(
                 &one_step_run(&[("a", "1")]),
                 &mut target,
                 &HaltAt::new(FaultPoint::AfterEffectBeforeResult),
@@ -1296,7 +1316,7 @@ fn store_target_dedup_scope_is_journaled() {
     // Same name, same promise, DIFFERENT backend.
     let mut resumed = engine(&c.db, SpikeKnobs::guaranteed());
     let mut elsewhere = FileEchoTarget::idempotent(&other_log);
-    match resumed.execute(&one_step_run(&[("a", "1")]), &mut elsewhere, &NoFaults) {
+    match resumed.execute_with_faults(&one_step_run(&[("a", "1")]), &mut elsewhere, &NoFaults) {
         Err(EngineError::TargetScopeChanged { .. }) => {}
         other => panic!("a changed dedup backend must be refused, got {other:?}"),
     }
@@ -1309,7 +1329,7 @@ fn store_target_dedup_scope_is_journaled() {
     // The honest resume — same backend — still converges.
     let mut same = engine(&c.db, SpikeKnobs::guaranteed());
     let mut target = FileEchoTarget::idempotent(&c.log);
-    same.execute(&one_step_run(&[("a", "1")]), &mut target, &NoFaults)
+    same.execute_with_faults(&one_step_run(&[("a", "1")]), &mut target, &NoFaults)
         .expect("resume against the journaled backend");
     assert_eq!(read_side_outputs(&c.log).expect("outputs").len(), 1);
 }
@@ -1338,7 +1358,7 @@ fn store_identity_components_are_validated() {
                 input: input(&[("a", "1")]),
             }],
         };
-        match eng.execute(&spec, &mut target, &NoFaults) {
+        match eng.execute(&spec, &mut target) {
             Err(EngineError::Hash(HashError::InvalidIdentity { .. })) => {}
             other => panic!("hostile run_id {hostile:?} must be refused, got {other:?}"),
         }
@@ -1360,7 +1380,7 @@ fn store_identity_components_are_validated() {
         }],
     };
     assert!(matches!(
-        eng.execute(&spec, &mut target, &NoFaults),
+        eng.execute(&spec, &mut target),
         Err(EngineError::Hash(HashError::InvalidIdentity { .. }))
     ));
 
@@ -1424,13 +1444,12 @@ fn store_run_is_bound_to_its_spec() {
             },
         ],
     };
-    eng.execute(&two_steps, &mut target, &NoFaults)
-        .expect("first run");
+    eng.execute(&two_steps, &mut target).expect("first run");
     let closed_at = eng.store().event_count(RUN_ID).expect("count");
 
     // Truncated spec: must NOT return a success describing a one-step run
     // while the journal holds the second effect.
-    match eng.execute(&one_step_run(&[("a", "1")]), &mut target, &NoFaults) {
+    match eng.execute_with_faults(&one_step_run(&[("a", "1")]), &mut target, &NoFaults) {
         Err(EngineError::RunAlreadyCompleted { .. })
         | Err(EngineError::SpecDigestMismatch { .. }) => {}
         other => panic!("a truncated spec must be refused, got {other:?}"),
@@ -1442,7 +1461,7 @@ fn store_run_is_bound_to_its_spec() {
         node_instance_id: "root/echo#3".to_string(),
         input: input(&[("c", "3")]),
     });
-    match eng.execute(&extended, &mut target, &NoFaults) {
+    match eng.execute(&extended, &mut target) {
         Err(EngineError::RunAlreadyCompleted { .. })
         | Err(EngineError::SpecDigestMismatch { .. }) => {}
         other => panic!("a completed run must not be extendable, got {other:?}"),
@@ -1461,7 +1480,7 @@ fn store_run_is_bound_to_its_spec() {
     // The identical spec is still replayable: refusing extension must not
     // break resume.
     let replay = eng
-        .execute(&two_steps, &mut target, &NoFaults)
+        .execute(&two_steps, &mut target)
         .expect("identical spec must still replay");
     assert_eq!(replay.steps_memoised, 2);
     assert_eq!(replay.steps_executed, 0);
@@ -1481,7 +1500,7 @@ fn store_run_is_bound_to_its_spec() {
         ],
     };
     assert!(matches!(
-        eng.execute(&dup, &mut target, &NoFaults),
+        eng.execute(&dup, &mut target),
         Err(EngineError::DuplicateNodeInstance { .. })
     ));
 }
@@ -1500,7 +1519,7 @@ fn store_target_idempotency_claim_is_journaled() {
         let mut eng = engine(&c.db, SpikeKnobs::guaranteed());
         let mut honest = FileEchoTarget::non_idempotent(&c.log);
         expect_halt(
-            eng.execute(
+            eng.execute_with_faults(
                 &one_step_run(&[("a", "1")]),
                 &mut honest,
                 &HaltAt::new(FaultPoint::AfterEffectBeforeResult),
@@ -1513,7 +1532,7 @@ fn store_target_idempotency_claim_is_journaled() {
     // Resume with a target that NOW claims idempotency: refused.
     let mut resumed = engine(&c.db, SpikeKnobs::guaranteed());
     let mut swapped = FileEchoTarget::idempotent(&c.log);
-    match resumed.execute(&one_step_run(&[("a", "1")]), &mut swapped, &NoFaults) {
+    match resumed.execute_with_faults(&one_step_run(&[("a", "1")]), &mut swapped, &NoFaults) {
         Err(EngineError::TargetIdempotencyChanged {
             journaled, live, ..
         }) => {

@@ -1,0 +1,4 @@
+{
+  "note": "SYNTHETIC older-shape payload pinning the upcast harness input. No version-1 journal ever shipped this shape — it exists so the per-hop upcasting test has a committed, stable input, NOT to decode any real legacy store (pre-launch policy: legacy decoders for formats that never existed are zombies).",
+  "payload": { "kind": "run_started_legacy" }
+}

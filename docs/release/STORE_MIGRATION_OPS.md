@@ -67,3 +67,22 @@
 5. Un fichier temporaire `docs.db.migrate*` orphelin dans le dossier
    iroh signale une migration interrompue avant le swap — supprimable
    sans risque (l'original n'a pas encore bougé).
+
+## Inventaire des classes de stores (pattern S82 Phase T)
+
+Chaque classe migre DIFFÉREMMENT ; l'artefact T2 par classe
+(`sprint82_t2_store_migration.json` pour les stores worker) juge chaque
+classe selon SA mécanique, jamais une règle unique.
+
+| Classe | Fichier(s) | Mécanique de migration | Garde downgrade |
+|---|---|---|---|
+| iroh docs (daemon/worker standalone) | `docs.redb` | automatique one-way à l'ouverture (redb-v2-migration, temp+swap, sibling backup) | non (one-way, rollback = DEUX gestes, cf. règles ci-dessus) |
+| iroh blobs | `blobs.db` | aucune (déjà v3) | n/a |
+| local-worker (on-demand) | home local-worker | wipe + reprovision FRESH à chaque spawn (jamais de migration in-place) | n/a par construction |
+| coordinator | `coordinator.db` (SQLite) | migrations M1..M19 forward à l'ouverture | non historique |
+| **workflow run store (S83 Phase I)** | fichier SQLite injecté par l'hôte (`sbfb-workflow-engine`) | `rusqlite_migration` forward-only à l'ouverture (`user_version`, chaque phase APPENDE un `M::up`, jamais d'édition) ; upcast des events à l'INTERPRÉTATION (jamais de réécriture des rows) | **OUI, double et fail-closed** : `user_version` > migrations connues refuse l'OPEN (`UnsupportedSchemaVersion`) ; `format_version` > courant refuse la LECTURE (`NewerThanSupported`). Backup = `VACUUM INTO` temp+rename ; restore valide le backup AVANT remplacement (inventaire tables+colonnes par version + PK en ensemble exact + FK mono-colonne exacte run_id REFERENCES runs(run_id) + index UNIQUE non-partiel colonnes exactes + quick_check ; non compares : types, NOT NULL, CHECK, defauts, collations, violations FK preexistantes, colonnes surnumeraires) et purge les siblings `-wal`/`-shm` AVANT la copie (anti-corruption), cf. THREAT_MODEL §19 T-RUN-RESTORE-ROLLBACK. |
+
+L'artefact T2 par classe du run store (palier WA-T5.3) reste `NOT-RUN`
+jusqu'à AI2 (plan S83 §I.4) ; les ancres hermétiques committées sont les
+tests `store_upgrade_replay_*` + `store_backup_restore_round_trip`
+(`crates/sbfb-workflow-engine/tests/run_store.rs`).

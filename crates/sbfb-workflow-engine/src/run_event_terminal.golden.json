@@ -23,28 +23,6 @@
   {
     "format_version": 1,
     "kind": {
-      "effect_id": "a72624c8076e5e22b16443e0b736bb431c07ad017bbbbfd1ee3a75af15e6ae0b",
-      "kind": "effect_completed",
-      "receipt_digest": "502ef119d019bdb79d782464683f8d32a73e71416e5727feb673f75d6b7c72ea"
-    },
-    "node_instance_id": "root/echo#1",
-    "request_hash": "63985f5cd5c8ffcb2eb12acd0de5c61e35d8a669d75e639810f25acc21293f18",
-    "run_id": "run-terminal-golden",
-    "sequence": 2
-  },
-  {
-    "format_version": 1,
-    "kind": {
-      "kind": "run_completed"
-    },
-    "node_instance_id": null,
-    "request_hash": null,
-    "run_id": "run-terminal-golden",
-    "sequence": 3
-  },
-  {
-    "format_version": 1,
-    "kind": {
       "expected_hash": "63985f5cd5c8ffcb2eb12acd0de5c61e35d8a669d75e639810f25acc21293f18",
       "got_hash": "2adb7273feb4070c66933f9c78613685408df474b5d8c143542551c087bcd144",
       "kind": "run_terminal",
@@ -53,6 +31,6 @@
     "node_instance_id": "root/echo#1",
     "request_hash": null,
     "run_id": "run-terminal-golden",
-    "sequence": 4
+    "sequence": 2
   }
 ]

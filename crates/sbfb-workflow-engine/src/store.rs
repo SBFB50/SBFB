@@ -29,27 +29,71 @@
 //! opened in memory: an in-memory database has neither WAL nor `-wal`/`-shm`
 //! recovery, so a harness built on it would prove nothing about restart.
 //!
-//! ## Retention
+//! ## The full run store (Sprint 83 Phase I)
 //!
-//! The journal and the outbox grow without bound here. Bounds, retention and
-//! garbage collection are OUT OF SCOPE for this spike (routed to the run
-//! store phase, `G-STORE`) and are called out in the phase artifact rather
-//! than silently inherited.
+//! On top of the spike's journal + outbox, Phase I added — forward-only, as
+//! appended migrations, never editing an existing `M::up`:
+//!
+//! - **Interpretation-time upcasting + downgrade guard** — `load_events`
+//!   reads the payload as a `Value`, runs the pure upcaster chain
+//!   (`sbfb_workflow_core::run_event::upcast_payload`), then parses the
+//!   CURRENT `RunEventKind`. A row written by a NEWER engine is refused
+//!   fail-closed, never mis-read; a row whose version has no upcasting path
+//!   is a loud error, never a silent skip.
+//! - **Single-writer lease fencing** — a one-row `lease` table with a
+//!   MONOTONE `epoch`. Safety comes from a compare-and-set inside every
+//!   write transaction (`UPDATE … WHERE owner = ? AND epoch = ?`,
+//!   `rows_affected == 1` or the transaction aborts), NEVER from the
+//!   wall-clock expiry: `expires_at_ms` is only the heuristic an ASPIRING
+//!   owner uses to decide the previous holder is dead and bump the epoch
+//!   (Kleppmann fencing tokens; Temporal `rangeID`). `BEGIN IMMEDIATE`
+//!   already serialises simultaneous write transactions on one file — the
+//!   fence exists for the STALE owner, the process that still believes it
+//!   holds a lease that was taken over.
+//! - **Inbox** — at-least-once + dedup on `(run_id, message_id)` via
+//!   `INSERT OR IGNORE` under a unique key, the S76 Phase D
+//!   `task_results UNIQUE (task_id, worker_id)` precedent, plus the
+//!   standard `processed_at_ms` observability column.
+//! - **Disposable snapshots** — a per-run cache of a reduction of the log,
+//!   invalidated by `snapshot_version` and a content digest; NEVER a source
+//!   of truth. A poisoned or stale snapshot reads as discarded, and the
+//!   journal always re-derives the same state.
+//! - **Retention / GC** — only CLOSED runs (`completed`/`terminal`) older
+//!   than an explicit horizon are purged, sparing the most recent
+//!   `keep_last`. Never purged: a running run, a pending outbox row, the
+//!   terminal diagnosis (the `run_terminal` entry and the `runs` row of a
+//!   terminal run survive every pass). GC is an accepted, POLICY-BOUNDED
+//!   loss of audit evidence — stated, not hidden.
+//! - **Backup / restore** — `VACUUM INTO` (SQL, transactionally-consistent
+//!   snapshot; the `backup` cargo feature stays off) written to a temporary
+//!   sibling then atomically renamed; restore validates the backup file and
+//!   replaces the CLOSED store, deleting stale `-wal`/`-shm` siblings. A
+//!   point-in-time snapshot, not PITR — and restore is by nature an
+//!   anti-rollback surface (THREAT_MODEL A11).
+//!
+//! Wall-clock values (`now_ms`) are INJECTED by the caller everywhere: the
+//! crate stays host-neutral (no clock read), tests stay deterministic, and
+//! the journal itself keeps carrying no time at all.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 use rusqlite_migration::{M, Migrations};
 
-use crate::event::{RUN_EVENT_FORMAT_VERSION, RunEvent, RunEventKind, TerminalReason};
-use crate::fault::{FaultAction, FaultHook, FaultPoint};
+use crate::event::{
+    RUN_EVENT_FORMAT_VERSION, RUN_EVENT_UPCASTERS, RunEvent, RunEventKind, RunEventUpcaster,
+    TerminalReason, UpcastError, upcast_payload,
+};
+use crate::fault::{FaultAction, FaultHook, FaultPoint, NoFaults};
 
-/// Schema of the spike store. One migration: the spike has no released
-/// on-disk state to migrate FROM. Table names (`runs`, `run_events`,
-/// `outbox`) are chosen to be extensible by the full run store without a
-/// DROP.
-static MIGRATIONS: &[M<'static>] = &[M::up(
-    "CREATE TABLE runs (
+/// Schema of the run store. FORWARD-ONLY: every phase APPENDS an `M::up`,
+/// never edits an existing one (the S82 Phase T per-class discipline). The
+/// first migration is the Phase E spike; the second is the Phase I full run
+/// store. Table names (`runs`, `run_events`, `outbox`) were chosen in E to
+/// be extensible without a DROP — Phase I banks exactly that.
+static MIGRATIONS: &[M<'static>] = &[
+    M::up(
+        "CREATE TABLE runs (
          run_id          TEXT PRIMARY KEY,
          status          TEXT NOT NULL,
          next_sequence   INTEGER NOT NULL,
@@ -89,12 +133,68 @@ static MIGRATIONS: &[M<'static>] = &[M::up(
      -- the other effect unresolved forever, silently.
      CREATE UNIQUE INDEX outbox_one_effect_per_node
          ON outbox (run_id, node_instance_id);",
-)];
+    ),
+    // Phase I — the full run store. Integer columns are i64 (native SQLite;
+    // never u64/usize, which rusqlite 0.38 stops converting by default —
+    // forward-compat for the QPO-3 maintenance bump).
+    M::up(
+        "-- Single-writer fencing. One row; `epoch` is the MONOTONE fencing
+         -- token bumped at every acquisition. Safety = the epoch CAS inside
+         -- every write transaction; `expires_at_ms` is ONLY the takeover
+         -- heuristic an aspiring owner consults, never a commit condition.
+         CREATE TABLE lease (
+             id            INTEGER PRIMARY KEY CHECK (id = 1),
+             owner         TEXT    NOT NULL,
+             epoch         INTEGER NOT NULL,
+             expires_at_ms INTEGER NOT NULL
+         );
+         -- At-least-once inbox: redelivery collapses on the unique key
+         -- (S76 D precedent, `task_results UNIQUE (task_id, worker_id)` +
+         -- INSERT OR IGNORE), `processed_at_ms` for observability.
+         CREATE TABLE inbox (
+             run_id          TEXT NOT NULL,
+             message_id      TEXT NOT NULL,
+             processed_at_ms INTEGER NOT NULL,
+             PRIMARY KEY (run_id, message_id),
+             FOREIGN KEY (run_id) REFERENCES runs(run_id)
+         );
+         -- Disposable per-run cache of a reduction of the log. NEVER a
+         -- source of truth: `snapshot_version` invalidates the format,
+         -- `state_digest` detects poison, and dropping the row must never
+         -- change any observable behaviour.
+         CREATE TABLE snapshots (
+             run_id           TEXT NOT NULL,
+             snapshot_version INTEGER NOT NULL,
+             upto_sequence    INTEGER NOT NULL,
+             state            TEXT NOT NULL,
+             state_digest     TEXT NOT NULL,
+             PRIMARY KEY (run_id),
+             FOREIGN KEY (run_id) REFERENCES runs(run_id)
+         );
+         -- When a run CLOSED (completed or terminal), for retention only.
+         -- NULL = never closed OR closed by a caller without a clock; a run
+         -- without a close time is NEVER purged (fail-safe: no date, no GC).
+         -- State column, not journal: run_events stays clock-free.
+         ALTER TABLE runs ADD COLUMN closed_at_ms INTEGER;",
+    ),
+];
 
 /// An effect is queued but not confirmed.
 const OUTBOX_PENDING: &str = "pending";
 /// An effect returned its receipt.
 const OUTBOX_APPLIED: &str = "applied";
+
+/// Version of the snapshot FORMAT (the shape of `state`). A stored snapshot
+/// with a different version is stale and reads as discarded — invalidation,
+/// never migration: snapshots are a cache rebuilt from the journal.
+pub const SNAPSHOT_FORMAT_VERSION: i64 = 1;
+
+/// Context string of the snapshot digest. Since review D4-1 it covers the
+/// WHOLE served tuple (version, sequence bound, state) — the historical
+/// "state" in the context string stays as-is (changing it would invalidate
+/// nothing but honest caches, yet any rename ritual here buys zero
+/// security: the string is a domain separator, not a description).
+const SNAPSHOT_STATE_DIGEST_CONTEXT: &str = "sbfb.workflow.engine.snapshot-state.v0";
 
 /// Where a run stands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -196,11 +296,166 @@ pub enum StoreError {
         /// Where the transaction was interrupted.
         at: crate::fault::FaultPoint,
     },
+    /// The store file's schema version is NEWER than this binary knows.
+    /// Opening it anyway would run older code against newer tables — the
+    /// schema-level half of the "downgrade dangereux" the plan refuses
+    /// (the event-level half is [`StoreError::Upcast`]).
+    #[error("store schema version {found} is newer than the {supported} known migrations")]
+    UnsupportedSchemaVersion {
+        /// `PRAGMA user_version` found in the file.
+        found: i64,
+        /// Number of migrations this binary carries.
+        supported: usize,
+    },
+    /// A journal payload could not be brought to the current envelope
+    /// version. [`UpcastError::NewerThanSupported`] is the event-level
+    /// downgrade guard firing.
+    #[error("journal upcast: {0}")]
+    Upcast(#[from] UpcastError),
+    /// The lease is held by another live owner. Wanting it is not a fault —
+    /// the caller retries after `expires_at_ms` or walks away.
+    #[error("lease held by {owner} until {expires_at_ms}")]
+    LeaseHeld {
+        /// Current holder.
+        owner: String,
+        /// When an aspiring owner may attempt a takeover (heuristic only).
+        expires_at_ms: i64,
+    },
+    /// The epoch CAS failed inside a write transaction: this handle's lease
+    /// was taken over. The whole transaction rolled back — a fenced-out
+    /// writer emits NOTHING (no journal entry, no outbox row).
+    #[error("lease lost: {owner} epoch {epoch} was fenced out")]
+    LeaseLost {
+        /// Owner this handle believed it was.
+        owner: String,
+        /// Epoch this handle held.
+        epoch: i64,
+    },
+    /// Backup refuses to overwrite an existing destination.
+    #[error("backup destination already exists: {path}")]
+    BackupDestinationExists {
+        /// Refused destination path.
+        path: String,
+    },
+    /// The backup file failed validation before a restore.
+    #[error("invalid backup: {reason}")]
+    InvalidBackup {
+        /// Why it was refused.
+        reason: String,
+    },
+    /// Filesystem step of backup/restore failed.
+    #[error("backup/restore io: {0}")]
+    Io(#[from] std::io::Error),
+    /// A closed run (completed or terminal) was asked to change state.
+    /// Closed states are ABSORBING (Codex r2): without this, a terminal
+    /// diagnosis could be re-labelled completed and then GC'd away.
+    #[error("run {run_id} is {from} — closed states are absorbing, refusing {to}")]
+    InvalidTransition {
+        /// Run whose transition was refused.
+        run_id: String,
+        /// Status found in the row.
+        from: String,
+        /// Status the caller asked for.
+        to: &'static str,
+    },
+    /// A caller-supplied argument is outside the accepted domain (lease
+    /// owner, inbox message id, TTL, snapshot state, non-UTF-8 path…).
+    #[error("invalid {what}: {reason}")]
+    InvalidInput {
+        /// Which argument.
+        what: &'static str,
+        /// Why it was refused.
+        reason: String,
+    },
+}
+
+/// The lease row, for inspection.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LeaseState {
+    /// Current holder.
+    pub owner: String,
+    /// Monotone fencing token.
+    pub epoch: i64,
+    /// Takeover heuristic — NEVER a commit condition.
+    pub expires_at_ms: i64,
+}
+
+/// A stored snapshot that passed every validity check.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Snapshot {
+    /// Journal sequence (exclusive upper bound) the state reduces.
+    pub upto_sequence: u64,
+    /// The cached reduction, pure JSON data.
+    pub state: serde_json::Value,
+}
+
+/// What reading a snapshot found. Only [`SnapshotRead::Valid`] carries
+/// state; every other arm means "rebuild from the journal" — a snapshot is
+/// a cache, so none of them is an error.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SnapshotRead {
+    /// No snapshot stored for this run.
+    Missing,
+    /// Stored under a different snapshot format version — invalidated.
+    Stale {
+        /// Version found in the row.
+        found_version: i64,
+    },
+    /// The state does not match its recorded digest (or does not parse):
+    /// tampered with or corrupt. DETECTED and discarded, never trusted.
+    Poisoned,
+    /// Intact and current.
+    Valid(Snapshot),
+}
+
+/// What GC may purge. Both bounds are explicit — there is no implicit
+/// default policy, because GC is an accepted loss of audit evidence and the
+/// caller must SAY what it accepts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RetentionPolicy {
+    /// Only runs closed at least this long ago are candidates.
+    pub min_age_ms: i64,
+    /// The most recently closed candidates spared unconditionally.
+    pub keep_last: u32,
+}
+
+/// What one per-run purge transaction decided (internal).
+enum GcAction {
+    PurgedCompleted,
+    PurgedTerminal,
+    SkippedPendingOutbox,
+    /// The in-transaction re-checks found nothing to purge: already reduced
+    /// on a previous pass, vanished, re-dated out of eligibility, back to
+    /// running, or protected by the re-ranked `keep_last` window. Counted
+    /// nowhere — the purge stays idempotent.
+    NotEligible,
+}
+
+/// What one GC pass did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct GcOutcome {
+    /// Completed runs fully purged.
+    pub completed_purged: usize,
+    /// Terminal runs purged down to their diagnosis (the `runs` row and the
+    /// `run_terminal` entry survive).
+    pub terminal_purged: usize,
+    /// Candidates SKIPPED because a pending outbox row exists — a pending
+    /// effect is never garbage.
+    pub skipped_pending_outbox: usize,
 }
 
 /// Handle on one run store file.
+///
+/// A handle MAY hold an acquired lease ([`RunStore::acquire_lease`]); while
+/// it does, EVERY write transaction re-asserts ownership with an epoch CAS
+/// and aborts on [`StoreError::LeaseLost`]. A handle WITHOUT an active lease
+/// writes unfenced — the Phase E single-process spike mode, still what the
+/// in-crate engine tests use. The daemon path acquires; unfenced mode is a
+/// documented posture, not a hidden default the caller can mistake for
+/// fencing.
 pub struct RunStore {
     conn: Connection,
+    active_lease: Option<(String, i64)>,
 }
 
 impl std::fmt::Debug for RunStore {
@@ -215,6 +470,12 @@ impl RunStore {
     /// Every durability pragma is READ BACK after being set: see
     /// [`StoreError::PragmaRefused`] for why setting them cannot fail loudly
     /// on its own.
+    ///
+    /// The schema version is guarded BEFORE migrations run: a file whose
+    /// `user_version` exceeds the migrations this binary carries was written
+    /// by a NEWER engine, and opening it would be the schema-level downgrade
+    /// the plan refuses ([`StoreError::UnsupportedSchemaVersion`]) — this
+    /// also guards a restore from a too-new backup.
     pub fn open(path: &Path) -> Result<Self, StoreError> {
         let conn = Connection::open(path)?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
@@ -222,10 +483,21 @@ impl RunStore {
         conn.pragma_update(None, "foreign_keys", "ON")?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
 
-        let mut store = Self { conn };
+        let mut store = Self {
+            conn,
+            active_lease: None,
+        };
         store.assert_pragma_text("journal_mode", "wal")?;
         store.assert_pragma_i64("synchronous", 2, "FULL")?;
         store.assert_pragma_i64("foreign_keys", 1, "ON")?;
+
+        let user_version = store.pragma_i64("user_version")?;
+        if user_version > MIGRATIONS.len() as i64 {
+            return Err(StoreError::UnsupportedSchemaVersion {
+                found: user_version,
+                supported: MIGRATIONS.len(),
+            });
+        }
 
         Migrations::new(MIGRATIONS.to_vec()).to_latest(&mut store.conn)?;
 
@@ -397,19 +669,97 @@ impl RunStore {
     /// ONE transaction. (The run FRONTIER moves when the effect completes,
     /// not when it is intended: an intended step is not a reached one.)
     ///
-    /// `faults` is consulted BETWEEN the two writes, inside the transaction.
-    /// That fault point is the only thing that makes this method's guarantee
-    /// falsifiable: halting there must roll back BOTH writes, so a test can
-    /// assert that neither survived. Without an injection point inside the
-    /// transaction, splitting this method into two transactions would leave
-    /// every test green.
+    /// Production entry point: takes NO fault hook (Phase I closed the E
+    /// debt — the harness surface is `record_intent_atomic_with_faults`,
+    /// behind `spike-faults`).
     ///
     /// The parameter list is long because it IS the outbox row: every one of
     /// these values is a column written in this single transaction. Bundling
     /// them into a struct would add an indirection without removing anything
     /// a caller has to supply.
+    ///
+    /// Crate-only in a normal build: `effect_id` is ENGINE-DERIVED
+    /// (`derive_effect_id`), and a public store door taking one from the
+    /// caller would undo that (preflight B7). The harness build (feature
+    /// `spike-faults`, the crate's own tests) keeps it public.
     #[allow(clippy::too_many_arguments)]
+    #[cfg(feature = "spike-faults")]
     pub fn record_intent_atomic(
+        &self,
+        run_id: &str,
+        node_instance_id: &str,
+        request_hash: &str,
+        effect_id: &str,
+        target_idempotent: bool,
+        dedup_scope: &str,
+    ) -> Result<(), StoreError> {
+        self.record_intent_atomic_impl(
+            run_id,
+            node_instance_id,
+            request_hash,
+            effect_id,
+            target_idempotent,
+            dedup_scope,
+            &NoFaults,
+        )
+    }
+
+    /// See the `spike-faults` twin above — same body, crate-only.
+    #[allow(clippy::too_many_arguments)]
+    #[cfg(not(feature = "spike-faults"))]
+    pub(crate) fn record_intent_atomic(
+        &self,
+        run_id: &str,
+        node_instance_id: &str,
+        request_hash: &str,
+        effect_id: &str,
+        target_idempotent: bool,
+        dedup_scope: &str,
+    ) -> Result<(), StoreError> {
+        self.record_intent_atomic_impl(
+            run_id,
+            node_instance_id,
+            request_hash,
+            effect_id,
+            target_idempotent,
+            dedup_scope,
+            &NoFaults,
+        )
+    }
+
+    /// HARNESS entry point — same guaranteed transaction, with the fault
+    /// hook consulted between the two writes. Behind `spike-faults`.
+    #[cfg(feature = "spike-faults")]
+    #[allow(clippy::too_many_arguments)]
+    pub fn record_intent_atomic_with_faults(
+        &self,
+        run_id: &str,
+        node_instance_id: &str,
+        request_hash: &str,
+        effect_id: &str,
+        target_idempotent: bool,
+        dedup_scope: &str,
+        faults: &dyn FaultHook,
+    ) -> Result<(), StoreError> {
+        self.record_intent_atomic_impl(
+            run_id,
+            node_instance_id,
+            request_hash,
+            effect_id,
+            target_idempotent,
+            dedup_scope,
+            faults,
+        )
+    }
+
+    /// Shared body. `faults` is consulted BETWEEN the two writes, inside the
+    /// transaction. That fault point is the only thing that makes this
+    /// method's guarantee falsifiable: halting there must roll back BOTH
+    /// writes, so a test can assert that neither survived. Without an
+    /// injection point inside the transaction, splitting this method into
+    /// two transactions would leave every test green.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn record_intent_atomic_impl(
         &self,
         run_id: &str,
         node_instance_id: &str,
@@ -506,11 +856,78 @@ impl RunStore {
     /// Journal entry, frontier advance and outbox transition to applied, in
     /// ONE transaction. Only the receipt DIGEST reaches the journal.
     ///
-    /// `faults` fires BETWEEN the append and the transition, inside the
-    /// transaction — the same falsifiability device as
-    /// [`RunStore::record_intent_atomic`].
-    #[allow(clippy::too_many_arguments)]
+    /// Production entry point: takes NO fault hook (the harness surface is
+    /// `record_completion_with_faults`, behind `spike-faults`).
+    ///
+    /// Crate-only in a normal build, like `record_intent_atomic`: the
+    /// effect id it confirms is engine-derived.
+    #[cfg(feature = "spike-faults")]
     pub fn record_completion(
+        &self,
+        run_id: &str,
+        node_instance_id: &str,
+        effect_id: &str,
+        request_hash: &str,
+        receipt: &str,
+    ) -> Result<(), StoreError> {
+        self.record_completion_impl(
+            run_id,
+            node_instance_id,
+            effect_id,
+            request_hash,
+            receipt,
+            &NoFaults,
+        )
+    }
+
+    /// See the `spike-faults` twin above — same body, crate-only.
+    #[cfg(not(feature = "spike-faults"))]
+    pub(crate) fn record_completion(
+        &self,
+        run_id: &str,
+        node_instance_id: &str,
+        effect_id: &str,
+        request_hash: &str,
+        receipt: &str,
+    ) -> Result<(), StoreError> {
+        self.record_completion_impl(
+            run_id,
+            node_instance_id,
+            effect_id,
+            request_hash,
+            receipt,
+            &NoFaults,
+        )
+    }
+
+    /// HARNESS entry point — same transaction, hook consulted between the
+    /// append and the outbox transition. Behind `spike-faults`.
+    #[cfg(feature = "spike-faults")]
+    #[allow(clippy::too_many_arguments)]
+    pub fn record_completion_with_faults(
+        &self,
+        run_id: &str,
+        node_instance_id: &str,
+        effect_id: &str,
+        request_hash: &str,
+        receipt: &str,
+        faults: &dyn FaultHook,
+    ) -> Result<(), StoreError> {
+        self.record_completion_impl(
+            run_id,
+            node_instance_id,
+            effect_id,
+            request_hash,
+            receipt,
+            faults,
+        )
+    }
+
+    /// Shared body. `faults` fires BETWEEN the append and the transition,
+    /// inside the transaction — the same falsifiability device as the
+    /// intent path.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn record_completion_impl(
         &self,
         run_id: &str,
         node_instance_id: &str,
@@ -592,6 +1009,11 @@ impl RunStore {
 
     /// Stop the run for good, recording why — and, on a divergence, WHICH
     /// two hashes disagreed, so the journal alone supports a post-mortem.
+    ///
+    /// `closed_at_ms` is the caller's clock, for RETENTION only (it lands in
+    /// the `runs` state row, never in the journal). `None` is legal — the
+    /// clockless spike engine passes it — and means the run is NEVER GC'd
+    /// (fail-safe: no date, no purge).
     pub fn record_terminal(
         &self,
         run_id: &str,
@@ -599,8 +1021,37 @@ impl RunStore {
         reason: TerminalReason,
         expected_hash: Option<&str>,
         got_hash: Option<&str>,
+        closed_at_ms: Option<i64>,
     ) -> Result<(), StoreError> {
         self.in_immediate_tx(|conn| {
+            // Closed states are ABSORBING: only a RUNNING run may go
+            // terminal. Checked FIRST, in the same transaction — the
+            // guarded UPDATE's affected-row count IS the check.
+            let moved = conn.execute(
+                "UPDATE runs SET status = ?1, terminal_reason = ?2, closed_at_ms = ?3
+                 WHERE run_id = ?4 AND status = ?5",
+                params![
+                    RunStatus::Terminal.as_str(),
+                    reason.as_str(),
+                    closed_at_ms,
+                    run_id,
+                    RunStatus::Running.as_str()
+                ],
+            )?;
+            if moved != 1 {
+                let from: Option<String> = conn
+                    .query_row(
+                        "SELECT status FROM runs WHERE run_id = ?1",
+                        params![run_id],
+                        |row| row.get(0),
+                    )
+                    .optional()?;
+                return Err(StoreError::InvalidTransition {
+                    run_id: run_id.to_string(),
+                    from: from.unwrap_or_else(|| "absent".to_string()),
+                    to: RunStatus::Terminal.as_str(),
+                });
+            }
             append_event(
                 conn,
                 run_id,
@@ -612,28 +1063,82 @@ impl RunStore {
                     got_hash: got_hash.map(str::to_string),
                 },
             )?;
-            conn.execute(
-                "UPDATE runs SET status = ?1, terminal_reason = ?2 WHERE run_id = ?3",
-                params![RunStatus::Terminal.as_str(), reason.as_str(), run_id],
-            )?;
             Ok(())
         })
     }
 
-    /// Close a run that reached its last step.
-    pub fn record_run_completed(&self, run_id: &str) -> Result<(), StoreError> {
+    /// Close a run that reached its last step. `closed_at_ms`: see
+    /// [`RunStore::record_terminal`].
+    pub fn record_run_completed(
+        &self,
+        run_id: &str,
+        closed_at_ms: Option<i64>,
+    ) -> Result<(), StoreError> {
         self.in_immediate_tx(|conn| {
-            append_event(conn, run_id, None, None, &RunEventKind::RunCompleted)?;
-            conn.execute(
-                "UPDATE runs SET status = ?1 WHERE run_id = ?2",
-                params![RunStatus::Completed.as_str(), run_id],
+            // Closed states are ABSORBING: only a RUNNING run may close.
+            // Without this, re-labelling a TERMINAL run completed would
+            // route its next GC through the completed branch and delete
+            // the diagnosis (Codex r2 P1).
+            let moved = conn.execute(
+                "UPDATE runs SET status = ?1, closed_at_ms = ?2
+                 WHERE run_id = ?3 AND status = ?4",
+                params![
+                    RunStatus::Completed.as_str(),
+                    closed_at_ms,
+                    run_id,
+                    RunStatus::Running.as_str()
+                ],
             )?;
+            if moved != 1 {
+                let from: Option<String> = conn
+                    .query_row(
+                        "SELECT status FROM runs WHERE run_id = ?1",
+                        params![run_id],
+                        |row| row.get(0),
+                    )
+                    .optional()?;
+                return Err(StoreError::InvalidTransition {
+                    run_id: run_id.to_string(),
+                    from: from.unwrap_or_else(|| "absent".to_string()),
+                    to: RunStatus::Completed.as_str(),
+                });
+            }
+            append_event(conn, run_id, None, None, &RunEventKind::RunCompleted)?;
             Ok(())
         })
     }
 
-    /// Every journal entry of a run, in sequence order.
+    /// Every journal entry of a run, in sequence order — interpreted through
+    /// the PRODUCTION upcaster chain. A row written by a newer engine fails
+    /// closed ([`StoreError::Upcast`] carrying
+    /// [`UpcastError::NewerThanSupported`]) instead of being mis-read: that
+    /// is the event-level downgrade guard, and it lives in
+    /// [`upcast_payload`], so bypassing the upcasting door would also lose
+    /// the guard — the two cannot drift apart.
     pub fn load_events(&self, run_id: &str) -> Result<Vec<RunEvent>, StoreError> {
+        self.load_events_impl(run_id, RUN_EVENT_UPCASTERS, RUN_EVENT_FORMAT_VERSION)
+    }
+
+    /// HARNESS entry point — interpret through a SYNTHETIC chain and current
+    /// version, so the store-level upcasting path is exercisable while the
+    /// production chain is still empty (version 1 is the first ever
+    /// written). Behind `spike-faults`.
+    #[cfg(feature = "spike-faults")]
+    pub fn load_events_with_chain(
+        &self,
+        run_id: &str,
+        chain: &[RunEventUpcaster],
+        current: u16,
+    ) -> Result<Vec<RunEvent>, StoreError> {
+        self.load_events_impl(run_id, chain, current)
+    }
+
+    fn load_events_impl(
+        &self,
+        run_id: &str,
+        chain: &[RunEventUpcaster],
+        current: u16,
+    ) -> Result<Vec<RunEvent>, StoreError> {
         let mut stmt = self.conn.prepare(
             "SELECT sequence, format_version, node_instance_id, request_hash, payload
              FROM run_events WHERE run_id = ?1 ORDER BY sequence ASC",
@@ -651,17 +1156,27 @@ impl RunStore {
         let mut events = Vec::new();
         for row in rows {
             let (sequence, format_version, node_instance_id, request_hash, payload) = row?;
-            let kind: RunEventKind = serde_json::from_str(&payload)
+            let row_version = u16::try_from(format_version).map_err(|_| {
+                StoreError::Corrupt(format!(
+                    "event format version out of range: {format_version}"
+                ))
+            })?;
+            // Interpretation-time upcasting: parse the payload as pure data,
+            // bring it to the current shape, THEN parse the typed kind. The
+            // journal row itself is never rewritten.
+            let raw: serde_json::Value = serde_json::from_str(&payload)
                 .map_err(|e| StoreError::Corrupt(format!("event payload at {sequence}: {e}")))?;
+            let upcasted = upcast_payload(chain, current, row_version, raw)?;
+            let kind: RunEventKind = serde_json::from_value(upcasted).map_err(|e| {
+                StoreError::Corrupt(format!("event payload at {sequence} (upcasted): {e}"))
+            })?;
             events.push(RunEvent {
                 // READ from the row, not re-injected from the current
                 // constant: a version the reader supplies is not a version,
-                // it is a guess that always agrees with itself.
-                format_version: u16::try_from(format_version).map_err(|_| {
-                    StoreError::Corrupt(format!(
-                        "event format version out of range: {format_version}"
-                    ))
-                })?,
+                // it is a guess that always agrees with itself. After
+                // upcasting this still carries the version the row was
+                // WRITTEN under — provenance; only `kind` is current-shaped.
+                format_version: row_version,
                 run_id: run_id.to_string(),
                 sequence: u64::try_from(sequence).map_err(|_| {
                     StoreError::Corrupt(format!("negative sequence in journal: {sequence}"))
@@ -734,15 +1249,1062 @@ impl RunStore {
         Ok(count as usize)
     }
 
+    // ── single-writer lease (Phase I) ─────────────────────────────────────
+
+    /// Acquire (or take over) the store's single-writer lease for `owner`.
+    /// Returns the fencing epoch this handle now holds; every subsequent
+    /// write transaction of this handle re-asserts `(owner, epoch)` and
+    /// aborts with [`StoreError::LeaseLost`] after a takeover.
+    ///
+    /// EVERY acquisition bumps the epoch — including a re-acquisition by the
+    /// same owner name: a restarted process must invalidate any zombie
+    /// handle its previous incarnation left behind (Kleppmann — the token is
+    /// bumped per ACQUISITION, never reused). A takeover of a live lease is
+    /// only allowed once `expires_at_ms <= now_ms`; that wall-clock reading
+    /// is the HEURISTIC deciding the previous holder is dead, never a
+    /// commit-time condition.
+    pub fn acquire_lease(
+        &mut self,
+        owner: &str,
+        now_ms: i64,
+        ttl_ms: i64,
+    ) -> Result<i64, StoreError> {
+        crate::hash::validate_identity_component("lease_owner", owner).map_err(|e| {
+            StoreError::InvalidInput {
+                what: "lease owner",
+                reason: e.to_string(),
+            }
+        })?;
+        // A negative clock would make the FREED row (expiry 0) read as held
+        // (`0 > now_ms`) and never acquirable — refused instead of being
+        // left as a documented quirk (review D1-1). Fail-closed either way.
+        if now_ms < 0 {
+            return Err(StoreError::InvalidInput {
+                what: "lease clock",
+                reason: format!("now_ms must be >= 0, got {now_ms}"),
+            });
+        }
+        if ttl_ms <= 0 {
+            return Err(StoreError::InvalidInput {
+                what: "lease ttl",
+                reason: format!("must be positive, got {ttl_ms}"),
+            });
+        }
+        let expires_at_ms = now_ms
+            .checked_add(ttl_ms)
+            .ok_or_else(|| StoreError::InvalidInput {
+                what: "lease ttl",
+                reason: "now_ms + ttl_ms overflows".to_string(),
+            })?;
+
+        let epoch = self.in_immediate_tx_unfenced(|conn| {
+            let current: Option<(String, i64, i64)> = conn
+                .query_row(
+                    "SELECT owner, epoch, expires_at_ms FROM lease WHERE id = 1",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .optional()?;
+            match current {
+                None => {
+                    conn.execute(
+                        "INSERT INTO lease (id, owner, epoch, expires_at_ms)
+                         VALUES (1, ?1, 1, ?2)",
+                        params![owner, expires_at_ms],
+                    )?;
+                    Ok(1)
+                }
+                Some((holder, epoch, holder_expires)) => {
+                    if holder != owner && holder_expires > now_ms {
+                        return Err(StoreError::LeaseHeld {
+                            owner: holder,
+                            expires_at_ms: holder_expires,
+                        });
+                    }
+                    let next = epoch.checked_add(1).ok_or_else(|| {
+                        StoreError::Corrupt("lease epoch overflows i64".to_string())
+                    })?;
+                    conn.execute(
+                        "UPDATE lease SET owner = ?1, epoch = ?2, expires_at_ms = ?3
+                         WHERE id = 1",
+                        params![owner, next, expires_at_ms],
+                    )?;
+                    Ok(next)
+                }
+            }
+        })?;
+
+        self.active_lease = Some((owner.to_string(), epoch));
+        Ok(epoch)
+    }
+
+    /// Extend the active lease's expiry. A renewal that finds its epoch
+    /// taken over clears the handle's lease and fails with
+    /// [`StoreError::LeaseLost`].
+    pub fn renew_lease(&mut self, now_ms: i64, ttl_ms: i64) -> Result<(), StoreError> {
+        let (owner, epoch) = self
+            .active_lease
+            .clone()
+            .ok_or_else(|| StoreError::InvalidInput {
+                what: "lease",
+                reason: "no active lease on this handle".to_string(),
+            })?;
+        if now_ms < 0 {
+            return Err(StoreError::InvalidInput {
+                what: "lease clock",
+                reason: format!("now_ms must be >= 0, got {now_ms}"),
+            });
+        }
+        if ttl_ms <= 0 {
+            return Err(StoreError::InvalidInput {
+                what: "lease ttl",
+                reason: format!("must be positive, got {ttl_ms}"),
+            });
+        }
+        let expires_at_ms = now_ms
+            .checked_add(ttl_ms)
+            .ok_or_else(|| StoreError::InvalidInput {
+                what: "lease ttl",
+                reason: "now_ms + ttl_ms overflows".to_string(),
+            })?;
+        let result = self.in_immediate_tx_unfenced(|conn| {
+            let matched = conn.execute(
+                "UPDATE lease SET expires_at_ms = ?1 WHERE id = 1 AND owner = ?2 AND epoch = ?3",
+                params![expires_at_ms, owner, epoch],
+            )?;
+            if matched != 1 {
+                return Err(StoreError::LeaseLost {
+                    owner: owner.clone(),
+                    epoch,
+                });
+            }
+            Ok(())
+        });
+        if matches!(result, Err(StoreError::LeaseLost { .. })) {
+            self.active_lease = None;
+        }
+        result
+    }
+
+    /// Release the active lease (best effort: a lease already taken over is
+    /// simply no longer ours to free). The handle goes back to unfenced.
+    ///
+    /// The row is MARKED FREE (empty owner, expiry 0), never deleted: the
+    /// epoch must stay MONOTONE across the whole life of the store file.
+    /// Deleting the row would let the next acquisition re-INSERT at epoch 1
+    /// — and a zombie handle from an earlier incarnation still holding
+    /// `(same owner, 1)` would pass the CAS again. An empty owner can never
+    /// collide with a real one (`validate_identity_component` refuses empty),
+    /// and expiry 0 makes the free row immediately acquirable through the
+    /// normal takeover branch, which bumps the epoch.
+    pub fn release_lease(&mut self) -> Result<(), StoreError> {
+        if let Some((owner, epoch)) = self.active_lease.take() {
+            self.in_immediate_tx_unfenced(|conn| {
+                conn.execute(
+                    "UPDATE lease SET owner = '', expires_at_ms = 0
+                     WHERE id = 1 AND owner = ?1 AND epoch = ?2",
+                    params![owner, epoch],
+                )?;
+                Ok(())
+            })?;
+        }
+        Ok(())
+    }
+
+    /// The lease HOLDER, if any — inspection/debugging. `None` both when no
+    /// lease row was ever created and when the lease was released (the row
+    /// then persists with an empty owner, carrying the monotone epoch).
+    pub fn lease_state(&self) -> Result<Option<LeaseState>, StoreError> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT owner, epoch, expires_at_ms FROM lease WHERE id = 1",
+                [],
+                |row| {
+                    Ok(LeaseState {
+                        owner: row.get(0)?,
+                        epoch: row.get(1)?,
+                        expires_at_ms: row.get(2)?,
+                    })
+                },
+            )
+            .optional()?
+            .filter(|l| !l.owner.is_empty()))
+    }
+
+    /// The epoch THIS HANDLE believes it holds, if any.
+    pub fn active_lease_epoch(&self) -> Option<i64> {
+        self.active_lease.as_ref().map(|(_, e)| *e)
+    }
+
+    // ── inbox (Phase I) ───────────────────────────────────────────────────
+
+    /// Record an inbound message AT-LEAST-ONCE + dedup: returns `true` when
+    /// the message is NEW, `false` when this delivery is a duplicate
+    /// (collapsed by `INSERT OR IGNORE` under the `(run_id, message_id)`
+    /// primary key — the S76 D `task_results` precedent). A message for a
+    /// run that does not exist is a foreign-key error, fail-closed (`OR
+    /// IGNORE` does NOT swallow FK violations).
+    pub fn record_inbox_message(
+        &self,
+        run_id: &str,
+        message_id: &str,
+        processed_at_ms: i64,
+    ) -> Result<bool, StoreError> {
+        crate::hash::validate_identity_component("message_id", message_id).map_err(|e| {
+            StoreError::InvalidInput {
+                what: "inbox message id",
+                reason: e.to_string(),
+            }
+        })?;
+        self.in_immediate_tx(|conn| {
+            let inserted = conn.execute(
+                "INSERT OR IGNORE INTO inbox (run_id, message_id, processed_at_ms)
+                 VALUES (?1, ?2, ?3)",
+                params![run_id, message_id, processed_at_ms],
+            )?;
+            Ok(inserted == 1)
+        })
+    }
+
+    /// Messages recorded for a run — inspection.
+    pub fn inbox_count(&self, run_id: &str) -> Result<usize, StoreError> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM inbox WHERE run_id = ?1",
+            params![run_id],
+            |row| row.get(0),
+        )?;
+        Ok(count as usize)
+    }
+
+    // ── disposable snapshots (Phase I) ────────────────────────────────────
+
+    /// Store (or replace) the run's snapshot: a CACHE of a reduction of the
+    /// journal up to `upto_sequence`. Pure JSON data only — the canonical
+    /// digest door refuses a `null` anywhere in `state`, the same rule every
+    /// digest of this crate lives under.
+    ///
+    /// The digest covers the WHOLE served tuple — format version,
+    /// `upto_sequence` and `state` — not the state alone: a tamperer who
+    /// kept a valid state but moved the sequence bound would otherwise pass
+    /// verification and serve a lying bound to a future reducer (review
+    /// D4-1; defence-in-depth, the journal stays the truth either way).
+    pub fn write_snapshot(
+        &self,
+        run_id: &str,
+        upto_sequence: u64,
+        state: &serde_json::Value,
+    ) -> Result<(), StoreError> {
+        let state_digest = crate::hash::canonical_digest(
+            SNAPSHOT_STATE_DIGEST_CONTEXT,
+            &snapshot_digest_subject(run_id, SNAPSHOT_FORMAT_VERSION, upto_sequence, state),
+        )
+        .map_err(|e| StoreError::InvalidInput {
+            what: "snapshot state",
+            reason: e.to_string(),
+        })?;
+        let state_text = serde_json::to_string(state).map_err(|e| StoreError::InvalidInput {
+            what: "snapshot state",
+            reason: e.to_string(),
+        })?;
+        let seq = i64::try_from(upto_sequence).map_err(|_| StoreError::InvalidInput {
+            what: "snapshot upto_sequence",
+            reason: format!("out of i64 range: {upto_sequence}"),
+        })?;
+        self.in_immediate_tx(|conn| {
+            conn.execute(
+                "INSERT INTO snapshots (run_id, snapshot_version, upto_sequence, state, state_digest)
+                 VALUES (?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT(run_id) DO UPDATE SET
+                     snapshot_version = excluded.snapshot_version,
+                     upto_sequence    = excluded.upto_sequence,
+                     state            = excluded.state,
+                     state_digest     = excluded.state_digest",
+                params![run_id, SNAPSHOT_FORMAT_VERSION, seq, state_text, state_digest],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// Read the run's snapshot WITH every validity check: format version
+    /// (stale ⇒ discarded) and content digest (poisoned ⇒ discarded). Only
+    /// [`SnapshotRead::Valid`] may be used, and even then only as a cache —
+    /// the journal always re-derives the same state, which is what
+    /// disposability means.
+    pub fn read_snapshot(&self, run_id: &str) -> Result<SnapshotRead, StoreError> {
+        self.read_snapshot_impl(run_id, true)
+    }
+
+    /// RED CONTROL — read WITHOUT the digest check, so a test can show the
+    /// poisoned state IS observable when the guard is off (proving the guard
+    /// in [`RunStore::read_snapshot`] is load-bearing). Behind
+    /// `spike-faults`: a normal build cannot reach it.
+    #[cfg(feature = "spike-faults")]
+    pub fn read_snapshot_unverified(&self, run_id: &str) -> Result<SnapshotRead, StoreError> {
+        self.read_snapshot_impl(run_id, false)
+    }
+
+    fn read_snapshot_impl(&self, run_id: &str, verify: bool) -> Result<SnapshotRead, StoreError> {
+        let row: Option<(i64, i64, String, String)> = self
+            .conn
+            .query_row(
+                "SELECT snapshot_version, upto_sequence, state, state_digest
+                 FROM snapshots WHERE run_id = ?1",
+                params![run_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .optional()?;
+        let Some((version, seq, state_text, recorded_digest)) = row else {
+            return Ok(SnapshotRead::Missing);
+        };
+        if version != SNAPSHOT_FORMAT_VERSION {
+            return Ok(SnapshotRead::Stale {
+                found_version: version,
+            });
+        }
+        let Ok(state) = serde_json::from_str::<serde_json::Value>(&state_text) else {
+            return Ok(SnapshotRead::Poisoned);
+        };
+        // A negative sequence bound is a tampered row, and a snapshot is a
+        // CACHE: discarded (Poisoned), never a hard failure the caller
+        // cannot ignore (Codex r2 L5).
+        let Ok(upto_sequence) = u64::try_from(seq) else {
+            return Ok(SnapshotRead::Poisoned);
+        };
+        if verify {
+            // Recomputed over the SAME tuple write_snapshot digested —
+            // version, sequence bound and state together, so no served
+            // field escapes authentication (`version == SNAPSHOT_FORMAT_VERSION`
+            // at this point, the Stale arm returned above).
+            let recomputed = crate::hash::canonical_digest(
+                SNAPSHOT_STATE_DIGEST_CONTEXT,
+                &snapshot_digest_subject(run_id, version, upto_sequence, &state),
+            );
+            match recomputed {
+                Ok(d) if d == recorded_digest => {}
+                // A tuple that no longer digests (or digests differently)
+                // was tampered with after it was written: discarded.
+                _ => return Ok(SnapshotRead::Poisoned),
+            }
+        }
+        Ok(SnapshotRead::Valid(Snapshot {
+            upto_sequence,
+            state,
+        }))
+    }
+
+    /// Drop the run's snapshot. Dropping a cache changes NOTHING observable
+    /// — that property is exactly what the disposability test asserts.
+    pub fn drop_snapshot(&self, run_id: &str) -> Result<(), StoreError> {
+        self.in_immediate_tx(|conn| {
+            conn.execute("DELETE FROM snapshots WHERE run_id = ?1", params![run_id])?;
+            Ok(())
+        })
+    }
+
+    // ── retention / GC (Phase I) ──────────────────────────────────────────
+
+    /// Purge CLOSED runs past the policy's horizon, sparing the most recent
+    /// `keep_last` candidates. Per-run, in ONE transaction each (a crash
+    /// mid-GC leaves every run either fully purged or fully intact).
+    ///
+    /// Never purged, by construction: a RUNNING run (not a candidate), a
+    /// PENDING outbox row (a completed run holding one is skipped and
+    /// counted; a terminal run keeps its pending rows), and the terminal
+    /// DIAGNOSIS (the `runs` row and the `run_terminal` journal entry of a
+    /// terminal run survive every pass). A run whose `closed_at_ms` is NULL
+    /// is never a candidate — no date, no purge.
+    ///
+    /// GC is an accepted, policy-bounded loss of audit evidence: what the
+    /// journal loses here is stated by this signature, not hidden behind a
+    /// default.
+    pub fn gc(&self, now_ms: i64, policy: &RetentionPolicy) -> Result<GcOutcome, StoreError> {
+        self.gc_impl(now_ms, policy, &NoFaults)
+    }
+
+    /// HARNESS entry point — the fault hook fires INSIDE each per-run purge
+    /// transaction, between the child-table deletes and the final step, so
+    /// the per-run atomicity is falsifiable. Behind `spike-faults`.
+    #[cfg(feature = "spike-faults")]
+    pub fn gc_with_faults(
+        &self,
+        now_ms: i64,
+        policy: &RetentionPolicy,
+        faults: &dyn FaultHook,
+    ) -> Result<GcOutcome, StoreError> {
+        self.gc_impl(now_ms, policy, faults)
+    }
+
+    fn gc_impl(
+        &self,
+        now_ms: i64,
+        policy: &RetentionPolicy,
+        faults: &dyn FaultHook,
+    ) -> Result<GcOutcome, StoreError> {
+        // A negative clock or age would move the cutoff into the FUTURE and
+        // purge runs the policy meant to protect — refused, not clamped.
+        if now_ms < 0 {
+            return Err(StoreError::InvalidInput {
+                what: "gc clock",
+                reason: format!("now_ms must be >= 0, got {now_ms}"),
+            });
+        }
+        if policy.min_age_ms < 0 {
+            return Err(StoreError::InvalidInput {
+                what: "gc retention age",
+                reason: format!("min_age_ms must be >= 0, got {}", policy.min_age_ms),
+            });
+        }
+        let cutoff = now_ms.saturating_sub(policy.min_age_ms);
+        let mut stmt = self.conn.prepare(
+            "SELECT run_id FROM runs
+             WHERE status IN (?1, ?2)
+               AND closed_at_ms IS NOT NULL
+               AND closed_at_ms <= ?3
+             ORDER BY closed_at_ms DESC, run_id DESC
+             LIMIT -1 OFFSET ?4",
+        )?;
+        let candidates: Vec<String> = stmt
+            .query_map(
+                params![
+                    RunStatus::Completed.as_str(),
+                    RunStatus::Terminal.as_str(),
+                    cutoff,
+                    i64::from(policy.keep_last)
+                ],
+                |row| row.get(0),
+            )?
+            .collect::<Result<_, _>>()?;
+        drop(stmt);
+
+        let mut outcome = GcOutcome::default();
+        for run_id in candidates {
+            // Harness-only interleaving point, OUTSIDE any transaction: a
+            // hook may mutate the run through a SEPARATE connection here to
+            // prove the re-read below is load-bearing (Codex r1 L6).
+            let _ = faults.hit(FaultPoint::BeforeGcPurgeOfRun);
+            let action = self.in_immediate_tx(|conn| {
+                // EVERYTHING that decides the purge is re-read INSIDE the
+                // purge transaction: status, close time, pending rows. The
+                // candidate scan above is only a pre-filter — a run whose
+                // status flipped (e.g. an unfenced writer recorded a
+                // terminal diagnosis) or whose eligibility lapsed between
+                // scan and purge is re-dispatched on the CURRENT row, never
+                // on the stale scan (Codex r1 P1: acting on the scanned
+                // status could delete a terminal diagnosis through the
+                // completed branch).
+                let row: Option<(String, Option<i64>)> = conn
+                    .query_row(
+                        "SELECT status, closed_at_ms FROM runs WHERE run_id = ?1",
+                        params![run_id],
+                        |row| Ok((row.get(0)?, row.get(1)?)),
+                    )
+                    .optional()?;
+                let Some((status_raw, closed_at_ms)) = row else {
+                    // Purged by a concurrent pass — nothing to do.
+                    return Ok(GcAction::NotEligible);
+                };
+                let status = RunStatus::parse(&status_raw)?;
+                match closed_at_ms {
+                    Some(closed) if closed <= cutoff => {}
+                    // Re-opened, re-dated or date cleared since the scan:
+                    // no longer eligible.
+                    _ => return Ok(GcAction::NotEligible),
+                }
+                // keep_last is RE-RANKED on the current rows too: a run
+                // re-dated since the scan may now sit inside the protected
+                // window (Codex r2 P2). Same ordering as the scan.
+                if policy.keep_last > 0 {
+                    let closed = closed_at_ms.expect("eligibility checked above");
+                    let newer: i64 = conn.query_row(
+                        "SELECT COUNT(*) FROM runs
+                         WHERE status IN (?1, ?2)
+                           AND closed_at_ms IS NOT NULL
+                           AND closed_at_ms <= ?3
+                           AND (closed_at_ms > ?4
+                                OR (closed_at_ms = ?4 AND run_id > ?5))",
+                        params![
+                            RunStatus::Completed.as_str(),
+                            RunStatus::Terminal.as_str(),
+                            cutoff,
+                            closed,
+                            run_id
+                        ],
+                        |row| row.get(0),
+                    )?;
+                    if newer < i64::from(policy.keep_last) {
+                        return Ok(GcAction::NotEligible);
+                    }
+                }
+                let pending: i64 = conn.query_row(
+                    "SELECT COUNT(*) FROM outbox WHERE run_id = ?1 AND state = ?2",
+                    params![run_id, OUTBOX_PENDING],
+                    |row| row.get(0),
+                )?;
+                match status {
+                    // A run that went BACK to running since the scan is
+                    // alive: never touched (the scan could only have seen a
+                    // closed status, so this is the re-read guard working).
+                    RunStatus::Running => Ok(GcAction::NotEligible),
+                    RunStatus::Completed => {
+                        if pending > 0 {
+                            return Ok(GcAction::SkippedPendingOutbox);
+                        }
+                        conn.execute("DELETE FROM snapshots WHERE run_id = ?1", params![run_id])?;
+                        conn.execute("DELETE FROM inbox WHERE run_id = ?1", params![run_id])?;
+                        conn.execute("DELETE FROM outbox WHERE run_id = ?1", params![run_id])?;
+                        conn.execute("DELETE FROM run_events WHERE run_id = ?1", params![run_id])?;
+                        if faults.hit(FaultPoint::InsideGcTransaction) == FaultAction::Halt {
+                            return Err(StoreError::HaltedInTransaction {
+                                at: FaultPoint::InsideGcTransaction,
+                            });
+                        }
+                        conn.execute("DELETE FROM runs WHERE run_id = ?1", params![run_id])?;
+                        Ok(GcAction::PurgedCompleted)
+                    }
+                    RunStatus::Terminal => {
+                        conn.execute("DELETE FROM snapshots WHERE run_id = ?1", params![run_id])?;
+                        conn.execute("DELETE FROM inbox WHERE run_id = ?1", params![run_id])?;
+                        conn.execute(
+                            "DELETE FROM outbox WHERE run_id = ?1 AND state != ?2",
+                            params![run_id, OUTBOX_PENDING],
+                        )?;
+                        let deleted = conn.execute(
+                            "DELETE FROM run_events WHERE run_id = ?1 AND kind != ?2",
+                            params![
+                                run_id,
+                                RunEventKind::RunTerminal {
+                                    reason: TerminalReason::OutcomeUnknown,
+                                    expected_hash: None,
+                                    got_hash: None,
+                                }
+                                .discriminant()
+                            ],
+                        )?;
+                        if faults.hit(FaultPoint::InsideGcTransaction) == FaultAction::Halt {
+                            return Err(StoreError::HaltedInTransaction {
+                                at: FaultPoint::InsideGcTransaction,
+                            });
+                        }
+                        // The `runs` row and the run_terminal entry SURVIVE:
+                        // they are the diagnosis a post-mortem depends on.
+                        Ok(if deleted > 0 {
+                            GcAction::PurgedTerminal
+                        } else {
+                            GcAction::NotEligible
+                        })
+                    }
+                }
+            })?;
+            match action {
+                GcAction::PurgedCompleted => outcome.completed_purged += 1,
+                GcAction::PurgedTerminal => outcome.terminal_purged += 1,
+                GcAction::SkippedPendingOutbox => outcome.skipped_pending_outbox += 1,
+                GcAction::NotEligible => {}
+            }
+        }
+        Ok(outcome)
+    }
+
+    /// RED CONTROL — purge a run with EVERY guard removed (status, pending
+    /// outbox, terminal diagnosis: nothing is spared). Shows the bad state
+    /// the production guards prevent is really reachable, proving those
+    /// guards are load-bearing. Behind `spike-faults`: a normal build cannot
+    /// reach it.
+    #[cfg(feature = "spike-faults")]
+    pub fn gc_purge_run_unguarded(&self, run_id: &str) -> Result<(), StoreError> {
+        self.in_immediate_tx(|conn| {
+            conn.execute("DELETE FROM snapshots WHERE run_id = ?1", params![run_id])?;
+            conn.execute("DELETE FROM inbox WHERE run_id = ?1", params![run_id])?;
+            conn.execute("DELETE FROM outbox WHERE run_id = ?1", params![run_id])?;
+            conn.execute("DELETE FROM run_events WHERE run_id = ?1", params![run_id])?;
+            conn.execute("DELETE FROM runs WHERE run_id = ?1", params![run_id])?;
+            Ok(())
+        })
+    }
+
+    // ── backup / restore (Phase I) ────────────────────────────────────────
+
+    /// Write a transactionally-consistent snapshot of the store to `dest`
+    /// via `VACUUM INTO` (SQL — the rusqlite `backup` cargo feature stays
+    /// off, workspace-wide). The copy is written to a temporary sibling and
+    /// atomically renamed, so `dest` is never a partial file; an existing
+    /// destination is refused, never overwritten.
+    ///
+    /// SQLite only fsyncs the VACUUM INTO output when the connection's
+    /// `synchronous` level is NORMAL or FULL — re-asserted here even though
+    /// `open` already did, because this method's durability claim depends on
+    /// it. This is a POINT-IN-TIME snapshot, not PITR.
+    pub fn backup_into(&self, dest: &Path) -> Result<(), StoreError> {
+        if dest.exists() {
+            return Err(StoreError::BackupDestinationExists {
+                path: dest.display().to_string(),
+            });
+        }
+        // Alias guard (Codex r1): the destination (and therefore its .tmp
+        // sibling) must not resolve into the live database file or its WAL
+        // siblings — `VACUUM INTO` onto the source, or the unconditional
+        // .tmp removal below hitting the store, would be self-destruction.
+        // `dest` does not exist yet, so the comparison canonicalises the
+        // PARENT and compares file names.
+        if let Some(db_path) = self.conn.path() {
+            let db = Path::new(db_path);
+            let same_dir = match (
+                dest.parent().and_then(|p| p.canonicalize().ok()),
+                db.parent().and_then(|p| p.canonicalize().ok()),
+            ) {
+                (Some(a), Some(b)) => a == b,
+                _ => false,
+            };
+            if same_dir {
+                let db_name = db.file_name().map(|n| n.to_os_string());
+                for candidate in [
+                    dest.file_name().map(|n| n.to_os_string()),
+                    dest.file_name()
+                        .map(|n| format!("{}.tmp", n.to_string_lossy()).into()),
+                ] {
+                    let clashes = [
+                        db_name.clone(),
+                        db_name
+                            .as_ref()
+                            .map(|n| format!("{}-wal", n.to_string_lossy()).into()),
+                        db_name
+                            .as_ref()
+                            .map(|n| format!("{}-shm", n.to_string_lossy()).into()),
+                    ];
+                    if candidate.is_some() && clashes.contains(&candidate) {
+                        return Err(StoreError::InvalidInput {
+                            what: "backup destination",
+                            reason: "aliases the live store or its WAL siblings".to_string(),
+                        });
+                    }
+                }
+            }
+        }
+        self.assert_pragma_i64("synchronous", 2, "FULL")?;
+
+        let file_name = dest
+            .file_name()
+            .ok_or_else(|| StoreError::InvalidInput {
+                what: "backup destination",
+                reason: "path has no file name".to_string(),
+            })?
+            .to_string_lossy()
+            .into_owned();
+        let tmp: PathBuf = dest.with_file_name(format!("{file_name}.tmp"));
+        // A stale .tmp is by definition an interrupted, possibly-corrupt
+        // copy: replaced, never trusted.
+        if tmp.exists() {
+            std::fs::remove_file(&tmp)?;
+        }
+        let tmp_str = tmp.to_str().ok_or_else(|| StoreError::InvalidInput {
+            what: "backup destination",
+            reason: "non-UTF-8 path".to_string(),
+        })?;
+        self.conn.execute("VACUUM INTO ?1", params![tmp_str])?;
+        std::fs::rename(&tmp, dest)?;
+        #[cfg(unix)]
+        if let Some(parent) = dest.parent() {
+            std::fs::File::open(parent)?.sync_all()?;
+        }
+        Ok(())
+    }
+
+    /// Replace the CLOSED store at `store_path` with a validated backup.
+    ///
+    /// Validation happens BEFORE anything is touched: the backup must open
+    /// read-only, contain the `runs` table, and carry a schema version this
+    /// binary knows ([`StoreError::UnsupportedSchemaVersion`] otherwise —
+    /// restoring a too-new backup is the schema-level downgrade guard
+    /// firing). Stale `-wal`/`-shm` siblings of the replaced file are
+    /// deleted: they belong to the OLD database, and SQLite replaying them
+    /// over the restored one would corrupt it.
+    ///
+    /// The store must be CLOSED (no live [`RunStore`] on `store_path`) — on
+    /// Windows an open store makes the copy fail with a sharing violation,
+    /// which is the guard working, not a bug. Restore is by nature an
+    /// anti-rollback surface: it rewinds the journal to the backup's point
+    /// in time (THREAT_MODEL A11 / T-RUN-RESTORE-ROLLBACK).
+    ///
+    /// Accepted OS-local residual: the window between validating the backup
+    /// and copying it is not closed, symlinks on either path are followed,
+    /// and the copy itself is plain (`fs::copy`, no tmp+rename+fsync like
+    /// `backup_into` — a crash mid-restore can leave a partial main file;
+    /// re-running the restore is the remedy, the validated backup is still
+    /// there). Inside the single-user OS boundary of A11 an actor who can
+    /// exploit either can already rewrite the store directly — and a
+    /// too-new file swapped into the window is re-caught by the
+    /// `user_version` guard at the next [`RunStore::open`].
+    pub fn restore_from_backup(backup: &Path, store_path: &Path) -> Result<(), StoreError> {
+        let conn =
+            Connection::open_with_flags(backup, OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(|e| {
+                StoreError::InvalidBackup {
+                    reason: format!("cannot open read-only: {e}"),
+                }
+            })?;
+        // Opening is LAZY: a non-database file only fails at the first read,
+        // so every validation query maps to InvalidBackup, not to a bare
+        // SQLite error.
+        let user_version: i64 = conn
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .map_err(|e| StoreError::InvalidBackup {
+                reason: format!("cannot read user_version: {e}"),
+            })?;
+        if user_version > MIGRATIONS.len() as i64 {
+            return Err(StoreError::UnsupportedSchemaVersion {
+                found: user_version,
+                supported: MIGRATIONS.len(),
+            });
+        }
+        // A run-store backup ALWAYS carries at least the Phase E schema
+        // (user_version >= 1) — version 0 with a `runs` table is a forgery,
+        // not an old store.
+        if user_version < 1 {
+            return Err(StoreError::InvalidBackup {
+                reason: format!("user_version {user_version} is not a run store"),
+            });
+        }
+        // The table inventory the claimed version REQUIRES must be present
+        // in full: a syntactically-valid SQLite file with the right
+        // user_version and a lone `runs` table is not a backup, and letting
+        // it through would destructively replace a healthy store (Codex r1
+        // P1). Version 1 = the Phase E tables; version 2 adds Phase I's.
+        const RUNS_V1: &[&str] = &[
+            "run_id",
+            "status",
+            "next_sequence",
+            "spec_digest",
+            "frontier_node",
+            "terminal_reason",
+        ];
+        const RUNS_V2: &[&str] = &[
+            "run_id",
+            "status",
+            "next_sequence",
+            "spec_digest",
+            "frontier_node",
+            "terminal_reason",
+            "closed_at_ms",
+        ];
+        const RUN_EVENTS: &[&str] = &[
+            "run_id",
+            "sequence",
+            "format_version",
+            "kind",
+            "node_instance_id",
+            "request_hash",
+            "payload",
+        ];
+        const OUTBOX: &[&str] = &[
+            "run_id",
+            "node_instance_id",
+            "effect_id",
+            "state",
+            "intent_sequence",
+            "request_hash",
+            "target_idempotent",
+            "dedup_scope",
+            "receipt",
+        ];
+        let required: &[(&str, &[&str])] = if user_version >= 2 {
+            &[
+                ("runs", RUNS_V2),
+                ("run_events", RUN_EVENTS),
+                ("outbox", OUTBOX),
+                ("inbox", &["run_id", "message_id", "processed_at_ms"]),
+                (
+                    "snapshots",
+                    &[
+                        "run_id",
+                        "snapshot_version",
+                        "upto_sequence",
+                        "state",
+                        "state_digest",
+                    ],
+                ),
+                ("lease", &["id", "owner", "epoch", "expires_at_ms"]),
+            ]
+        } else {
+            &[
+                ("runs", RUNS_V1),
+                ("run_events", RUN_EVENTS),
+                ("outbox", OUTBOX),
+            ]
+        };
+        for (table, columns) in required {
+            let present: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                    params![table],
+                    |row| row.get(0),
+                )
+                .map_err(|e| StoreError::InvalidBackup {
+                    reason: format!("cannot read schema: {e}"),
+                })?;
+            if present != 1 {
+                return Err(StoreError::InvalidBackup {
+                    reason: format!("missing table {table} for schema version {user_version}"),
+                });
+            }
+            // Table NAMES are not a schema: six right-named empty shells
+            // passed the previous check (Codex r2 P1). The claimed
+            // version's COLUMN inventory must be present too (rusqlite's
+            // typed pragma call — no SQL built from strings). Column TYPES
+            // are not compared: a right-shaped store with lying types
+            // fails loudly downstream at the first typed read, which is
+            // fail-closed — the guard here is against silently replacing a
+            // healthy store with a structurally alien file.
+            let mut found: Vec<(String, i64)> = Vec::new();
+            conn.pragma(None, "table_info", table, |row| {
+                found.push((row.get::<_, String>(1)?, row.get::<_, i64>(5)?));
+                Ok(())
+            })
+            .map_err(|e| StoreError::InvalidBackup {
+                reason: format!("cannot read columns of {table}: {e}"),
+            })?;
+            for column in *columns {
+                if !found.iter().any(|(c, _)| c == column) {
+                    return Err(StoreError::InvalidBackup {
+                        reason: format!(
+                            "table {table} lacks column {column} for schema version {user_version}"
+                        ),
+                    });
+                }
+            }
+            // The PRIMARY KEYS the store's semantics rest on (inbox dedup,
+            // journal ordering, one-outbox-row identity) must be DECLARED —
+            // right-named columns without them degrade silently (Codex r3).
+            let expected_pk: &[&str] = match *table {
+                "runs" => &["run_id"],
+                "run_events" => &["run_id", "sequence"],
+                "outbox" => &["run_id", "node_instance_id", "effect_id"],
+                "inbox" => &["run_id", "message_id"],
+                "snapshots" => &["run_id"],
+                "lease" => &["id"],
+                _ => &[],
+            };
+            let mut actual_pk: Vec<&str> = found
+                .iter()
+                .filter(|(_, pk)| *pk > 0)
+                .map(|(c, _)| c.as_str())
+                .collect();
+            actual_pk.sort_unstable();
+            let mut wanted_pk: Vec<&str> = expected_pk.to_vec();
+            wanted_pk.sort_unstable();
+            if actual_pk != wanted_pk {
+                // EXACT set, not membership: a WIDENED key (extra pk column)
+                // would legalise duplicates the semantics forbid (Codex r4).
+                return Err(StoreError::InvalidBackup {
+                    reason: format!(
+                        "table {table}: primary key is {actual_pk:?}, expected {wanted_pk:?}"
+                    ),
+                });
+            }
+            // Child tables must DECLARE their foreign key to runs — the
+            // inbox's unknown-run refusal is this constraint, nothing else.
+            let needs_fk = matches!(*table, "run_events" | "outbox" | "inbox" | "snapshots");
+            if needs_fk {
+                // The guarantee is precisely "run_id REFERENCES runs" — a
+                // mistargeted homonym FK would let record_inbox_message
+                // accept unknown runs silently (Codex r4).
+                // Grouped by constraint id and required to be MONO-column
+                // (a composite FK with a NULLable extra child column stops
+                // constraining run_id entirely — Codex r5): some constraint
+                // must consist of EXACTLY one row, seq 0, run_id → runs(run_id).
+                let mut fk_rows: Vec<(i64, i64, String, String, Option<String>)> = Vec::new();
+                conn.pragma(None, "foreign_key_list", table, |row| {
+                    fk_rows.push((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ));
+                    Ok(())
+                })
+                .map_err(|e| StoreError::InvalidBackup {
+                    reason: format!("cannot read foreign keys of {table}: {e}"),
+                })?;
+                let fk_ok = fk_rows.iter().any(|(id, seq, target, from, to)| {
+                    *seq == 0
+                        && target == "runs"
+                        && from == "run_id"
+                        && to.as_deref().unwrap_or("run_id") == "run_id"
+                        && fk_rows.iter().filter(|(other, ..)| other == id).count() == 1
+                });
+                if !fk_ok {
+                    return Err(StoreError::InvalidBackup {
+                        reason: format!(
+                            "table {table} lacks a single-column run_id REFERENCES runs(run_id) foreign key"
+                        ),
+                    });
+                }
+            }
+        }
+        // The reducer's one-effect-per-node assumption is enforced by this
+        // unique index — and a HOMONYM is not the index: uniqueness and the
+        // exact indexed columns are checked, not the name alone (Codex r3).
+        let mut index_flags: Option<(i64, i64)> = None;
+        conn.pragma(None, "index_list", "outbox", |row| {
+            if row.get::<_, String>(1)? == "outbox_one_effect_per_node" {
+                index_flags = Some((row.get::<_, i64>(2)?, row.get::<_, i64>(4)?));
+            }
+            Ok(())
+        })
+        .map_err(|e| StoreError::InvalidBackup {
+            reason: format!("cannot read outbox indexes: {e}"),
+        })?;
+        match index_flags {
+            None => {
+                return Err(StoreError::InvalidBackup {
+                    reason: "outbox lacks index outbox_one_effect_per_node".to_string(),
+                });
+            }
+            Some((unique, _)) if unique != 1 => {
+                return Err(StoreError::InvalidBackup {
+                    reason: "index outbox_one_effect_per_node is not UNIQUE".to_string(),
+                });
+            }
+            // A PARTIAL unique index (WHERE clause) only deduplicates the
+            // rows its predicate covers — not the invariant (Codex r4).
+            Some((_, partial)) if partial != 0 => {
+                return Err(StoreError::InvalidBackup {
+                    reason: "index outbox_one_effect_per_node is PARTIAL".to_string(),
+                });
+            }
+            Some(_) => {}
+        }
+        let mut indexed: Vec<String> = Vec::new();
+        conn.pragma(None, "index_info", "outbox_one_effect_per_node", |row| {
+            indexed.push(row.get::<_, String>(2)?);
+            Ok(())
+        })
+        .map_err(|e| StoreError::InvalidBackup {
+            reason: format!("cannot read index columns: {e}"),
+        })?;
+        indexed.sort();
+        if indexed != ["node_instance_id", "run_id"] {
+            return Err(StoreError::InvalidBackup {
+                reason: format!(
+                    "index outbox_one_effect_per_node covers {indexed:?}, expected (run_id, node_instance_id)"
+                ),
+            });
+        }
+        // Structural integrity of the file itself, before it replaces
+        // anything. `quick_check` returns a single "ok" row on a sound
+        // database and rows of findings otherwise.
+        let quick: String = conn
+            .pragma_query_value(None, "quick_check", |row| row.get(0))
+            .map_err(|e| StoreError::InvalidBackup {
+                reason: format!("cannot run quick_check: {e}"),
+            })?;
+        if quick != "ok" {
+            return Err(StoreError::InvalidBackup {
+                reason: format!("quick_check: {quick}"),
+            });
+        }
+        drop(conn);
+
+        // Siblings BEFORE the copy (review D1-3): a crash between the two
+        // steps must never leave the restored main file next to the OLD
+        // database's `-wal` — deleting first makes the bad interleaving
+        // "old main + no wal" (harmless) instead of "new main + old wal"
+        // (corruption on replay).
+        let name = store_path
+            .file_name()
+            .ok_or_else(|| StoreError::InvalidInput {
+                what: "store path",
+                reason: "path has no file name".to_string(),
+            })?
+            .to_string_lossy()
+            .into_owned();
+        for suffix in ["-wal", "-shm"] {
+            let sibling = store_path.with_file_name(format!("{name}{suffix}"));
+            if sibling.exists() {
+                std::fs::remove_file(&sibling)?;
+            }
+        }
+        std::fs::copy(backup, store_path)?;
+        Ok(())
+    }
+
+    /// HARNESS entry point — append a RAW journal row with an arbitrary
+    /// format version and payload text, bypassing the typed door, so the
+    /// upcasting and downgrade guards can be exercised against rows no
+    /// current API can produce (an "older" synthetic shape, a "newer"
+    /// version). Behind `spike-faults`: a normal build cannot reach it.
+    #[cfg(feature = "spike-faults")]
+    pub fn append_raw_event_for_harness(
+        &self,
+        run_id: &str,
+        format_version: i64,
+        kind: &str,
+        payload: &str,
+    ) -> Result<u64, StoreError> {
+        self.in_immediate_tx(|conn| {
+            let sequence: i64 = conn.query_row(
+                "SELECT next_sequence FROM runs WHERE run_id = ?1",
+                params![run_id],
+                |row| row.get(0),
+            )?;
+            conn.execute(
+                "INSERT INTO run_events
+                     (run_id, sequence, format_version, kind, node_instance_id, request_hash, payload)
+                 VALUES (?1, ?2, ?3, ?4, NULL, NULL, ?5)",
+                params![run_id, sequence, format_version, kind, payload],
+            )?;
+            conn.execute(
+                "UPDATE runs SET next_sequence = ?1 WHERE run_id = ?2",
+                params![sequence + 1, run_id],
+            )?;
+            Ok(sequence as u64)
+        })
+    }
+
     /// `BEGIN IMMEDIATE` / `COMMIT` / `ROLLBACK` around one closure — the
     /// explicit-transaction shape already used by the coordinator feed
     /// (`nexus-coordinator-rs/src/public_feed.rs`).
+    ///
+    /// When this handle holds a lease, ownership is re-asserted INSIDE the
+    /// transaction, FIRST, with an epoch compare-and-set: a no-op
+    /// `UPDATE … WHERE owner = ? AND epoch = ?` whose affected-row count is
+    /// the whole check. `rows_affected != 1` means a takeover happened; the
+    /// transaction aborts and NOTHING this closure wrote survives — that is
+    /// the G-SINGLE-WRITER guarantee. The wall clock plays no part here:
+    /// safety is the monotone epoch, expiry is only the takeover heuristic.
+    /// The check never lives in a separate read transaction (a read-to-write
+    /// upgrade can return `SQLITE_BUSY` without invoking the busy handler —
+    /// `BEGIN IMMEDIATE` takes the write lock up front).
     ///
     /// NOT re-entrant: SQLite refuses a nested `BEGIN IMMEDIATE`. This
     /// matters because one caller runs a [`FaultHook`] inside the closure —
     /// a hook that called back into the store would deadlock its own
     /// transaction. Hooks must only observe, halt, or kill the process.
     fn in_immediate_tx<T>(
+        &self,
+        body: impl FnOnce(&Connection) -> Result<T, StoreError>,
+    ) -> Result<T, StoreError> {
+        self.in_immediate_tx_unfenced(|conn| {
+            if let Some((owner, epoch)) = &self.active_lease {
+                let matched = conn.execute(
+                    "UPDATE lease SET epoch = epoch WHERE id = 1 AND owner = ?1 AND epoch = ?2",
+                    params![owner, epoch],
+                )?;
+                if matched != 1 {
+                    return Err(StoreError::LeaseLost {
+                        owner: owner.clone(),
+                        epoch: *epoch,
+                    });
+                }
+            }
+            body(conn)
+        })
+    }
+
+    /// The raw transaction wrapper, WITHOUT the lease fence. Reserved for
+    /// lease management itself (acquiring a lease is how a handle EARNS the
+    /// fence — it cannot already pass it).
+    fn in_immediate_tx_unfenced<T>(
         &self,
         body: impl FnOnce(&Connection) -> Result<T, StoreError>,
     ) -> Result<T, StoreError> {
@@ -758,6 +2320,27 @@ impl RunStore {
             }
         }
     }
+}
+
+/// The value the snapshot digest is computed over: the OWNING RUN plus the
+/// whole served tuple (format version, sequence bound, state), so that
+/// neither a field of [`Snapshot`] nor the cache's contextual identity
+/// escapes authentication — without `run_id`, copying another run's intact
+/// tuple+digest into this run's row would verify (Codex r1 L5). One
+/// function used by BOTH the write and the verify path — two hand-built
+/// subjects could silently diverge.
+fn snapshot_digest_subject(
+    run_id: &str,
+    version: i64,
+    upto_sequence: u64,
+    state: &serde_json::Value,
+) -> serde_json::Value {
+    serde_json::json!({
+        "run": run_id,
+        "v": version,
+        "upto": upto_sequence,
+        "state": state,
+    })
 }
 
 /// Append one entry and advance the run's sequence. Callers MUST already be

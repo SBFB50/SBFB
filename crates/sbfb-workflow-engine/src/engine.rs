@@ -111,8 +111,10 @@ pub enum EngineError {
     #[error(transparent)]
     Target(#[from] TargetError),
     /// FAIL-CLOSED: a replayed step asks a different question than the one
-    /// whose answer is memoised. The run is terminal; it is never re-driven
-    /// automatically and the stale answer is never returned.
+    /// whose answer is memoised. The stale answer is never returned. A
+    /// RUNNING run goes terminal on this; a COMPLETED run keeps its honest
+    /// history (absorbing closed states, Phase I) — the error then blames
+    /// the CALL, not the run.
     #[error(
         "step request hash mismatch at {node_instance_id}: journaled {expected}, replayed {got}"
     )]
@@ -221,8 +223,20 @@ pub struct SpikeEngine {
 }
 
 impl SpikeEngine {
-    /// Build an engine over an already-open store.
-    pub fn new(store: RunStore, knobs: SpikeKnobs) -> Self {
+    /// Build an engine over an already-open store, with every guarantee ON.
+    /// The PRODUCTION constructor: no knobs, no hooks (Phase I closed the E
+    /// debt — the harness surface is [`SpikeEngine::new_with_knobs`] and
+    /// [`SpikeEngine::execute_with_faults`], behind `spike-faults`).
+    pub fn new(store: RunStore) -> Self {
+        Self {
+            store,
+            knobs: SpikeKnobs::guaranteed(),
+        }
+    }
+
+    /// HARNESS constructor — degraded knobs. Behind `spike-faults`.
+    #[cfg(feature = "spike-faults")]
+    pub fn new_with_knobs(store: RunStore, knobs: SpikeKnobs) -> Self {
         Self { store, knobs }
     }
 
@@ -231,12 +245,37 @@ impl SpikeEngine {
         &self.store
     }
 
+    /// Mutably borrow the store (lease management on a live engine).
+    pub fn store_mut(&mut self) -> &mut RunStore {
+        &mut self.store
+    }
+
     /// Run — or resume — `spec` against `target`.
     ///
     /// Calling this twice with the same `run_id` is the RESUME path: every
     /// completed step is served from the journal and the target is not
     /// touched again.
     pub fn execute(
+        &mut self,
+        spec: &RunSpec,
+        target: &mut dyn EffectTarget,
+    ) -> Result<RunOutcome, EngineError> {
+        self.execute_impl(spec, target, &crate::fault::NoFaults)
+    }
+
+    /// HARNESS entry point — same execution, with the crash frontiers wired
+    /// to `faults`. Behind `spike-faults`.
+    #[cfg(feature = "spike-faults")]
+    pub fn execute_with_faults(
+        &mut self,
+        spec: &RunSpec,
+        target: &mut dyn EffectTarget,
+        faults: &dyn FaultHook,
+    ) -> Result<RunOutcome, EngineError> {
+        self.execute_impl(spec, target, faults)
+    }
+
+    fn execute_impl(
         &mut self,
         spec: &RunSpec,
         target: &mut dyn EffectTarget,
@@ -305,13 +344,23 @@ impl SpikeEngine {
                 .completed_effect(&spec.run_id, &step.node_instance_id)?
             {
                 if self.knobs.verify_step_hash() && done.request_hash != request_hash {
-                    self.store.record_terminal(
-                        &spec.run_id,
-                        Some(&step.node_instance_id),
-                        TerminalReason::StepHashMismatch,
-                        Some(&done.request_hash),
-                        Some(&request_hash),
-                    )?;
+                    // Closed states are ABSORBING (Codex r2): a divergent
+                    // replay of a COMPLETED run is the CALLER's error and
+                    // does not rewrite the run's honest history — only a
+                    // RUNNING run (resume) records the terminal diagnosis.
+                    if self.store.run_status(&spec.run_id)? == Some(RunStatus::Running) {
+                        self.store.record_terminal(
+                            &spec.run_id,
+                            Some(&step.node_instance_id),
+                            TerminalReason::StepHashMismatch,
+                            Some(&done.request_hash),
+                            Some(&request_hash),
+                            // The spike engine is clockless: no closed_at,
+                            // so a terminal run it closes is never GC'd
+                            // (fail-safe).
+                            None,
+                        )?;
+                    }
                     return Err(EngineError::StepHashMismatch {
                         node_instance_id: step.node_instance_id.clone(),
                         expected: done.request_hash,
@@ -346,6 +395,7 @@ impl SpikeEngine {
                             TerminalReason::StepHashMismatch,
                             Some(&pending.request_hash),
                             Some(&request_hash),
+                            None,
                         )?;
                         return Err(EngineError::StepHashMismatch {
                             node_instance_id: step.node_instance_id.clone(),
@@ -383,6 +433,7 @@ impl SpikeEngine {
                             TerminalReason::OutcomeUnknown,
                             None,
                             None,
+                            None,
                         )?;
                         return Err(EngineError::OutcomeUnknown {
                             node_instance_id: step.node_instance_id.clone(),
@@ -400,7 +451,7 @@ impl SpikeEngine {
                     // only code compiled here.
                     #[cfg(feature = "spike-faults")]
                     if self.knobs.atomic_outbox() {
-                        self.store.record_intent_atomic(
+                        self.store.record_intent_atomic_impl(
                             &spec.run_id,
                             &step.node_instance_id,
                             &request_hash,
@@ -427,7 +478,7 @@ impl SpikeEngine {
                         )?;
                     }
                     #[cfg(not(feature = "spike-faults"))]
-                    self.store.record_intent_atomic(
+                    self.store.record_intent_atomic_impl(
                         &spec.run_id,
                         &step.node_instance_id,
                         &request_hash,
@@ -456,7 +507,7 @@ impl SpikeEngine {
             // built, so only the atomic call is compiled.
             #[cfg(feature = "spike-faults")]
             if self.knobs.atomic_completion() {
-                self.store.record_completion(
+                self.store.record_completion_impl(
                     &spec.run_id,
                     &step.node_instance_id,
                     &effect_id,
@@ -474,7 +525,7 @@ impl SpikeEngine {
                 )?;
             }
             #[cfg(not(feature = "spike-faults"))]
-            self.store.record_completion(
+            self.store.record_completion_impl(
                 &spec.run_id,
                 &step.node_instance_id,
                 &effect_id,
@@ -494,7 +545,7 @@ impl SpikeEngine {
         // Closing a run is itself idempotent: re-running a completed run
         // appends nothing, so the journal does not grow with every replay.
         if self.store.run_status(&spec.run_id)? != Some(RunStatus::Completed) {
-            self.store.record_run_completed(&spec.run_id)?;
+            self.store.record_run_completed(&spec.run_id, None)?;
         }
 
         Ok(outcome)

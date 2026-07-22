@@ -48,9 +48,19 @@
 //! 3. **Concurrency clause** — clause 2 holds in a SINGLE-WRITER SERIALISED
 //!    model only. `FileEchoTarget` deduplicates by read-then-append without a
 //!    lock, so two writers resuming the same run concurrently can both read
-//!    "absent" and both append. Single-writer fencing is out of scope for
-//!    this spike, which is exactly why the model is named here instead of
-//!    being left implicit in a "not proven" list.
+//!    "absent" and both append. Single-writer fencing was out of scope for
+//!    the SPIKE, which is exactly why the model was named here instead of
+//!    being left implicit in a "not proven" list — and Phase I delivered it:
+//!    a store handle that acquired the lease re-asserts its monotone epoch
+//!    inside EVERY write transaction ([`store::RunStore::acquire_lease`]),
+//!    so a fenced-out writer emits nothing. An UNFENCED handle (no lease
+//!    acquired) still writes in the spike's single-process model; fencing is
+//!    an acquired posture, not an ambient default. And the fence covers the
+//!    STORE's writes, not the external-effect window: a writer suspended
+//!    between its committed intent and `target.apply`, deposed meanwhile,
+//!    can still reach the target — that window stays bounded by the
+//!    TARGET's deduplication (clause 2) until the effect layer verifies the
+//!    fencing token target-side (Phase K).
 //!
 //! The irreducible frontier is B2 (the effect was applied, its result was
 //! not yet journaled). A crash there leaves the engine unable to know
@@ -90,6 +100,24 @@
 //! defaults are the guaranteed behaviour — [`fault::NoFaults`] never fires
 //! and [`fault::SpikeKnobs::guaranteed`] enables every check.
 //!
+//! ## Sprint 83 Phase I — the full run store
+//!
+//! On top of the spike, Phase I delivered the COMPLETE run store in
+//! [`store`]: interpretation-time upcasting with a fail-closed downgrade
+//! guard at BOTH levels (schema `user_version` at open, event
+//! `format_version` at read), single-writer lease fencing (monotone epoch
+//! CAS inside every write transaction — wall clock is only the takeover
+//! heuristic), a deduplicating inbox, disposable digest-checked snapshots,
+//! policy-bounded retention/GC that never touches a running run, a pending
+//! outbox row or a terminal diagnosis, and `VACUUM INTO` backup with a
+//! validated restore. The `RunEvent.v1` envelope moved to
+//! `sbfb_workflow_core::run_event` (the spike's "keep it local while
+//! GO/NO-GO is open" rationale expired with the GO), and [`event`]
+//! re-exports it. Phase I also closed the E harness debt: every PRODUCTION
+//! entry point ([`SpikeEngine::new`], [`SpikeEngine::execute`], the store's
+//! `record_*`) takes no fault hook and no knobs — the falsifiability
+//! surface lives behind `spike-faults` alone.
+//!
 //! ## Pre-launch protocol
 //!
 //! [`event::RUN_EVENT_FORMAT_VERSION`] is a NEW constant, not a bump of any
@@ -121,6 +149,14 @@ pub mod hash;
 pub mod store;
 
 pub use engine::{EngineError, RunOutcome, RunSpec, SpikeEngine, StepSpec};
-pub use event::{RUN_EVENT_FORMAT_VERSION, RunEvent, RunEventKind, TerminalReason};
+pub use event::{RUN_EVENT_FORMAT_VERSION, RunEvent, RunEventKind, TerminalReason, UpcastError};
+// The falsifiability surface is harness-only since Phase I: no production
+// entry point takes a hook or knobs, so the types are only re-exported at
+// the top level for the `spike-faults` test build. (`fault` stays a public
+// module for the error variants that name a `FaultPoint`.)
+#[cfg(feature = "spike-faults")]
 pub use fault::{FaultHook, FaultPoint, NoFaults, SpikeKnobs};
 pub use hash::{IdempotencyKey, StepRequest, canonical_digest, step_request_hash};
+pub use store::{
+    GcOutcome, LeaseState, RetentionPolicy, RunStatus, RunStore, Snapshot, SnapshotRead, StoreError,
+};
