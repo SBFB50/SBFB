@@ -1696,7 +1696,48 @@ hote→app LOCALE, non-signee, non-gossipee → 0 `DOMAIN_*_V1`, 0
 S83-B ; 29 depuis S83-F, `DOMAIN_WORKFLOW_PACK_V1` + 3 tags reserves). Frontiere docs-contrat
 gatee par son propre golden `accessibility_profile.schema.json` (drift-gate).
 
-## 18. Revue et evolution
+## 18. Surface compilateur de plan (Sprint 83 Phase H)
+
+Le chantier Workflow Agents rend l'invariant D4 **« le graphe signe EST le
+plan »** (Plan-Then-Execute / CaMeL) *enforceable* pour la premiere fois : le
+compilateur Rust hote (`crates/sbfb-workflow-core/src/compile.rs`) est le
+**point d'enforcement STATIQUE** de cet invariant. L'iframe Hub peut linter,
+jamais decider (research §12.1) ; le resultat autoritaire est
+`CompiledPlan.v1`, artefact **LOCAL derive, jamais signe ni gossipe** (0
+`DOMAIN_*_V1` produit — `DOMAIN_COMPILED_PLAN_V1` reste un tag RESERVE sans
+producteur ; census 29 inchange). Le digest d'AUTORITE reste `content`
+(recalcule de `PACK.lock` sous la signature Ed25519, verifiee AVANT le
+compilateur) ; `compiled_plan_digest` et `graph_semantic_digest` sont des
+digests DERIVES et LIES, jamais une surface d'integrite autonome.
+
+**Asset A10 — le plan compile immuable.** Ce que la signature du pack promet
+("aucun LLM n'etend le graphe, n'accorde une capacite, ne change une
+destination"), le plan compile le rend verifiable : topologie normalisee,
+fermeture des capacites (`capability_closure`), occurrences nommees
+(`node_instance_id` = chemin structurel pur, RFC 6901), budgets compares
+dimension par dimension, gates HITL epingles (`human_gates`).
+
+| # | Menace (STRIDE) | Sev | Mitigation cablee |
+|---|---|---|---|
+| **T-PLAN-LLM-MUTATION** | *Tampering* — une sortie de modele (prompt injection incluse) etend la topologie, ajoute un outil, change une destination, s'accorde une capacite, reclasse une donnee, altere un schema de sortie, contourne un gate HITL, gonfle un budget ou usurpe l'identite du publisher (les 9 classes research §19.3) | **fermee (moitie statique)** | `compile()` est une fonction PURE de son entree RESOLUE — le pack signe plus les documents pinnes, chacun LIE PAR HASH : le compilateur derive lui-meme `blake3(bytes)` de chaque document fourni et refuse des bytes que le lock signe ne pinne pas (Codex r2 — un pin fourni par l'appelant ne prouvait rien). A version de compilateur fixe (`compiler.version` entre dans le digest DERIVE du plan, jamais dans l'autorite `content`) ; son type d'entree n'a AUCUN canal sortie-de-modele. Chacune des 9 familles est REPRESENTEE dans le plan et couverte par `compiled_plan_digest` — toute mutation change le digest (test `plan_then_execute_invariant`, bras rouge discriminant : meme pack → memes bytes ; pack change → digest change ; 9 mutations ciblees → 9 digests differents). La moitie RUNTIME (revalidation par tool-call, binding per-effet) = Phases J/K ; l'intersection 7 couches = Phase L. |
+| **T-PLAN-STATIC-BYPASS** | *Elevation of privilege* — un pack signe mais malveillant/malforme passe en execution (cycle artisanal `A→B,B→A`, capability hors manifeste, handoff non autorise, edge dupliquee gonflant un quorum, budget enfant > parent, secret literal, endpoint inline) | **fermee** | **20 classes de refus statiques** enumerees (13 research §10.5 + 6 regles freeze §8 + compatibilite de ports nominale-par-digest freeze §7), chacune REFUSEE et testee discriminant (`static_validation_rejects_*`, controle vert + mutation rouge) — deux precisions honnetes (Codex r2) : la classe `map` sans borne est portee par le PARSE strict (`InvalidDocument`, la borne est un champ REQUIS de la forme gelee), et la classe « cycle hors boucle bornee » est SUBSUMEE par le rejet de tout cycle (`CycleDetected`, strictement plus fort — preflight §9 NB). Le check handoff remonte les donneurs TRANSITIVEMENT a travers les nodes non-agents. Le DAG est prouve **par COMPILATION** (Kahn), jamais « by construction ». |
+| **T-PLAN-CLASSIFICATION-LAUNDER** | *Tampering/Information disclosure* — un `switch` discrimine sur un champ de CLASSIFICATION (`visibility`, `confidentiality`, …) produit par un modele, ou un `classifier` PROPOSE des labels de classification, avec un effet (`capability.call`) en aval — la publication devient pilotee par le LLM (regle 6 freeze §8, Codex G r1 GAP1) | **fermee (nominal v1)** | Analyse **data-flow** sur les ports types EXISTANTS (jamais un champ de schema neuf — le gel FORME de G est intact) : sources modeles TAINTENT, `human.review` blanchit, `capability.call` et `knowledge.query` NE blanchissent PAS (un resultat peut relayer/selectionner selon des arguments nourris au modele — recursion, Codex r2/r3), sorties `map`/`repeat`/`subworkflow` OPAQUES = taint fail-closed, et un `map`/`repeat`/`subworkflow` AVAL compte comme effet (le switch parent routant vers un enfant effectful est couvert, Codex r2). Conservatisme v1 documente ; portee elargie a TOUT `capability.call` aval, plus stricte que la lettre §8.6. **Borne nominale honnete** : la reconnaissance = appartenance exact-lowercase aux catalogues fixes `CLASSIFICATION_DISCRIMINANTS` / `CLASSIFICATION_LABEL_TERMS` — un synonyme hors liste (`sensitivity`, `clearance`, label `world`…) echappe a ce refus, meme classe residuelle best-effort que T-PLAN-SCAN-EVASION ; les classes de capacites TYPEES (Phase L, §14.2) rendront la reconnaissance precise. Un gate de QUALITE modele reste hors-scope (pattern babel, ratifie). Publication-classe DOMINEE par un gate non-modele (`human.review` OU `wait.signal` hote — patterns ideas/babel) ; la classe publication est elle-meme reconnue par marqueurs de nom (`publish`/`egress`/`announce`/`broadcast` en segment) — **sous-inclusive** : une capacite publiante nommee autrement (`content.share`, `feed.upload`) n'est pas capturee avant Phase L. |
+| **T-PLAN-DIGEST-MALLEABILITY** | *Spoofing* — deux plans differents partagent un digest (cle de presentation en position data, ordre d'edges, id de schema re-pinne sous d'autres bytes) | **fermee** | Refus `PresentationKeyAsData` (node ids + cles `field_map` ∌ `PRESENTATION_KEYS`, ferme la malleabilite `graph_semantic` §6 freeze) ; ordre des edges NORMALISE avant digest (`graph_semantic_digest_order_independent`) ; UN id = UN digest a l'echelle du plan pour TOUTES les categories d'artefacts (schemas via `PortTypeMismatch`, workflows/agents/prompts/tools/corpora/guardrails via `record_digest` fail-closed, cache agents re-confronte a chaque reference — Codex r2 : plus aucun ecrasement silencieux d'homonymes) ; determinisme byte-identique sous les 2 profils de build (`compile_is_deterministic`, piege `preserve_order`). |
+| **T-PLAN-SCAN-EVASION** | *Tampering* — un secret/endpoint fractionne ou encode echappe au scan des documents graphe/agent | **L (accepte)** | Le scan (secret-shape + `://` + marqueurs executables) est **best-effort fail-closed sur ce qu'il reconnait** — la detection endpoint = sous-chaine `://` UNIQUEMENT (les schemas URI sans slash `data:`/`javascript:` ne sont pas reconnus, meme residuel) ; la garantie enforced reste le FORMAT (aucun champ endpoint/code, `secret_ref` opaques, capacites fermees). Les bytes des prompts/corpus (fichiers pinnes par digest) sont scannes a l'assemblage du pack (phase Hub/T), pas ici. |
+
+**Bornes honnetes (ce que H ne ferme PAS)** : run store durable = I ;
+reducer/scheduler, revalidation runtime des tool-calls, cancel honnete = J ;
+`effect_id`/idempotence = K ; intersection 7 couches, attenuation per-effet,
+coffre `secret_ref`, HITL signe = L/L1 ; SSRF/DNS = P ; miroir TS/canvas = T ;
+signature « attestation compilateur » (§17.1 research) = role separe differe.
+La facette signee `pack.digests.compiled_plan` reste une claim de FORME
+(Phase F) dont ce module rend la verification POSSIBLE
+(`compiled_plan_digest`) — la reconciliation claim↔artefact est une passe de
+verification materialisante ulterieure. **La confrontation adversariale
+complete de cette surface est Phase AH** (H seme l'asset, AH confronte —
+decision preflight B5).
+
+## 19. Revue et evolution
 
 Ce document est vivant. Chaque sprint qui livre une mitigation
 ou deplace un residual doit :
@@ -2000,3 +2041,18 @@ Historique versions :
   (25 a l'epoque S83-C ; 29 depuis S83-F), 0 bump wire
   (`FEED_FORMAT_VERSION`/`*_ANNOUNCEMENT_VERSION`=1), gate `SENSITIVE_ACTIONS`
   substring NON etendu. 0 dep runtime neuve.
+- **v22 (Sprint 83 Phase H, 2026-07-22)** : ajout **§18 Surface compilateur
+  de plan** (Asset A10 « le graphe signe EST le plan » — acquittement du
+  carry P2 route « H, sinon AH » au freeze §8 : H SEME l'asset, la
+  confrontation adversariale complete reste Phase AH), renommage §18→§19.
+  T-PLAN-LLM-MUTATION ferme (moitie STATIQUE : compile() pur sans canal
+  sortie-de-modele + 9 familles §19.3 couvertes par `compiled_plan_digest`,
+  test discriminant) ; T-PLAN-STATIC-BYPASS ferme (20 classes de refus, un
+  test par classe) ; T-PLAN-CLASSIFICATION-LAUNDER ferme (regle 6 freeze §8
+  par analyse data-flow, gates `human.review`/`wait.signal`, quality-gate
+  hors-scope) ; T-PLAN-DIGEST-MALLEABILITY ferme (PresentationKeyAsData +
+  tri canonique des edges + un-digest-par-schema-id + determinisme
+  dual-profil) ; T-PLAN-SCAN-EVASION residuel L accepte (scan best-effort,
+  la garantie = le format). `CompiledPlan.v1` = artefact LOCAL derive non
+  signe : 0 `DOMAIN_*_V1` produit, `DOMAIN_COMPILED_PLAN_V1` reste RESERVE
+  0-producteur, census 29 INCHANGE, 0 bump wire, 0 dep runtime neuve.

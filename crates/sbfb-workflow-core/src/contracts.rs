@@ -78,11 +78,14 @@ pub struct RunEvent {}
 
 /// `CompiledPlan.v1` — the immutable plan produced by the authoritative Rust
 /// compiler (D3/D4): normalised graph, closed capabilities, semantic
-/// digests. Frontier stub — fields authored in the compiler phase.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[schemars(title = "CompiledPlan.v1")]
-pub struct CompiledPlan {}
+/// digests. Sprint 83 Phase A reserved this identity as an empty stub;
+/// Phase H authored its fields in the dedicated [`crate::compile`] module
+/// (the twenty static refusal classes, occurrence identities, the closed
+/// capability set, dimension-by-dimension budget inheritance). It is
+/// re-exported here so it stays entry 6/7 of [`all_contract_schemas`];
+/// filling it refreshed `contracts.schema.json` while keeping the registry
+/// `len == 7`.
+pub use crate::compile::CompiledPlan;
 
 /// `WorkflowPublicProjection.v1` — the allow-listed public projection of a
 /// workflow consumed by RRV (D1/D4): only whitelisted fields leave the node;

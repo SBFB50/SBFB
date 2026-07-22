@@ -1,0 +1,7 @@
+Verdict final Round 7 — Phase H S83 : **CONFIRME-FERME pour les deux tests.**
+
+- **Test A — CONFIRME-FERME.** Le cas sans `agent.invoke` amont accepte correctement `agent.as_tool` sans lui attribuer le rôle de giver (`compile.rs:4523`, `compile.rs:4535`, `compile.rs:4551`, `compile.rs:4562`). Dans le cas orchestré, le chemin traverse `agent.as_tool` jusqu’au parent `agent.invoke` (`compile.rs:4575`, `compile.rs:4593`) : allowlist présente = succès (`compile.rs:4599`, `compile.rs:4614`), absente = `UnauthorizedHandoff` (`compile.rs:4616`). L’implémentation traverse les nœuds intermédiaires (`compile.rs:2384`) et s’arrête explicitement sur `WorkflowNode::AgentInvoke` (`compile.rs:2380`, `compile.rs:2382`).
+
+- **Test B — CONFIRME-FERME.** L’isolation remplace l’unique `capability.call` par un `transform` et vide les capability requests (`compile.rs:4662`, `compile.rs:4666`, `compile.rs:4672`). Le chemin model → switch → subworkflow est explicite (`compile.rs:4674`, `compile.rs:4676`) et provoque bien `ClassificationFromModel` sur `sw` (`compile.rs:4681`, `compile.rs:4683`). La règle compte explicitement `WorkflowNode::Subworkflow` comme effet aval (`compile.rs:2409`, `compile.rs:2416`, `compile.rs:2420`).
+
+Les suites annoncées — crate **106/106**, workspace Windows **2251**, Docker **2255 + 1 skip** — corroborent la fermeture sans régression signalée. **Aucun GAP ni statut PARTIEL résiduel.**

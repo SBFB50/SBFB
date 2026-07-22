@@ -209,6 +209,10 @@ fi
 # RESERVED tags with no payload yet (COMPILED_PLAN / RUN_EVENT /
 # PACK_INSTALL_RECEIPT, S83 F, D8 rationale = no-schema until their
 # contract identities are filled — the DOMAIN_KUDOS_V1 arrangement).
+# Nuance since S83 Phase H: the CompiledPlan.v1 CONTRACT identity is now
+# FILLED (compile.rs, schema in contracts.schema.json), but the plan stays
+# a LOCAL derived artefact — DOMAIN_COMPILED_PLAN_V1 remains a RESERVED
+# SIGNING tag with zero producers, so the NAME LIST is unchanged.
 # A NEW family must make a conscious D8 decision (schema_for! + snapshot,
 # or a motivated no-schema rationale) and add its NAME here — silent
 # census growth, removal or rename is exactly what this tripwire catches.

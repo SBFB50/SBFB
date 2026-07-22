@@ -1039,7 +1039,7 @@ fn validate_lock_path(path: &str) -> Result<(), PackError> {
 /// split across fields walks past every shape rule. The rule exists to stop
 /// the honest-mistake paste, not the determined smuggler — the same honest
 /// bound as [`scan_for_disclosures`].
-fn looks_like_materialised_secret(value: &str) -> bool {
+pub(crate) fn looks_like_materialised_secret(value: &str) -> bool {
     const CREDENTIAL_PREFIXES: [&str; 8] = [
         "sk-",
         "ghp_",
@@ -1089,7 +1089,7 @@ fn is_hex_digest(value: &str) -> bool {
 
 /// Is this string exactly a LOWERCASE BLAKE3-256 hex digest — the only spelling
 /// the format admits?
-fn is_lower_hex_digest(value: &str) -> bool {
+pub(crate) fn is_lower_hex_digest(value: &str) -> bool {
     value.len() == BLAKE3_HEX_LEN
         && value
             .bytes()

@@ -106,10 +106,30 @@
 //! conception, babel) are committed next to this crate's sources with their
 //! pinned artefact stores, and the node-profile freeze decision lives in
 //! `.planning/active/sprint83_node_profile_freeze.md`.
+//!
+//! ## Sprint 83 Phase H — the authoritative compiler
+//!
+//! [`compile`] fills `CompiledPlan.v1`: the single semantic authority
+//! (research §12.1 — the iframe may lint, never decide) that turns a resolved
+//! pack into an immutable, deterministic plan. It enumerates the twenty
+//! static refusal classes (thirteen from research §10.5, six consigned for
+//! Phase H by the node-profile freeze §8, plus the nominal-by-digest port
+//! compatibility of freeze §7), closes the capability set, expands
+//! occurrence identities (`node_instance_id` as a pure function of the
+//! structural path, RFC 6901 encoding), inherits budgets dimension by
+//! dimension and pins the whole result under the Phase F digest door
+//! (`digest_for`, JCS). Like the graph and agent contracts it is a LOCAL,
+//! never-signed artefact in this phase: no `DOMAIN_*_V1`, no format version
+//! (`DOMAIN_COMPILED_PLAN_V1` stays a RESERVED tag with zero producers), and
+//! the identity stays entry 6/7 of [`contracts::all_contract_schemas`]
+//! (`len == 7`).
 
 pub mod accessibility_profile;
 pub mod agent_definition;
+pub mod compile;
 pub mod contracts;
 pub mod factory_profile;
+#[cfg(test)]
+pub(crate) mod golden_store;
 pub mod graph;
 pub mod pack;

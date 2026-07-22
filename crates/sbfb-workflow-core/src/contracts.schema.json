@@ -1861,9 +1861,1137 @@
   "CompiledPlan.v1": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "title": "CompiledPlan.v1",
-    "description": "`CompiledPlan.v1` — the immutable plan produced by the authoritative Rust\ncompiler (D3/D4): normalised graph, closed capabilities, semantic\ndigests. Frontier stub — fields authored in the compiler phase.",
+    "description": "`CompiledPlan.v1` — the immutable plan produced by the authoritative Rust\ncompiler (D3/D4). The nine field families of research §12.1, every\ncollection deterministic. Immutable during a run: editing a draft creates\na NEW plan; it never changes a running one.",
     "type": "object",
-    "additionalProperties": false
+    "properties": {
+      "compiler": {
+        "description": "Family 9: producing compiler version + profile.",
+        "$ref": "#/$defs/CompilerProfile"
+      },
+      "pack_digest": {
+        "description": "Family 1: the pack source digest — the authoritative `content`\ndigest RECOMPUTED from `PACK.lock` (never copied from the claim).",
+        "type": "string"
+      },
+      "pack_name": {
+        "description": "Publisher-identity binding (§19.3: a model output cannot change a\npublisher): the pack's stable name.",
+        "type": "string"
+      },
+      "pack_revision": {
+        "description": "Publisher-identity binding: the pack revision this plan derives from.",
+        "type": "integer",
+        "format": "uint64",
+        "minimum": 0
+      },
+      "root_workflow_id": {
+        "description": "The root workflow this plan expands.",
+        "type": "string"
+      },
+      "artefact_digests": {
+        "description": "Family 2: exact digests of every pinned artefact the plan touches,\n`category → id → blake3` (categories: `workflows`, `agents`,\n`prompts`, `schemas`, `tools`, `corpora`, `guardrails`,\n`subworkflows`).",
+        "type": "object",
+        "additionalProperties": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "capability_closure": {
+        "description": "Family 3: the CLOSED capability set — `capability_ref → sorted\nnode_instance_ids` allowed to call it. Nothing outside this map can\never be granted; membership is DATA for the runtime (per-effect\nenforcement binding is Phases J/K/L).",
+        "type": "object",
+        "additionalProperties": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "node_instances": {
+        "description": "Family 4: every node occurrence, keyed by `node_instance_id`\n(RFC 6901 path of node ids, pure function of the structural path).",
+        "type": "object",
+        "additionalProperties": {
+          "$ref": "#/$defs/CompiledNodeInstance"
+        }
+      },
+      "edges": {
+        "description": "Family 5: the normalized wiring, canonically sorted.",
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/CompiledEdge"
+        }
+      },
+      "entrypoints": {
+        "description": "Family 5: entry occurrences per scope (`\"\"` = the root scope, else\nthe expanding occurrence's `node_instance_id`), in pinned-document\norder (deterministic; order is authored data, not presentation).",
+        "type": "object",
+        "additionalProperties": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "human_gates": {
+        "description": "§19.3 HITL binding: the `human.review` occurrences of the plan,\nsorted — a model output cannot add, remove or reroute one.",
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "graph_semantic_digest": {
+        "description": "Family 5 digest: the semantic digest of the normalized graphs\n(edges canonically sorted BEFORE digesting — canvas order and\noutline order collapse to one digest, WA-T1.2 foundation). Derived\nand LINKED to `pack_digest`; never an autonomous integrity surface.",
+        "type": "string"
+      },
+      "scope_budgets": {
+        "description": "Family 6: the budget ceiling of each workflow scope (`\"\"` = root).",
+        "type": "object",
+        "additionalProperties": {
+          "$ref": "#/$defs/BudgetPolicy"
+        }
+      },
+      "node_budgets": {
+        "description": "Family 6: the declared budget of each budget-carrying occurrence,\nalready proven ≤ its scope (and ≤ its agent definition) dimension by\ndimension.",
+        "type": "object",
+        "additionalProperties": {
+          "$ref": "#/$defs/BudgetPolicy"
+        }
+      },
+      "placement": {
+        "description": "Family 7: placement.",
+        "$ref": "#/$defs/CompiledPlacement"
+      },
+      "error_policies": {
+        "description": "Family 8: error policy per scope.",
+        "type": "object",
+        "additionalProperties": {
+          "$ref": "#/$defs/ErrorPolicy"
+        }
+      },
+      "timeout_policies": {
+        "description": "Family 8: timeout policy per scope.",
+        "type": "object",
+        "additionalProperties": {
+          "$ref": "#/$defs/TimeoutPolicy"
+        }
+      },
+      "cancellation_policies": {
+        "description": "Family 8: cancellation policy per scope.",
+        "type": "object",
+        "additionalProperties": {
+          "$ref": "#/$defs/CancellationPolicy"
+        }
+      }
+    },
+    "additionalProperties": false,
+    "required": [
+      "compiler",
+      "pack_digest",
+      "pack_name",
+      "pack_revision",
+      "root_workflow_id",
+      "artefact_digests",
+      "capability_closure",
+      "node_instances",
+      "edges",
+      "entrypoints",
+      "human_gates",
+      "graph_semantic_digest",
+      "scope_budgets",
+      "node_budgets",
+      "placement",
+      "error_policies",
+      "timeout_policies",
+      "cancellation_policies"
+    ],
+    "$defs": {
+      "CompilerProfile": {
+        "title": "CompilerProfile.v1",
+        "description": "Family 9 of `CompiledPlan.v1`: which compiler, under which profile.",
+        "type": "object",
+        "properties": {
+          "version": {
+            "description": "The producing crate version ([`COMPILER_VERSION`]).",
+            "type": "string"
+          },
+          "profile": {
+            "description": "The compilation profile ([`COMPILER_PROFILE_STRICT_V1`]).",
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "version",
+          "profile"
+        ]
+      },
+      "CompiledNodeInstance": {
+        "title": "CompiledNodeInstance.v1",
+        "description": "One node occurrence of the expanded plan (family 4).",
+        "type": "object",
+        "properties": {
+          "workflow_id": {
+            "description": "The workflow identity this occurrence belongs to.",
+            "type": "string"
+          },
+          "node_id": {
+            "description": "The template node id inside that workflow.",
+            "type": "string"
+          },
+          "kind": {
+            "description": "The frozen kind tag (serde-authoritative spelling).",
+            "type": "string"
+          },
+          "depth": {
+            "description": "Expansion depth: 0 for the root workflow's nodes.",
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "node": {
+            "description": "The full normalized node body. Self-contained UP TO pinned\nreferences: node bodies are embedded, while agent definitions,\nprompts, schemas and corpora stay pinned BY DIGEST in\n`artefact_digests` — the engine executes from the plan and resolves\nthose digests against the verified pack store, never against loose\nsource documents.",
+            "$ref": "#/$defs/WorkflowNode"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "workflow_id",
+          "node_id",
+          "kind",
+          "depth",
+          "node"
+        ]
+      },
+      "WorkflowNode": {
+        "description": "The CLOSED node roster — an internally-tagged union over the 18 frozen\nkinds ([`FROZEN_NODE_KINDS`]). Each variant is a newtype over a dedicated\n`deny_unknown_fields` struct, so an unknown field INSIDE a node body is a\nparse error (the `unknown_field_rejected_for_every_kind` test measures\nthis for every kind — serde's internally-tagged deserialisation is\nsubtle enough that the property is proven, not assumed; preflight S7-A).\nAn unknown `kind` is refused by the enum itself. No `untagged`, no\naliases: one canonical dotted spelling per kind, because a signed JCS\nformat cannot afford two byte spellings of one meaning.",
+        "oneOf": [
+          {
+            "title": "InputNode.v1",
+            "description": "See [`InputNode`].",
+            "type": "object",
+            "properties": {
+              "schema_ref": {
+                "description": "Pinned schema the incoming payload must satisfy.",
+                "$ref": "#/$defs/SchemaRef"
+              },
+              "kind": {
+                "type": "string",
+                "const": "input"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "schema_ref"
+            ]
+          },
+          {
+            "title": "TransformNode.v1",
+            "description": "See [`TransformNode`].",
+            "type": "object",
+            "properties": {
+              "input_schema_ref": {
+                "description": "Pinned schema of the accepted payload.",
+                "$ref": "#/$defs/SchemaRef"
+              },
+              "output_schema_ref": {
+                "description": "Pinned schema of the produced payload.",
+                "$ref": "#/$defs/SchemaRef"
+              },
+              "field_map": {
+                "description": "Output field name → input field name, copied verbatim.",
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "const": "transform"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "input_schema_ref",
+              "output_schema_ref",
+              "field_map"
+            ]
+          },
+          {
+            "title": "ModelInvokeNode.v1",
+            "description": "See [`ModelInvokeNode`].",
+            "type": "object",
+            "properties": {
+              "prompt_ref": {
+                "description": "Pinned prompt artefact.",
+                "$ref": "#/$defs/PromptRef"
+              },
+              "input_schema_ref": {
+                "description": "Pinned schema of the payload rendered into the prompt.",
+                "$ref": "#/$defs/SchemaRef"
+              },
+              "output_schema_ref": {
+                "description": "Pinned schema the model output must satisfy.",
+                "$ref": "#/$defs/SchemaRef"
+              },
+              "model_policy": {
+                "description": "Provider/model policy for this single call.",
+                "$ref": "#/$defs/ModelPolicy"
+              },
+              "budget": {
+                "description": "Budget for this single call.",
+                "$ref": "#/$defs/BudgetPolicy"
+              },
+              "kind": {
+                "type": "string",
+                "const": "model.invoke"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "prompt_ref",
+              "input_schema_ref",
+              "output_schema_ref",
+              "model_policy",
+              "budget"
+            ]
+          },
+          {
+            "title": "AgentInvokeNode.v1",
+            "description": "See [`AgentInvokeNode`].",
+            "type": "object",
+            "properties": {
+              "agent_id": {
+                "description": "Id of the invoked agent; must be declared in the graph's `agent_refs`\n(Phase H refusal).",
+                "type": "string"
+              },
+              "budget": {
+                "description": "Effective budget of THIS invocation; must not exceed the agent\ndefinition's budget nor the workflow budget (Phase H).",
+                "$ref": "#/$defs/BudgetPolicy"
+              },
+              "kind": {
+                "type": "string",
+                "const": "agent.invoke"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "agent_id",
+              "budget"
+            ]
+          },
+          {
+            "title": "AgentAsToolNode.v1",
+            "description": "See [`AgentAsToolNode`].",
+            "type": "object",
+            "properties": {
+              "agent_id": {
+                "description": "Id of the specialist agent; must be declared in `agent_refs`.",
+                "type": "string"
+              },
+              "input_schema_ref": {
+                "description": "Pinned schema of the bounded sub-task payload.",
+                "$ref": "#/$defs/SchemaRef"
+              },
+              "output_schema_ref": {
+                "description": "Pinned schema of the result returned to the parent.",
+                "$ref": "#/$defs/SchemaRef"
+              },
+              "budget": {
+                "description": "Effective budget of this call.",
+                "$ref": "#/$defs/BudgetPolicy"
+              },
+              "kind": {
+                "type": "string",
+                "const": "agent.as_tool"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "agent_id",
+              "input_schema_ref",
+              "output_schema_ref",
+              "budget"
+            ]
+          },
+          {
+            "title": "HandoffNode.v1",
+            "description": "See [`HandoffNode`].",
+            "type": "object",
+            "properties": {
+              "target_agent_id": {
+                "description": "Id of the receiving agent. When the upstream node is an agent\ninvocation, the giver's definition must list this target in\n`allowed_handoffs` (Phase H refusal).",
+                "type": "string"
+              },
+              "payload_schema_ref": {
+                "description": "Pinned schema of the transferred payload. REQUIRED — never optional.",
+                "$ref": "#/$defs/SchemaRef"
+              },
+              "context_policy": {
+                "description": "Context allowlist accompanying the payload. REQUIRED — an absent\nfilter meaning \"everything\" is exactly the default this format\nrejects (preflight B3).",
+                "$ref": "#/$defs/ContextPolicy"
+              },
+              "kind": {
+                "type": "string",
+                "const": "handoff"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "target_agent_id",
+              "payload_schema_ref",
+              "context_policy"
+            ]
+          },
+          {
+            "title": "CapabilityCallNode.v1",
+            "description": "See [`CapabilityCallNode`].",
+            "type": "object",
+            "properties": {
+              "capability_ref": {
+                "description": "Logical capability reference; must appear in the graph's\n`capability_requests` (Phase H refusal).",
+                "type": "string"
+              },
+              "args_schema_ref": {
+                "description": "Pinned schema of the call arguments.",
+                "$ref": "#/$defs/SchemaRef"
+              },
+              "output_schema_ref": {
+                "description": "Pinned schema of the call result.",
+                "$ref": "#/$defs/SchemaRef"
+              },
+              "kind": {
+                "type": "string",
+                "const": "capability.call"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "capability_ref",
+              "args_schema_ref",
+              "output_schema_ref"
+            ]
+          },
+          {
+            "title": "KnowledgeQueryNode.v1",
+            "description": "See [`KnowledgeQueryNode`].",
+            "type": "object",
+            "properties": {
+              "corpus_ref": {
+                "description": "Pinned corpus to search.",
+                "$ref": "#/$defs/CorpusRef"
+              },
+              "query_schema_ref": {
+                "description": "Pinned schema of the query payload.",
+                "$ref": "#/$defs/SchemaRef"
+              },
+              "output_schema_ref": {
+                "description": "Pinned schema of the result payload.",
+                "$ref": "#/$defs/SchemaRef"
+              },
+              "kind": {
+                "type": "string",
+                "const": "knowledge.query"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "corpus_ref",
+              "query_schema_ref",
+              "output_schema_ref"
+            ]
+          },
+          {
+            "title": "SwitchNode.v1",
+            "description": "See [`SwitchNode`].",
+            "type": "object",
+            "properties": {
+              "discriminant_field": {
+                "description": "Name of the payload field whose string value is matched against the\nlabels.",
+                "type": "string"
+              },
+              "branch_labels": {
+                "description": "The closed set of output labels (= output ports). The reserved\n`default` port exists in addition and must be wired.",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "const": "switch"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "discriminant_field",
+              "branch_labels"
+            ]
+          },
+          {
+            "title": "ClassifierNode.v1",
+            "description": "See [`ClassifierNode`].",
+            "type": "object",
+            "properties": {
+              "prompt_ref": {
+                "description": "Pinned prompt artefact for the classification call.",
+                "$ref": "#/$defs/PromptRef"
+              },
+              "model_policy": {
+                "description": "Provider/model policy for the call.",
+                "$ref": "#/$defs/ModelPolicy"
+              },
+              "branch_labels": {
+                "description": "The closed set of proposable labels (= output ports), plus the\nreserved `default` port.",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "budget": {
+                "description": "Budget for the classification call.",
+                "$ref": "#/$defs/BudgetPolicy"
+              },
+              "kind": {
+                "type": "string",
+                "const": "classifier"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "prompt_ref",
+              "model_policy",
+              "branch_labels",
+              "budget"
+            ]
+          },
+          {
+            "title": "ParallelNode.v1",
+            "description": "See [`ParallelNode`].",
+            "type": "object",
+            "properties": {
+              "branch_labels": {
+                "description": "The static branch labels (= output ports), all activated.",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "const": "parallel"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "branch_labels"
+            ]
+          },
+          {
+            "title": "MapNode.v1",
+            "description": "See [`MapNode`].",
+            "type": "object",
+            "properties": {
+              "collection_field": {
+                "description": "Name of the payload field holding the collection to fan out over.",
+                "type": "string"
+              },
+              "max_cardinality": {
+                "description": "Structural upper bound on the fan-out, ≥ 1, constant in the signed\ngraph. Never an expression, never a model output.",
+                "type": "integer",
+                "format": "uint32",
+                "minimum": 1
+              },
+              "body_subworkflow_ref": {
+                "description": "Pinned child workflow applied to each item.",
+                "$ref": "#/$defs/SubworkflowRef"
+              },
+              "kind": {
+                "type": "string",
+                "const": "map"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "collection_field",
+              "max_cardinality",
+              "body_subworkflow_ref"
+            ]
+          },
+          {
+            "title": "JoinNode.v1",
+            "description": "See [`JoinNode`].",
+            "type": "object",
+            "properties": {
+              "policy": {
+                "description": "The fan-in policy.",
+                "$ref": "#/$defs/JoinPolicy"
+              },
+              "source_node_ids": {
+                "description": "Node ids whose outputs this join waits on, statically declared.",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "const": "join"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "policy",
+              "source_node_ids"
+            ]
+          },
+          {
+            "title": "RepeatNode.v1",
+            "description": "See [`RepeatNode`].",
+            "type": "object",
+            "properties": {
+              "max_iterations": {
+                "description": "Structural upper bound on iterations, ≥ 1, constant in the signed\ngraph.",
+                "type": "integer",
+                "format": "uint32",
+                "minimum": 1
+              },
+              "body_subworkflow_ref": {
+                "description": "Pinned child workflow executed each iteration.",
+                "$ref": "#/$defs/SubworkflowRef"
+              },
+              "until_output_flag": {
+                "description": "Name of the boolean field of the body's output that, when true,\nstops the loop before the bound. A deterministic data condition —\nnever free-form model text.",
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "const": "repeat"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "max_iterations",
+              "body_subworkflow_ref",
+              "until_output_flag"
+            ]
+          },
+          {
+            "title": "HumanReviewNode.v1",
+            "description": "See [`HumanReviewNode`].",
+            "type": "object",
+            "properties": {
+              "payload_schema_ref": {
+                "description": "Pinned schema of the payload presented to the human.",
+                "$ref": "#/$defs/SchemaRef"
+              },
+              "decision_labels": {
+                "description": "The closed set of decisions the human may take (= output ports).",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "const": "human.review"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "payload_schema_ref",
+              "decision_labels"
+            ]
+          },
+          {
+            "title": "SubworkflowNode.v1",
+            "description": "See [`SubworkflowNode`].",
+            "type": "object",
+            "properties": {
+              "subworkflow_ref": {
+                "description": "Pinned child workflow.",
+                "$ref": "#/$defs/SubworkflowRef"
+              },
+              "kind": {
+                "type": "string",
+                "const": "subworkflow"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "subworkflow_ref"
+            ]
+          },
+          {
+            "title": "WaitSignalNode.v1",
+            "description": "See [`WaitSignalNode`].",
+            "type": "object",
+            "properties": {
+              "signal_name": {
+                "description": "Static name of the awaited signal.",
+                "type": "string"
+              },
+              "payload_schema_ref": {
+                "description": "Pinned schema the signal payload must satisfy.",
+                "$ref": "#/$defs/SchemaRef"
+              },
+              "kind": {
+                "type": "string",
+                "const": "wait.signal"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "signal_name",
+              "payload_schema_ref"
+            ]
+          },
+          {
+            "title": "OutputNode.v1",
+            "description": "See [`OutputNode`].",
+            "type": "object",
+            "properties": {
+              "schema_ref": {
+                "description": "Pinned schema the published artefact must satisfy.",
+                "$ref": "#/$defs/SchemaRef"
+              },
+              "artifact_name": {
+                "description": "Name of the artefact, unique among the workflow's outputs and\ndeclared in the graph's `artifact_outputs` (Phase H refusal).",
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "const": "output"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "schema_ref",
+              "artifact_name"
+            ]
+          }
+        ]
+      },
+      "SchemaRef": {
+        "title": "SchemaRef.v1",
+        "description": "A pinned reference to a JSON Schema artefact.\n\n`blake3` carries the `PACK.lock` pin of the schema file. Port compatibility\nin v1 is NOMINAL BY DIGEST — two ports are compatible when they pin the\nsame schema bytes; any richer subtyping rule is a Phase H compiler\ndecision, not a format property (preflight S1a-F6).",
+        "type": "object",
+        "properties": {
+          "schema_id": {
+            "description": "Identity of the schema artefact, unique within the pack.",
+            "type": "string"
+          },
+          "blake3": {
+            "description": "BLAKE3 hex of the pinned schema file bytes.",
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "schema_id",
+          "blake3"
+        ]
+      },
+      "PromptRef": {
+        "title": "PromptRef.v1",
+        "description": "A pinned reference to a prompt/instructions artefact.",
+        "type": "object",
+        "properties": {
+          "prompt_id": {
+            "description": "Identity of the prompt artefact, unique within the pack.",
+            "type": "string"
+          },
+          "blake3": {
+            "description": "BLAKE3 hex of the pinned prompt file bytes.",
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "prompt_id",
+          "blake3"
+        ]
+      },
+      "ModelPolicy": {
+        "title": "ModelPolicy.v1",
+        "description": "Model selection and output-shape policy for an agent.",
+        "type": "object",
+        "properties": {
+          "provider_class": {
+            "description": "Provider class allowed to serve this agent.",
+            "$ref": "#/$defs/ProviderClass"
+          },
+          "model_id": {
+            "description": "Model identity the policy names (e.g. `\"claude-opus-4-8\"`); the\nadapter decides how strictly it is honoured (Phase N/O).",
+            "type": "string"
+          },
+          "require_structured_output": {
+            "description": "When true, every model call MUST produce schema-conforming structured\noutput; a provider that cannot guarantee it is incompatible (§10.5).",
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "provider_class",
+          "model_id",
+          "require_structured_output"
+        ]
+      },
+      "ProviderClass": {
+        "description": "Which class of provider may run this agent's model calls.\n\nMirrors the adapter phases of the sprint plan: local/cloud model adapters\n(Phase N) and the Claude Code / Codex CLI adapters (Phase O). The\nprovider-vs-structured-output compatibility refusal of research §10.5\n(\"provider incompatible with the model or the structured output\") is a\nPhase H compiler rule over this declaration.",
+        "oneOf": [
+          {
+            "description": "Local model runtime (e.g. Ollama on the node).",
+            "type": "string",
+            "const": "local"
+          },
+          {
+            "description": "Remote cloud model API.",
+            "type": "string",
+            "const": "cloud"
+          },
+          {
+            "description": "The Claude Code CLI adapter.",
+            "type": "string",
+            "const": "claude-code"
+          },
+          {
+            "description": "The Codex CLI adapter.",
+            "type": "string",
+            "const": "codex"
+          }
+        ]
+      },
+      "BudgetPolicy": {
+        "title": "BudgetPolicy.v1",
+        "description": "A multi-dimensional budget. Every dimension is REQUIRED and separate —\na scalar budget makes the child<=parent comparison undefined across units\n(preflight S1a-F5), and a defaultable dimension deserialises to\n\"unlimited\" (S3-05). Units are in the field names.\n\nThe same shape serves the workflow root, the per-invocation override and\nthe agent definition, so the Phase H compiler compares child against\nparent DIMENSION BY DIMENSION with no unit conversion.",
+        "type": "object",
+        "properties": {
+          "max_total_tokens": {
+            "description": "Maximum total tokens (input + output) across all model calls in scope.",
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          },
+          "max_cost_micro_usd": {
+            "description": "Maximum spend in micro-USD (1_000_000 = 1 USD) in scope.",
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          },
+          "max_wall_clock_seconds": {
+            "description": "Maximum wall-clock seconds in scope.",
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          },
+          "max_turns": {
+            "description": "Maximum agent turns (model-call iterations) in scope.",
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "max_total_tokens",
+          "max_cost_micro_usd",
+          "max_wall_clock_seconds",
+          "max_turns"
+        ]
+      },
+      "ContextPolicy": {
+        "title": "ContextPolicy.v1",
+        "description": "Context minimisation policy: the allowlist of context fields an agent (or a\nhandoff payload) may receive.\n\nMinimisation is the DEFAULT (research §11.1): everything not named here is\nwithheld. The allowlist is REQUIRED wherever the type appears — an absent\nfilter that meant \"everything\" would reproduce the OpenAI Agents SDK\ndefault this format explicitly rejects (D4: \"the handoff never implicitly\ntransmits the whole history\"; preflight B3/S1a-F1).",
+        "type": "object",
+        "properties": {
+          "allowed_context_fields": {
+            "description": "Names of the context fields allowed through. An empty list is a valid,\nmaximally-minimised policy (payload-only).",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "allowed_context_fields"
+        ]
+      },
+      "CorpusRef": {
+        "title": "CorpusRef.v1",
+        "description": "A pinned reference to a knowledge corpus.",
+        "type": "object",
+        "properties": {
+          "corpus_id": {
+            "description": "Identity of the corpus, unique within the pack.",
+            "type": "string"
+          },
+          "blake3": {
+            "description": "BLAKE3 hex of the pinned corpus index/manifest bytes.",
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "corpus_id",
+          "blake3"
+        ]
+      },
+      "SubworkflowRef": {
+        "title": "SubworkflowRef.v1",
+        "description": "A pinned reference to a child workflow graph.",
+        "type": "object",
+        "properties": {
+          "workflow_id": {
+            "description": "Identity of the child workflow, unique within the pack.",
+            "type": "string"
+          },
+          "blake3": {
+            "description": "BLAKE3 hex of the pinned child workflow file bytes.",
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "workflow_id",
+          "blake3"
+        ]
+      },
+      "JoinPolicy": {
+        "description": "The explicit fan-in policy of a [`JoinNode`].\n\nInternally tagged like the node roster, with `deny_unknown_fields`\nvariant bodies, for the same reason: one canonical spelling, no tolerated\njunk next to a policy that decides when a barrier opens.",
+        "oneOf": [
+          {
+            "title": "JoinAllPolicy.v1",
+            "description": "Wait for ALL declared sources.",
+            "type": "object",
+            "properties": {
+              "mode": {
+                "type": "string",
+                "const": "all"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "mode"
+            ]
+          },
+          {
+            "title": "JoinAnyPolicy.v1",
+            "description": "First declared source to arrive wins; the rest are discarded. The\nexact fit for exclusive routing branches.",
+            "type": "object",
+            "properties": {
+              "mode": {
+                "type": "string",
+                "const": "any"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "mode"
+            ]
+          },
+          {
+            "title": "JoinQuorumPolicy.v1",
+            "description": "Wait for at least `quorum` of the declared sources.",
+            "type": "object",
+            "properties": {
+              "quorum": {
+                "description": "Minimum number of sources that must arrive, ≥ 1.",
+                "type": "integer",
+                "format": "uint32",
+                "minimum": 1
+              },
+              "mode": {
+                "type": "string",
+                "const": "quorum"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "mode",
+              "quorum"
+            ]
+          }
+        ]
+      },
+      "CompiledEdge": {
+        "title": "CompiledEdge.v1",
+        "description": "One edge of the expanded plan, endpoints named by `node_instance_id`\n(family 5). Sorted canonically `(from, from_port, to, to_port)` — edge\nORDER carries no meaning in a compiled plan, so the compiler erases it.",
+        "type": "object",
+        "properties": {
+          "from": {
+            "description": "Source `node_instance_id`.",
+            "type": "string"
+          },
+          "from_port": {
+            "description": "Source port.",
+            "type": "string"
+          },
+          "to": {
+            "description": "Destination `node_instance_id`.",
+            "type": "string"
+          },
+          "to_port": {
+            "description": "Destination port.",
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "from",
+          "from_port",
+          "to",
+          "to_port"
+        ]
+      },
+      "CompiledPlacement": {
+        "title": "CompiledPlacement.v1",
+        "description": "Family 7 of `CompiledPlan.v1`. The v1 graph format declares no placement\nfield (frozen form), so the compiler assigns the most restrictive class to\nthe whole plan: everything executes on the initiating node (WA-3 — the\nrun's authority is the initiating node). Per-node placement arrives with\nthe network verticals as a conscious v1 redefinition.",
+        "type": "object",
+        "properties": {
+          "default_class": {
+            "description": "Placement class applied to every node of this plan.",
+            "$ref": "#/$defs/PlacementClass"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "default_class"
+        ]
+      },
+      "PlacementClass": {
+        "description": "The §13.2 placement vocabulary, one canonical kebab spelling per class.",
+        "oneOf": [
+          {
+            "description": "Execute on the initiating node only.",
+            "type": "string",
+            "const": "local-only"
+          },
+          {
+            "description": "Prefer local, may fall back to an approved provider.",
+            "type": "string",
+            "const": "local-preferred"
+          },
+          {
+            "description": "An approved provider may serve the call.",
+            "type": "string",
+            "const": "approved-provider"
+          },
+          {
+            "description": "The SBFB network may serve the call.",
+            "type": "string",
+            "const": "sbfb-network-allowed"
+          },
+          {
+            "description": "The SBFB network must serve the call.",
+            "type": "string",
+            "const": "sbfb-network-required"
+          }
+        ]
+      },
+      "ErrorPolicy": {
+        "title": "ErrorPolicy.v1",
+        "description": "Workflow-wide error policy (declarative; retry semantics land in\nPhase K).",
+        "type": "object",
+        "properties": {
+          "on_node_failure": {
+            "description": "Action once a node's retries are exhausted.",
+            "$ref": "#/$defs/NodeFailureAction"
+          },
+          "max_retries_per_node": {
+            "description": "Retries allowed per node before `on_node_failure` applies. May be 0.",
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "on_node_failure",
+          "max_retries_per_node"
+        ]
+      },
+      "NodeFailureAction": {
+        "description": "What happens when a node fails after its retries are exhausted.",
+        "oneOf": [
+          {
+            "description": "The workflow fails terminally.",
+            "type": "string",
+            "const": "fail-workflow"
+          },
+          {
+            "description": "The failure routes on the node's reserved `error` port (which must\nthen be wired — Phase H).",
+            "type": "string",
+            "const": "route-error-port"
+          }
+        ]
+      },
+      "TimeoutPolicy": {
+        "title": "TimeoutPolicy.v1",
+        "description": "Workflow-wide timeout policy. Seconds, non-zero: a zero timeout is not a\ndisabled timeout, it is nonsense the format refuses at parse.",
+        "type": "object",
+        "properties": {
+          "workflow_timeout_seconds": {
+            "description": "Wall-clock ceiling of the whole run, ≥ 1 second.",
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 1
+          },
+          "default_node_timeout_seconds": {
+            "description": "Default per-node wall-clock ceiling, ≥ 1 second.",
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 1
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "workflow_timeout_seconds",
+          "default_node_timeout_seconds"
+        ]
+      },
+      "CancellationPolicy": {
+        "title": "CancellationPolicy.v1",
+        "description": "Workflow-wide cancellation policy: which DETERMINISTIC host conditions\ncancel the run. No field routes a model output to a cancel — cancellation\nauthority is host/budget/timeout only (research §12.7; runtime honesty is\nPhase J).",
+        "type": "object",
+        "properties": {
+          "cancel_on_budget_exhausted": {
+            "description": "Cancel when any budget dimension is exhausted.",
+            "type": "boolean"
+          },
+          "cancel_on_timeout": {
+            "description": "Cancel when `workflow_timeout_seconds` is reached.",
+            "type": "boolean"
+          },
+          "allow_host_operator_cancel": {
+            "description": "The host operator may always cancel; declaring `false` here is\nrefused by the host (a pack cannot opt out of operator authority —\nenforcement is Phase J/L, the field keeps the claim explicit).",
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "cancel_on_budget_exhausted",
+          "cancel_on_timeout",
+          "allow_host_operator_cancel"
+        ]
+      }
+    }
   },
   "WorkflowPublicProjection.v1": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",

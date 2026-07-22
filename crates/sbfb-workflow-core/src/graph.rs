@@ -663,92 +663,13 @@ pub struct SbfbWorkflowGraph {
 #[cfg(test)]
 mod tests {
     use std::collections::{BTreeMap, BTreeSet};
-    use std::path::{Path, PathBuf};
 
     use super::*;
     use crate::agent_definition::SbfbAgentDefinition;
-
-    const GOLDEN_NAMES: [&str; 4] = ["factory", "ideas", "conception", "babel"];
-
-    fn src_dir() -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src")
-    }
-
-    fn golden_path(name: &str) -> PathBuf {
-        src_dir().join(format!("{name}.workflow.golden.json"))
-    }
-
-    /// The per-golden pinned artefact store
-    /// (`src/workflow_golden_artifacts/<name>/`).
-    struct ArtifactStore {
-        dir: PathBuf,
-    }
-
-    impl ArtifactStore {
-        fn open(name: &str) -> Self {
-            Self {
-                dir: src_dir().join("workflow_golden_artifacts").join(name),
-            }
-        }
-
-        fn file(&self, category: &str, id: &str, ext: &str) -> PathBuf {
-            self.dir.join(category).join(format!("{id}.{ext}"))
-        }
-
-        /// The `PACK.lock` pin of one artefact file: BLAKE3 hex of the
-        /// checkout-newline-canonicalised bytes. A real pack hashes raw
-        /// archive bytes (archives never ride git's newline translation);
-        /// committed fixtures do, so they reuse the
-        /// [`crate::factory_profile`] source-digest canonicalisation.
-        fn pin(&self, category: &str, id: &str, ext: &str) -> String {
-            let path = self.file(category, id, ext);
-            let bytes = std::fs::read(&path)
-                .unwrap_or_else(|e| panic!("golden artefact {} must exist ({e})", path.display()));
-            blake3::hash(&crate::factory_profile::canonicalise(&bytes))
-                .to_hex()
-                .to_string()
-        }
-
-        /// Ids of the artefacts of one category, by filename suffix, sorted.
-        fn ids(&self, category: &str, suffix: &str) -> Vec<String> {
-            let dir = self.dir.join(category);
-            if !dir.exists() {
-                return Vec::new();
-            }
-            let mut out: Vec<String> = std::fs::read_dir(&dir)
-                .expect("store category readable")
-                .map(|entry| entry.expect("dir entry").file_name())
-                .filter_map(|n| {
-                    n.to_str()
-                        .and_then(|n| n.strip_suffix(suffix))
-                        .map(str::to_string)
-                })
-                .collect();
-            out.sort();
-            out
-        }
-    }
-
-    fn parse_json(path: &Path) -> serde_json::Value {
-        let bytes =
-            std::fs::read(path).unwrap_or_else(|e| panic!("{} must exist ({e})", path.display()));
-        serde_json::from_slice(&bytes)
-            .unwrap_or_else(|e| panic!("{} must be valid JSON ({e})", path.display()))
-    }
-
-    fn parse_graph(path: &Path) -> (serde_json::Value, SbfbWorkflowGraph) {
-        let value = parse_json(path);
-        let graph = serde_json::from_value(value.clone())
-            .unwrap_or_else(|e| panic!("{} must parse strictly ({e})", path.display()));
-        (value, graph)
-    }
-
-    fn parse_agent(path: &Path) -> (serde_json::Value, SbfbAgentDefinition) {
-        let value = parse_json(path);
-        let agent = serde_json::from_value(value.clone())
-            .unwrap_or_else(|e| panic!("{} must parse strictly ({e})", path.display()));
-        (value, agent)
-    }
+    use crate::golden_store::{
+        ArtifactStore, GOLDEN_NAMES, golden_path, parse_agent, parse_graph, parse_json, src_dir,
+        write_pretty,
+    };
 
     fn load_agents(store: &ArtifactStore) -> Vec<SbfbAgentDefinition> {
         store
@@ -764,12 +685,6 @@ mod tests {
             .iter()
             .map(|id| parse_graph(&store.file("subworkflows", id, "workflow.json")).1)
             .collect()
-    }
-
-    fn write_pretty<T: serde::Serialize>(path: &Path, value: &T) {
-        let text = serde_json::to_string_pretty(&serde_json::to_value(value).expect("serialises"))
-            .expect("pretty-prints");
-        std::fs::write(path, format!("{text}\n")).expect("golden written");
     }
 
     fn fill_schema_ref(r: &mut SchemaRef, s: &ArtifactStore) {
