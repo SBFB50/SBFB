@@ -1,11 +1,20 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! # sbfb-workflow-engine — host-neutral durable-execution spike
+//! # sbfb-workflow-engine — host-neutral durable-execution engine
 //!
 //! This crate is the IMPURE half of the two-crate durable-execution core
 //! (kickoff D3): the reducer, the append-only run journal, the transactional
 //! outbox and the effect targets live here, while
 //! [`sbfb-workflow-core`](../sbfb_workflow_core/index.html) stays pure
 //! (schema identities, canonicalisation, static validation — no database).
+//!
+//! Three layers, one store: the Phase E SPIKE ([`engine::SpikeEngine`],
+//! linear runs — kept intact as the frozen proof of the durable core), the
+//! Phase I FULL RUN STORE ([`store::RunStore`] — lease fencing, inbox,
+//! snapshots, GC, backup/restore), and the Phase J ORCHESTRATOR
+//! ([`orchestrator::Orchestrator`] + [`reducer::reduce`] — the
+//! deterministic graph scheduler over `CompiledPlan.v1`, §12.3 states as a
+//! pure reduction of the journal, durable timers, mono-usage signals,
+//! honest cancellation).
 //!
 //! ## What Sprint 83 Phase E proves, and what it does not
 //!
@@ -141,15 +150,26 @@
 //! live in the outbox row keyed by the idempotency key, so a journal that
 //! outlives the process cannot leak prompt or output content.
 
+pub mod clock;
 pub mod echo;
 pub mod engine;
 pub mod event;
 pub mod fault;
 pub mod hash;
+pub mod orchestrator;
+pub mod reducer;
+pub mod runtime_id;
+pub mod signal;
 pub mod store;
 
+pub use clock::{Clock, ManualClock};
 pub use engine::{EngineError, RunOutcome, RunSpec, SpikeEngine, StepSpec};
-pub use event::{RUN_EVENT_FORMAT_VERSION, RunEvent, RunEventKind, TerminalReason, UpcastError};
+pub use event::{
+    CancelOrigin, RUN_EVENT_FORMAT_VERSION, RunEvent, RunEventKind, TerminalReason, UpcastError,
+};
+pub use orchestrator::{Orchestrator, OrchestratorConfig, OrchestratorError, RunProgress};
+pub use reducer::{NodeState, ReduceError, RunState, RunView, reduce};
+pub use signal::{NoSignals, ScriptedSignals, SignalDeposit, SignalSource};
 // The falsifiability surface is harness-only since Phase I: no production
 // entry point takes a hook or knobs, so the types are only re-exported at
 // the top level for the `spike-faults` test build. (`fault` stays a public

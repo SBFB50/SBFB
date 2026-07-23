@@ -50,14 +50,22 @@ answer 200 with honest defaults, seed-count precedent).
 
 Field domains: `status` is one of `"running"`, `"completed"`,
 `"terminal"`; `terminal_reason` is `null` unless the run is terminal,
-then `"step_hash_mismatch"` or `"outcome_unknown"`; `frontier_node` is
+then `"step_hash_mismatch"`, `"outcome_unknown"` or `"cancelled"`
+(Phase J added the honest-cancel close — a new REASON string, not a new
+status: a cancelled run projects `status:"terminal"`); `frontier_node` is
 the node-instance id string or `null`; `spec_digest` is the digest
 string recorded at run creation or `null`.
 
 Invariants: the projection is a scalar ALLOWLIST — never a raw `RunEvent`
 list (`WorkflowPublicProjection.v1` is a later phase), never snapshot state,
 never an effect receipt / request hash. `event_count` counts journal entries;
-`frontier_node` is the last node instance whose effect COMPLETED.
+`frontier_node` is the last node instance whose effect COMPLETED — under a
+multi-branch run (Phase J orchestrator: parallel/map fan-outs) that is ONE
+representative of a multi-node front, still literally true and deliberately
+coarse; the rich §12.3 run/node states stay INTERNAL to the engine reducer
+until a route projects them (`WorkflowPublicProjection.v1`). The daemon
+projection is UNCHANGED by Phase J: 3-state `status` + `terminal_reason`
+carry the whole vocabulary a loopback reader gets.
 Anchors: `workflow_api.rs:workflow_run_response`, `workflow_api.rs:valid_run_id`.
 
 ### GET /api/daemon/workflow/lease — shipped S83 I1
@@ -82,10 +90,11 @@ Anchors: `workflow_api.rs:workflow_lease_response`, `store.rs:lease_state`.
 `POST …/workflow/lease/force` are tier-classified **T1** in the D7 inventory
 but deliberately NOT registered: T1 CONFIRM_PROMPT is design-only today (a
 mutating route would ship at effective T0), `restore_from_backup` requires a
-CLOSED store (incompatible with the boot-held handle), GC needs the Phase J
-clock source, and lease-force has no legitimate caller while the runtime
-acquires its lease in-process. See THREAT_MODEL §19 (v24) for the full
-rationale.
+CLOSED store (incompatible with the boot-held handle), and lease-force has
+no legitimate caller while the runtime acquires its lease in-process. The
+clock-source prerequisite GC was waiting on is DELIVERED (Phase J `Clock`
+trait); the mutating ROUTES stay deferred to the effect layer (K). See
+THREAT_MODEL §19/§19.1 (v25) for the full rationale.
 
 ## Storage placement
 

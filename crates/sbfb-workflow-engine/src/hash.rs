@@ -329,6 +329,29 @@ pub fn derive_effect_id(run_id: &str, node_instance_id: &str, request_hash: &str
     hasher.finalize().to_hex().to_string()
 }
 
+/// Context string mixed into every derived wait nonce (Phase J).
+pub const WAIT_NONCE_CONTEXT: &str = "sbfb.workflow.engine.wait-nonce.v0";
+
+/// Derive the mono-usage nonce of one interruption from the run, the
+/// RUNTIME node instance and the awaited signal name (research §12.6).
+/// Deterministic across restarts — a replayed scheduling pass re-derives
+/// the SAME nonce, so `open_wait`'s INSERT OR IGNORE keeps exactly one
+/// spendable nonce per interruption; and engine-DERIVED, never
+/// caller-chosen, for the same reason as [`derive_effect_id`]: a nonce an
+/// untrusted author could pick would let one wait's deposit answer
+/// another's. Length-prefixed like the effect id — injectivity must not
+/// depend on a validation living in another module.
+pub fn derive_wait_nonce(run_id: &str, node_instance_id: &str, signal_name: &str) -> String {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(WAIT_NONCE_CONTEXT.as_bytes());
+    for component in [run_id, node_instance_id, signal_name] {
+        hasher.update(&[CONTEXT_SEPARATOR]);
+        hasher.update(&(component.len() as u64).to_le_bytes());
+        hasher.update(component.as_bytes());
+    }
+    hasher.finalize().to_hex().to_string()
+}
+
 /// Digest of a receipt. Only this reaches the journal.
 pub fn receipt_digest(receipt: &str) -> String {
     let mut hasher = blake3::Hasher::new();

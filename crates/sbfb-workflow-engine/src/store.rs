@@ -177,12 +177,86 @@ static MIGRATIONS: &[M<'static>] = &[
          -- State column, not journal: run_events stays clock-free.
          ALTER TABLE runs ADD COLUMN closed_at_ms INTEGER;",
     ),
+    // Phase J — the orchestrator's durable state: open waits, deposited
+    // signals, absolute-deadline timers, and the run's material input.
+    // Same discipline as M2: forward-only append, i64 columns, wall-clock
+    // values in STATE tables only (the journal stays clock-free).
+    M::up(
+        "-- One OPEN interruption per node instance (wait.signal or
+         -- human.review): the engine-derived mono-usage nonce a deposit
+         -- must name. `status` flips to consumed in the SAME transaction
+         -- that journals the consumption — the §12.6 mono-usage rule is
+         -- this row, not scheduler memory.
+         CREATE TABLE waits (
+             run_id           TEXT NOT NULL,
+             node_instance_id TEXT NOT NULL,
+             signal_name      TEXT NOT NULL,
+             nonce            TEXT NOT NULL,
+             status           TEXT NOT NULL,
+             PRIMARY KEY (run_id, node_instance_id),
+             FOREIGN KEY (run_id) REFERENCES runs(run_id)
+         );
+         -- Deposited signals/decisions. MATERIAL payload lives here (state
+         -- table), never in the journal — the journal carries its digest.
+         -- Redelivery of the same nonce collapses on the primary key
+         -- (INSERT OR IGNORE, the inbox precedent). `expires_at_ms` is the
+         -- DEPOSITOR's validity bound, checked at consumption time.
+         CREATE TABLE signals (
+             run_id          TEXT NOT NULL,
+             nonce           TEXT NOT NULL,
+             payload         TEXT NOT NULL,
+             decision_label  TEXT,
+             expires_at_ms   INTEGER,
+             deposited_at_ms INTEGER NOT NULL,
+             consumed        INTEGER NOT NULL,
+             PRIMARY KEY (run_id, nonce),
+             FOREIGN KEY (run_id) REFERENCES runs(run_id)
+         );
+         -- Durable timers: ABSOLUTE deadlines, never durations. A restart
+         -- re-reads the original deadline instead of re-arming (the
+         -- delay-as-remainder drift the prior-art scan flagged): INSERT OR
+         -- IGNORE on schedule means the FIRST deadline written wins for a
+         -- timer id, forever.
+         CREATE TABLE timers (
+             run_id      TEXT NOT NULL,
+             timer_id    TEXT NOT NULL,
+             deadline_ms INTEGER NOT NULL,
+             fired       INTEGER NOT NULL,
+             PRIMARY KEY (run_id, timer_id),
+             FOREIGN KEY (run_id) REFERENCES runs(run_id)
+         );
+         -- The run's material input payload (state column: material data
+         -- never reaches the journal; the spec digest binds it to the run).
+         ALTER TABLE runs ADD COLUMN input_payload TEXT;
+         -- Store-wide clock watermark: the highest now_ms any scheduling
+         -- pass ever presented. A later pass with a SMALLER reading is
+         -- refused LOUDLY before it can un-expire a deposit or re-judge a
+         -- deadline (THREAT §19.1 timer skew — review r1 SD-2 closed the
+         -- between-passes regression window the per-deposit guard left).
+         CREATE TABLE clock_watermark (
+             id         INTEGER PRIMARY KEY CHECK (id = 1),
+             max_now_ms INTEGER NOT NULL
+         );",
+    ),
 ];
 
 /// An effect is queued but not confirmed.
 const OUTBOX_PENDING: &str = "pending";
 /// An effect returned its receipt.
 const OUTBOX_APPLIED: &str = "applied";
+
+/// A wait is open: its nonce is spendable exactly once.
+const WAIT_OPEN: &str = "open";
+
+/// One deposit row as read by the consumption door:
+/// `(payload, decision_label, expires_at_ms, deposited_at_ms, consumed)`.
+type DepositRow = (String, Option<String>, Option<i64>, i64, i64);
+
+/// Ceiling on one signal/decision payload's serialised size (256 KiB) —
+/// the deposit-door counterpart of `IDENTITY_MAX_LEN` for material data.
+pub const MAX_SIGNAL_PAYLOAD_BYTES: usize = 256 * 1024;
+/// A wait was consumed — its nonce is spent forever.
+const WAIT_CONSUMED: &str = "consumed";
 
 /// Version of the snapshot FORMAT (the shape of `state`). A stored snapshot
 /// with a different version is stale and reads as discarded — invalidation,
@@ -195,6 +269,11 @@ pub const SNAPSHOT_FORMAT_VERSION: i64 = 1;
 /// nothing but honest caches, yet any rename ritual here buys zero
 /// security: the string is a domain separator, not a description).
 const SNAPSHOT_STATE_DIGEST_CONTEXT: &str = "sbfb.workflow.engine.snapshot-state.v0";
+
+/// Context string of the signal-payload digest journaled by a consumption
+/// (`signal_consumed` / `human_decision_recorded`). Only the digest reaches
+/// the journal; the payload stays in the `signals` state table.
+const SIGNAL_PAYLOAD_DIGEST_CONTEXT: &str = "sbfb.workflow.engine.signal-payload.v0";
 
 /// Where a run stands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -367,6 +446,54 @@ pub enum StoreError {
         /// Why it was refused.
         reason: String,
     },
+    /// A signal consumption was refused — LOUD, with zero transition
+    /// (THREAT §19 signal-forge/replay mitigation): unknown or spent
+    /// nonce, expired deposit, or a decision label outside the node's
+    /// closed set. Refusal is an ERROR to the depositor's driver, never a
+    /// silent skip, so a forged or replayed delivery is observable.
+    #[error("signal refused for {node_instance_id}: {reason}")]
+    SignalRefused {
+        /// Parked node whose wait refused the deposit.
+        node_instance_id: String,
+        /// Why it was refused.
+        reason: String,
+    },
+    /// The injected clock went BACKWARDS below the store's durable
+    /// watermark. Refused loudly for the whole scheduling pass: a
+    /// regressive reading could otherwise un-expire a deposit judged
+    /// expired by an earlier pass (THREAT §19.1 timer skew, review r1
+    /// SD-2 — the per-deposit guard alone left this between-passes
+    /// window).
+    #[error("clock regression: now {now_ms} is below the durable watermark {watermark_ms}")]
+    ClockRegression {
+        /// The regressive reading.
+        now_ms: i64,
+        /// The highest reading any pass ever presented.
+        watermark_ms: i64,
+    },
+}
+
+/// One OPEN interruption of a run (Phase J): a `wait.signal` or
+/// `human.review` node parked until a deposit names its nonce.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingWait {
+    /// RUNTIME node instance id of the parked node (iteration suffixes
+    /// included when the wait sits inside a map/repeat scope).
+    pub node_instance_id: String,
+    /// Static signal name of the awaited signal (`wait.signal`), or the
+    /// engine's reserved decision channel (`human.review`).
+    pub signal_name: String,
+    /// The engine-derived mono-usage nonce a deposit must name.
+    pub nonce: String,
+}
+
+/// A consumed deposit, returned by the atomic consumption door.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConsumedSignal {
+    /// Material payload of the deposit.
+    pub payload: serde_json::Value,
+    /// Decision label carried by the deposit, when any.
+    pub decision_label: Option<String>,
 }
 
 /// The lease row, for inspection.
@@ -450,9 +577,10 @@ pub struct GcOutcome {
 /// it does, EVERY write transaction re-asserts ownership with an epoch CAS
 /// and aborts on [`StoreError::LeaseLost`]. A handle WITHOUT an active lease
 /// writes unfenced — the Phase E single-process spike mode, still what the
-/// in-crate engine tests use. The daemon path acquires; unfenced mode is a
-/// documented posture, not a hidden default the caller can mistake for
-/// fencing.
+/// spike-level engine tests use. The RUNTIME WRITER path acquires (the
+/// Phase J orchestrator takes the lease before writing; the daemon's I1
+/// routes stay lease-free READS); unfenced mode is a documented posture,
+/// not a hidden default the caller can mistake for fencing.
 pub struct RunStore {
     conn: Connection,
     active_lease: Option<(String, i64)>,
@@ -979,6 +1107,82 @@ impl RunStore {
         })
     }
 
+    /// Journal a LATE completion — the result of an effect that returned
+    /// AFTER `cancel_requested` (research §12.7): the receipt is KEPT (its
+    /// entry is appended, the outbox row resolves to applied) but the run
+    /// FRONTIER does not advance and nothing downstream is dispatched. The
+    /// production door of the honest-cancel promise "résultat tardif
+    /// conservé sans propagation": before Phase J the only
+    /// event-without-frontier writer was a `spike-faults` red control,
+    /// unreachable in a normal build.
+    #[cfg(feature = "spike-faults")]
+    pub fn record_late_completion(
+        &self,
+        run_id: &str,
+        node_instance_id: &str,
+        effect_id: &str,
+        request_hash: &str,
+        receipt: &str,
+    ) -> Result<(), StoreError> {
+        self.record_late_completion_impl(run_id, node_instance_id, effect_id, request_hash, receipt)
+    }
+
+    /// See the `spike-faults` twin above — same body, crate-only.
+    #[cfg(not(feature = "spike-faults"))]
+    pub(crate) fn record_late_completion(
+        &self,
+        run_id: &str,
+        node_instance_id: &str,
+        effect_id: &str,
+        request_hash: &str,
+        receipt: &str,
+    ) -> Result<(), StoreError> {
+        self.record_late_completion_impl(run_id, node_instance_id, effect_id, request_hash, receipt)
+    }
+
+    fn record_late_completion_impl(
+        &self,
+        run_id: &str,
+        node_instance_id: &str,
+        effect_id: &str,
+        request_hash: &str,
+        receipt: &str,
+    ) -> Result<(), StoreError> {
+        let digest = crate::hash::receipt_digest(receipt);
+        self.in_immediate_tx(|conn| {
+            append_event(
+                conn,
+                run_id,
+                Some(node_instance_id),
+                Some(request_hash),
+                &RunEventKind::EffectCompleted {
+                    effect_id: effect_id.to_string(),
+                    receipt_digest: digest.clone(),
+                },
+            )?;
+            let updated = conn.execute(
+                "UPDATE outbox SET state = ?1, receipt = ?2
+                 WHERE run_id = ?3 AND node_instance_id = ?4 AND effect_id = ?5
+                   AND state = ?6",
+                params![
+                    OUTBOX_APPLIED,
+                    receipt,
+                    run_id,
+                    node_instance_id,
+                    effect_id,
+                    OUTBOX_PENDING
+                ],
+            )?;
+            if updated != 1 {
+                return Err(StoreError::Corrupt(format!(
+                    "late completion for {effect_id} matched {updated} pending outbox rows"
+                )));
+            }
+            // Deliberately NO frontier update — that is the whole point.
+            Ok(())
+        })
+    }
+
     /// RED CONTROL half — the completion ENTRY alone, in its own
     /// transaction, leaving the outbox row `pending`.
     /// Behind `spike-faults`: a normal build cannot reach it.
@@ -1475,6 +1679,602 @@ impl RunStore {
             |row| row.get(0),
         )?;
         Ok(count as usize)
+    }
+
+    // ── waits, signals, timers, run input (Phase J) ───────────────────────
+
+    /// Create the run row, its `run_started` entry AND its material input
+    /// payload, in one transaction. Same idempotency contract as
+    /// [`RunStore::ensure_run`]: `false` means the run already existed and
+    /// NOTHING was written — a resume never overwrites the recorded input
+    /// (the spec digest binds it; a divergent resume is refused upstream).
+    pub(crate) fn ensure_run_with_input(
+        &self,
+        run_id: &str,
+        spec_digest: &str,
+        input_payload: &serde_json::Value,
+    ) -> Result<bool, StoreError> {
+        let payload_text =
+            serde_json::to_string(input_payload).map_err(|e| StoreError::InvalidInput {
+                what: "run input",
+                reason: e.to_string(),
+            })?;
+        self.in_immediate_tx(|conn| {
+            let inserted = conn.execute(
+                "INSERT INTO runs (run_id, status, next_sequence, spec_digest, input_payload)
+                 VALUES (?1, ?2, 0, ?3, ?4)
+                 ON CONFLICT(run_id) DO NOTHING",
+                params![
+                    run_id,
+                    RunStatus::Running.as_str(),
+                    spec_digest,
+                    payload_text
+                ],
+            )?;
+            if inserted == 0 {
+                return Ok(false);
+            }
+            append_event(conn, run_id, None, None, &RunEventKind::RunStarted)?;
+            Ok(true)
+        })
+    }
+
+    /// The material input payload recorded when the run was created.
+    pub fn run_input(&self, run_id: &str) -> Result<Option<serde_json::Value>, StoreError> {
+        let raw: Option<Option<String>> = self
+            .conn
+            .query_row(
+                "SELECT input_payload FROM runs WHERE run_id = ?1",
+                params![run_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        match raw.flatten() {
+            None => Ok(None),
+            Some(text) => {
+                Ok(Some(serde_json::from_str(&text).map_err(|e| {
+                    StoreError::Corrupt(format!("run input payload: {e}"))
+                })?))
+            }
+        }
+    }
+
+    /// Open (idempotently) the interruption of a parked node: records the
+    /// awaited signal name and the engine-derived mono-usage nonce. A
+    /// replayed scheduling pass re-opening the same wait is a no-op — the
+    /// FIRST nonce written wins, so a resume cannot mint a second spendable
+    /// nonce for the same interruption.
+    pub(crate) fn open_wait(
+        &self,
+        run_id: &str,
+        node_instance_id: &str,
+        signal_name: &str,
+        nonce: &str,
+    ) -> Result<(), StoreError> {
+        self.in_immediate_tx(|conn| {
+            conn.execute(
+                "INSERT OR IGNORE INTO waits
+                     (run_id, node_instance_id, signal_name, nonce, status)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![run_id, node_instance_id, signal_name, nonce, WAIT_OPEN],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// Every OPEN wait of a run, ordered by node instance id — what a host
+    /// reads to know which deposits the run can consume.
+    pub fn open_waits(&self, run_id: &str) -> Result<Vec<PendingWait>, StoreError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT node_instance_id, signal_name, nonce FROM waits
+             WHERE run_id = ?1 AND status = ?2 ORDER BY node_instance_id ASC",
+        )?;
+        let rows = stmt.query_map(params![run_id, WAIT_OPEN], |row| {
+            Ok(PendingWait {
+                node_instance_id: row.get(0)?,
+                signal_name: row.get(1)?,
+                nonce: row.get(2)?,
+            })
+        })?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+    }
+
+    /// Deposit a signal/decision for an OPEN wait, at-least-once + dedup:
+    /// `true` when the deposit is new, `false` when this delivery is a
+    /// duplicate (collapsed on the `(run_id, nonce)` primary key — the
+    /// inbox precedent, so a redelivered approval can never become two
+    /// spendable deposits).
+    ///
+    /// A deposit naming NO open wait's nonce is refused LOUDLY
+    /// ([`StoreError::SignalRefused`]) with zero rows written: a forged
+    /// nonce is observable at the door, never parked silently (THREAT §19
+    /// signal-forge mitigation).
+    ///
+    /// PUBLIC: depositing is the HOST's side of the seam (daemon route,
+    /// harness script). Consumption stays engine-internal.
+    pub fn deposit_signal(
+        &self,
+        run_id: &str,
+        nonce: &str,
+        payload: &serde_json::Value,
+        decision_label: Option<&str>,
+        expires_at_ms: Option<i64>,
+        now_ms: i64,
+    ) -> Result<bool, StoreError> {
+        crate::hash::validate_identity_component("nonce", nonce).map_err(|e| {
+            StoreError::InvalidInput {
+                what: "signal nonce",
+                reason: e.to_string(),
+            }
+        })?;
+        // Material payloads are bounded at the door (review r1 SD-3 — the
+        // identity guards cap every id at 512 bytes while the payload was
+        // unbounded; at the future loopback route this is the
+        // write-amplification surface).
+        let approx = serde_json::to_string(payload)
+            .map(|s| s.len())
+            .unwrap_or(usize::MAX);
+        if approx > MAX_SIGNAL_PAYLOAD_BYTES {
+            return Err(StoreError::InvalidInput {
+                what: "signal payload",
+                reason: format!(
+                    "{approx} bytes exceeds MAX_SIGNAL_PAYLOAD_BYTES ({MAX_SIGNAL_PAYLOAD_BYTES})"
+                ),
+            });
+        }
+        // Same canonicalisation door as every digest of the crate: a
+        // payload the journal-side digest would refuse (a `null` anywhere)
+        // is refused at the DEPOSIT, not discovered at consumption.
+        crate::hash::canonical_digest(SIGNAL_PAYLOAD_DIGEST_CONTEXT, payload).map_err(|e| {
+            StoreError::InvalidInput {
+                what: "signal payload",
+                reason: e.to_string(),
+            }
+        })?;
+        let payload_text =
+            serde_json::to_string(payload).map_err(|e| StoreError::InvalidInput {
+                what: "signal payload",
+                reason: e.to_string(),
+            })?;
+        // STORAGE bound only, never a charset domain (Codex r2 P1): the
+        // signed plan's `decision_labels` are arbitrary strings the
+        // compiler accepts, and refusing one HERE would make a valid plan
+        // unresumable. The closed-set check at consumption is the real
+        // gate; this is the anti-bloat cap.
+        if let Some(label) = decision_label
+            && label.len() > MAX_SIGNAL_PAYLOAD_BYTES
+        {
+            return Err(StoreError::InvalidInput {
+                what: "decision label",
+                reason: format!("{} bytes exceeds the storage bound", label.len()),
+            });
+        }
+        self.in_immediate_tx(|conn| {
+            let open: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM waits w
+                 WHERE w.run_id = ?1 AND w.nonce = ?2 AND w.status = ?3
+                   AND EXISTS (SELECT 1 FROM runs r
+                               WHERE r.run_id = ?1 AND r.status = ?4)",
+                params![run_id, nonce, WAIT_OPEN, RunStatus::Running.as_str()],
+                |row| row.get(0),
+            )?;
+            if open != 1 {
+                // Covers both a forged/spent nonce AND a CLOSED run whose
+                // waits were left open by its close (Codex r1 P2): a
+                // terminal run takes no deposit.
+                return Err(StoreError::SignalRefused {
+                    node_instance_id: "<no open wait>".to_string(),
+                    reason: format!("no open wait on a running run names nonce {nonce}"),
+                });
+            }
+            let inserted = conn.execute(
+                "INSERT OR IGNORE INTO signals
+                     (run_id, nonce, payload, decision_label, expires_at_ms,
+                      deposited_at_ms, consumed)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0)",
+                params![
+                    run_id,
+                    nonce,
+                    payload_text,
+                    decision_label,
+                    expires_at_ms,
+                    now_ms
+                ],
+            )?;
+            Ok(inserted == 1)
+        })
+    }
+
+    /// Consume the deposit of ONE parked node — the §12.6 mono-usage door.
+    /// In ONE transaction: the wait's nonce is looked up, the deposit is
+    /// validated (present, unconsumed, unexpired, label inside the closed
+    /// set when one is expected), the wait AND the deposit flip to
+    /// consumed, and the `signal_consumed`/`human_decision_recorded` entry
+    /// is appended. A replayed delivery therefore can never re-fire the
+    /// resume: the nonce is spent in the same transaction that journals it.
+    ///
+    /// `expected_labels`: `None` for a `wait.signal` (a deposit carrying a
+    /// decision label is refused), `Some(labels)` for a `human.review` (a
+    /// label is REQUIRED and must belong to the closed set — validated
+    /// HERE, before anything is written).
+    ///
+    /// Clock-regression guard: a deposit whose `deposited_at_ms` is in the
+    /// FUTURE of the injected `now_ms` is refused loudly — a backwards
+    /// clock must not un-expire deposits (THREAT §19 timer-skew).
+    pub(crate) fn consume_signal_atomic(
+        &self,
+        run_id: &str,
+        node_instance_id: &str,
+        expected_labels: Option<&[String]>,
+        now_ms: i64,
+    ) -> Result<ConsumedSignal, StoreError> {
+        self.in_immediate_tx(|conn| {
+            let (status, signal_name, nonce): (String, String, String) = conn
+                .query_row(
+                    "SELECT status, signal_name, nonce FROM waits
+                     WHERE run_id = ?1 AND node_instance_id = ?2",
+                    params![run_id, node_instance_id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .optional()?
+                .ok_or_else(|| StoreError::SignalRefused {
+                    node_instance_id: node_instance_id.to_string(),
+                    reason: "no wait open for this node".to_string(),
+                })?;
+            if status != WAIT_OPEN {
+                return Err(StoreError::SignalRefused {
+                    node_instance_id: node_instance_id.to_string(),
+                    reason: format!("nonce {nonce} already spent"),
+                });
+            }
+            let row: Option<DepositRow> = conn
+                .query_row(
+                    "SELECT payload, decision_label, expires_at_ms, deposited_at_ms, consumed
+                     FROM signals WHERE run_id = ?1 AND nonce = ?2",
+                    params![run_id, nonce],
+                    |row| {
+                        Ok((
+                            row.get(0)?,
+                            row.get(1)?,
+                            row.get(2)?,
+                            row.get(3)?,
+                            row.get(4)?,
+                        ))
+                    },
+                )
+                .optional()?;
+            let Some((payload_text, label, expires_at_ms, deposited_at_ms, consumed)) = row
+            else {
+                return Err(StoreError::SignalRefused {
+                    node_instance_id: node_instance_id.to_string(),
+                    reason: format!("no deposit for nonce {nonce}"),
+                });
+            };
+            if consumed != 0 {
+                return Err(StoreError::SignalRefused {
+                    node_instance_id: node_instance_id.to_string(),
+                    reason: format!("deposit for nonce {nonce} already consumed"),
+                });
+            }
+            if deposited_at_ms > now_ms {
+                return Err(StoreError::SignalRefused {
+                    node_instance_id: node_instance_id.to_string(),
+                    reason: format!(
+                        "clock regression: deposit at {deposited_at_ms} is in the future of {now_ms}"
+                    ),
+                });
+            }
+            if let Some(expiry) = expires_at_ms
+                && expiry < now_ms
+            {
+                return Err(StoreError::SignalRefused {
+                    node_instance_id: node_instance_id.to_string(),
+                    reason: format!("deposit expired at {expiry} (now {now_ms})"),
+                });
+            }
+            let payload: serde_json::Value = serde_json::from_str(&payload_text)
+                .map_err(|e| StoreError::Corrupt(format!("signal payload: {e}")))?;
+            let payload_digest =
+                crate::hash::canonical_digest(SIGNAL_PAYLOAD_DIGEST_CONTEXT, &payload).map_err(
+                    |e| StoreError::Corrupt(format!("signal payload digest: {e}")),
+                )?;
+            let event = match expected_labels {
+                None => {
+                    if label.is_some() {
+                        return Err(StoreError::SignalRefused {
+                            node_instance_id: node_instance_id.to_string(),
+                            reason: "unexpected decision label on a plain signal".to_string(),
+                        });
+                    }
+                    RunEventKind::SignalConsumed {
+                        signal_name: signal_name.clone(),
+                        nonce: nonce.clone(),
+                        payload_digest,
+                    }
+                }
+                Some(allowed) => {
+                    let Some(label) = label.clone() else {
+                        return Err(StoreError::SignalRefused {
+                            node_instance_id: node_instance_id.to_string(),
+                            reason: "missing decision label".to_string(),
+                        });
+                    };
+                    if !allowed.iter().any(|a| a == &label) {
+                        return Err(StoreError::SignalRefused {
+                            node_instance_id: node_instance_id.to_string(),
+                            reason: format!("decision label `{label}` outside the closed set"),
+                        });
+                    }
+                    RunEventKind::HumanDecisionRecorded {
+                        nonce: nonce.clone(),
+                        decision_label: label,
+                        payload_digest,
+                    }
+                }
+            };
+            let spent = conn.execute(
+                "UPDATE waits SET status = ?1
+                 WHERE run_id = ?2 AND node_instance_id = ?3 AND status = ?4",
+                params![WAIT_CONSUMED, run_id, node_instance_id, WAIT_OPEN],
+            )?;
+            // Defence in depth, not the load-bearing guard: the wait's CAS
+            // above is what mono-usage rests on (mutation pair M2/M2' —
+            // leaving THIS flip out keeps every current test green because
+            // a consumed wait already blocks re-consumption and re-deposit;
+            // the flag exists so a corrupt waits table cannot silently
+            // reopen a spent deposit).
+            let marked = conn.execute(
+                "UPDATE signals SET consumed = 1
+                 WHERE run_id = ?1 AND nonce = ?2 AND consumed = 0",
+                params![run_id, nonce],
+            )?;
+            if spent != 1 || marked != 1 {
+                return Err(StoreError::Corrupt(format!(
+                    "signal consumption raced: wait rows {spent}, signal rows {marked}"
+                )));
+            }
+            append_event(conn, run_id, Some(node_instance_id), None, &event)?;
+            Ok(ConsumedSignal {
+                payload,
+                decision_label: label,
+            })
+        })
+    }
+
+    /// Advance the store-wide clock watermark to `now_ms`, refusing a
+    /// REGRESSIVE reading loudly ([`StoreError::ClockRegression`]). Called
+    /// once per scheduling pass, BEFORE any decision consults the clock —
+    /// what closes the between-passes de-expiry window (review r1 SD-2).
+    pub(crate) fn advance_clock_watermark(&self, now_ms: i64) -> Result<(), StoreError> {
+        self.in_immediate_tx(|conn| {
+            conn.execute(
+                "INSERT OR IGNORE INTO clock_watermark (id, max_now_ms) VALUES (1, ?1)",
+                params![now_ms],
+            )?;
+            let watermark: i64 = conn.query_row(
+                "SELECT max_now_ms FROM clock_watermark WHERE id = 1",
+                [],
+                |row| row.get(0),
+            )?;
+            if now_ms < watermark {
+                return Err(StoreError::ClockRegression {
+                    now_ms,
+                    watermark_ms: watermark,
+                });
+            }
+            conn.execute(
+                "UPDATE clock_watermark SET max_now_ms = ?1 WHERE id = 1",
+                params![now_ms],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// Whether an UNCONSUMED deposit exists for a nonce — how the
+    /// scheduler distinguishes "not delivered yet" (keep waiting) from a
+    /// consumption refusal (loud error).
+    pub(crate) fn has_deposit(&self, run_id: &str, nonce: &str) -> Result<bool, StoreError> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM signals
+             WHERE run_id = ?1 AND nonce = ?2 AND consumed = 0",
+            params![run_id, nonce],
+            |row| row.get(0),
+        )?;
+        Ok(count == 1)
+    }
+
+    /// The payload a parked node's consumption recorded, for downstream
+    /// value resolution (`wait.signal` output = the signal payload;
+    /// `human.review` output = the decision payload). `None` while nothing
+    /// was consumed.
+    pub(crate) fn consumed_signal(
+        &self,
+        run_id: &str,
+        node_instance_id: &str,
+    ) -> Result<Option<ConsumedSignal>, StoreError> {
+        let row: Option<(String, Option<String>)> = self
+            .conn
+            .query_row(
+                "SELECT s.payload, s.decision_label
+                 FROM waits w JOIN signals s
+                   ON s.run_id = w.run_id AND s.nonce = w.nonce
+                 WHERE w.run_id = ?1 AND w.node_instance_id = ?2
+                   AND w.status = ?3 AND s.consumed = 1",
+                params![run_id, node_instance_id, WAIT_CONSUMED],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+        match row {
+            None => Ok(None),
+            Some((payload_text, decision_label)) => {
+                let payload: serde_json::Value = serde_json::from_str(&payload_text)
+                    .map_err(|e| StoreError::Corrupt(format!("signal payload: {e}")))?;
+                Ok(Some(ConsumedSignal {
+                    payload,
+                    decision_label,
+                }))
+            }
+        }
+    }
+
+    /// Schedule (idempotently) a durable timer at an ABSOLUTE deadline.
+    /// `INSERT OR IGNORE`: the FIRST deadline written for a timer id wins
+    /// forever, so a restart re-reads the original deadline instead of
+    /// re-arming — the delay-as-remainder drift cannot happen.
+    pub(crate) fn schedule_timer(
+        &self,
+        run_id: &str,
+        timer_id: &str,
+        deadline_ms: i64,
+    ) -> Result<(), StoreError> {
+        crate::hash::validate_identity_component("timer_id", timer_id).map_err(|e| {
+            StoreError::InvalidInput {
+                what: "timer id",
+                reason: e.to_string(),
+            }
+        })?;
+        self.in_immediate_tx(|conn| {
+            conn.execute(
+                "INSERT OR IGNORE INTO timers (run_id, timer_id, deadline_ms, fired)
+                 VALUES (?1, ?2, ?3, 0)",
+                params![run_id, timer_id, deadline_ms],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// Unfired timers whose deadline has passed, ordered by timer id.
+    pub(crate) fn due_timers(
+        &self,
+        run_id: &str,
+        now_ms: i64,
+    ) -> Result<Vec<(String, i64)>, StoreError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT timer_id, deadline_ms FROM timers
+             WHERE run_id = ?1 AND fired = 0 AND deadline_ms <= ?2
+             ORDER BY timer_id ASC",
+        )?;
+        let rows = stmt.query_map(params![run_id, now_ms], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+    }
+
+    /// Fire one due timer AND journal the cancellation it triggers, in ONE
+    /// transaction. The `fired` flip is a CAS (`fired = 0` in the WHERE):
+    /// a timer fires AT MOST once across every replay and every clock the
+    /// host injects — a regressive clock cannot re-arm it. Returns `false`
+    /// when another pass already fired it (nothing written).
+    pub(crate) fn fire_timer_with_cancel(
+        &self,
+        run_id: &str,
+        timer_id: &str,
+        origin: crate::event::CancelOrigin,
+    ) -> Result<bool, StoreError> {
+        self.in_immediate_tx(|conn| {
+            // Journal hygiene (review r1 SD-5): a deadline crossing a run
+            // that already CLOSED must not append an orphan cancellation
+            // entry to a closed journal — the fire is gated on Running.
+            let fired = conn.execute(
+                "UPDATE timers SET fired = 1
+                 WHERE run_id = ?1 AND timer_id = ?2 AND fired = 0
+                   AND EXISTS (SELECT 1 FROM runs r
+                               WHERE r.run_id = ?1 AND r.status = ?3)
+                   AND NOT EXISTS (SELECT 1 FROM run_events e
+                                   WHERE e.run_id = ?1 AND e.kind = ?4)",
+                params![
+                    run_id,
+                    timer_id,
+                    RunStatus::Running.as_str(),
+                    RunEventKind::CancelRequested {
+                        origin: crate::event::CancelOrigin::HostOperator
+                    }
+                    .discriminant()
+                ],
+            )?;
+            if fired != 1 {
+                // Not fired: already fired, run closed, or a cancellation
+                // already journaled (operator + timer must not stack two
+                // entries — Codex r1 P2).
+                return Ok(false);
+            }
+            append_event(
+                conn,
+                run_id,
+                None,
+                None,
+                &RunEventKind::CancelRequested { origin },
+            )?;
+            Ok(true)
+        })
+    }
+
+    /// Journal a cancellation request, idempotently: `true` when THIS call
+    /// recorded it, `false` when the run already has one (or is no longer
+    /// running — a closed run cannot be cancelled, it is already closed).
+    /// Host-operator authority is unconditional (a pack cannot opt out),
+    /// which is why the door itself carries no policy check.
+    pub(crate) fn record_cancel_requested(
+        &self,
+        run_id: &str,
+        origin: crate::event::CancelOrigin,
+    ) -> Result<bool, StoreError> {
+        self.in_immediate_tx(|conn| {
+            let running: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM runs WHERE run_id = ?1 AND status = ?2",
+                params![run_id, RunStatus::Running.as_str()],
+                |row| row.get(0),
+            )?;
+            if running != 1 {
+                return Ok(false);
+            }
+            let already: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM run_events WHERE run_id = ?1 AND kind = ?2",
+                params![
+                    run_id,
+                    RunEventKind::CancelRequested {
+                        origin: crate::event::CancelOrigin::HostOperator
+                    }
+                    .discriminant()
+                ],
+                |row| row.get(0),
+            )?;
+            if already > 0 {
+                return Ok(false);
+            }
+            append_event(
+                conn,
+                run_id,
+                None,
+                None,
+                &RunEventKind::CancelRequested { origin },
+            )?;
+            Ok(true)
+        })
+    }
+
+    /// Journal one SCHEDULER DECISION (`branch_taken`, `map_fanout`) for a
+    /// node, in its own transaction — written BEFORE the scheduler acts on
+    /// the decision, which is the replay-divergence mitigation: the reducer
+    /// rebuilds control flow from these entries without parsing any
+    /// payload.
+    pub(crate) fn record_decision(
+        &self,
+        run_id: &str,
+        node_instance_id: &str,
+        kind: &RunEventKind,
+    ) -> Result<(), StoreError> {
+        debug_assert!(
+            matches!(
+                kind,
+                RunEventKind::BranchTaken { .. } | RunEventKind::MapFanout { .. }
+            ),
+            "record_decision is the door for scheduler decisions only"
+        );
+        self.in_immediate_tx(|conn| {
+            append_event(conn, run_id, Some(node_instance_id), None, kind)?;
+            Ok(())
+        })
     }
 
     // ── disposable snapshots (Phase I) ────────────────────────────────────
@@ -2006,23 +2806,66 @@ impl RunStore {
             "dedup_scope",
             "receipt",
         ];
-        let required: &[(&str, &[&str])] = if user_version >= 2 {
+        const RUNS_V3: &[&str] = &[
+            "run_id",
+            "status",
+            "next_sequence",
+            "spec_digest",
+            "frontier_node",
+            "terminal_reason",
+            "closed_at_ms",
+            "input_payload",
+        ];
+        const INBOX: &[&str] = &["run_id", "message_id", "processed_at_ms"];
+        const SNAPSHOTS: &[&str] = &[
+            "run_id",
+            "snapshot_version",
+            "upto_sequence",
+            "state",
+            "state_digest",
+        ];
+        const LEASE: &[&str] = &["id", "owner", "epoch", "expires_at_ms"];
+        let required: &[(&str, &[&str])] = if user_version >= 3 {
+            &[
+                ("runs", RUNS_V3),
+                ("run_events", RUN_EVENTS),
+                ("outbox", OUTBOX),
+                ("inbox", INBOX),
+                ("snapshots", SNAPSHOTS),
+                ("lease", LEASE),
+                (
+                    "waits",
+                    &[
+                        "run_id",
+                        "node_instance_id",
+                        "signal_name",
+                        "nonce",
+                        "status",
+                    ],
+                ),
+                (
+                    "signals",
+                    &[
+                        "run_id",
+                        "nonce",
+                        "payload",
+                        "decision_label",
+                        "expires_at_ms",
+                        "deposited_at_ms",
+                        "consumed",
+                    ],
+                ),
+                ("timers", &["run_id", "timer_id", "deadline_ms", "fired"]),
+                ("clock_watermark", &["id", "max_now_ms"]),
+            ]
+        } else if user_version >= 2 {
             &[
                 ("runs", RUNS_V2),
                 ("run_events", RUN_EVENTS),
                 ("outbox", OUTBOX),
-                ("inbox", &["run_id", "message_id", "processed_at_ms"]),
-                (
-                    "snapshots",
-                    &[
-                        "run_id",
-                        "snapshot_version",
-                        "upto_sequence",
-                        "state",
-                        "state_digest",
-                    ],
-                ),
-                ("lease", &["id", "owner", "epoch", "expires_at_ms"]),
+                ("inbox", INBOX),
+                ("snapshots", SNAPSHOTS),
+                ("lease", LEASE),
             ]
         } else {
             &[
@@ -2081,6 +2924,10 @@ impl RunStore {
                 "inbox" => &["run_id", "message_id"],
                 "snapshots" => &["run_id"],
                 "lease" => &["id"],
+                "waits" => &["run_id", "node_instance_id"],
+                "signals" => &["run_id", "nonce"],
+                "timers" => &["run_id", "timer_id"],
+                "clock_watermark" => &["id"],
                 _ => &[],
             };
             let mut actual_pk: Vec<&str> = found
@@ -2102,7 +2949,10 @@ impl RunStore {
             }
             // Child tables must DECLARE their foreign key to runs — the
             // inbox's unknown-run refusal is this constraint, nothing else.
-            let needs_fk = matches!(*table, "run_events" | "outbox" | "inbox" | "snapshots");
+            let needs_fk = matches!(
+                *table,
+                "run_events" | "outbox" | "inbox" | "snapshots" | "waits" | "signals" | "timers"
+            );
             if needs_fk {
                 // The guarantee is precisely "run_id REFERENCES runs" — a
                 // mistargeted homonym FK would let record_inbox_message

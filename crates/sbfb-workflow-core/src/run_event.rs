@@ -50,6 +50,15 @@ use serde::{Deserialize, Serialize};
 /// Version of the local run-journal envelope. Bumped when a NEW payload
 /// shape starts being WRITTEN; every older version stays readable through
 /// the upcaster chain, interpreted — never migrated — at read time.
+///
+/// Pre-launch nuance (CLAUDE.md protocol policy): while no released journal
+/// exists, ADDING variants to [`RunEventKind`] REDEFINES version 1 rather
+/// than bumping — Phase J added its scheduler-decision entries
+/// (`branch_taken`, `map_fanout`, `signal_consumed`,
+/// `human_decision_recorded`, `cancel_requested`) exactly this way. The
+/// constant moves the day a released journal must stay readable across the
+/// change, and its first bump must bring the missing upcaster hop with it
+/// (the chain-length invariant fails closed otherwise).
 pub const RUN_EVENT_FORMAT_VERSION: u16 = 1;
 
 /// Why a run reached a terminal state.
@@ -66,6 +75,12 @@ pub enum TerminalReason {
     /// reports the honest outcome instead of retrying (which could double
     /// the effect) or inventing a success.
     OutcomeUnknown,
+    /// The run was cancelled (research §12.7 honest cancel, Sprint 83
+    /// Phase J): emission stopped, in-flight results were KEPT in the
+    /// journal but not propagated, and the run closed as cancelled — never
+    /// re-labelled completed. The `cancel_requested` journal entry carries
+    /// WHO asked ([`CancelOrigin`]); this reason records only the outcome.
+    Cancelled,
 }
 
 impl TerminalReason {
@@ -77,8 +92,32 @@ impl TerminalReason {
         match self {
             Self::StepHashMismatch => "step_hash_mismatch",
             Self::OutcomeUnknown => "outcome_unknown",
+            Self::Cancelled => "cancelled",
         }
     }
+}
+
+/// Who asked for a cancellation. A CLOSED set: cancellation authority is
+/// host/timeout only (`CancellationPolicy` doc, graph.rs) — no variant
+/// exists that a model output could route to, and none carries free-form
+/// text.
+///
+/// `BudgetExhausted` is deliberately ABSENT: real budget consumption is
+/// metered by the real-adapter layer (Phase K) — inventing the variant
+/// before anything can trigger it would be a legacy decoder for a format
+/// that never shipped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CancelOrigin {
+    /// The host operator asked. Always honoured: a pack cannot opt out of
+    /// operator authority (`allow_host_operator_cancel` is a claim the
+    /// engine refuses to let opt out — Phase J enforcement).
+    HostOperator,
+    /// The compiled plan's `workflow_timeout_seconds` deadline expired and
+    /// its `cancellation_policy.cancel_on_timeout` is set. The deadline is
+    /// an ABSOLUTE wall-clock value stored in the durable timer table at
+    /// run start — never re-derived on replay.
+    WorkflowTimeout,
 }
 
 /// What happened at one point of a run.
@@ -116,6 +155,62 @@ pub enum RunEventKind {
         /// Digest re-computed on replay, when the reason is a divergence.
         got_hash: Option<String>,
     },
+    /// A ROUTING decision was taken at the node this entry is about
+    /// (Sprint 83 Phase J). The journal records every scheduler decision
+    /// that is NOT derivable from plan topology alone, so the reducer
+    /// rebuilds control flow WITHOUT parsing any material payload — the
+    /// replay-divergence mitigation (THREAT §19): journal the decision
+    /// BEFORE acting on it.
+    ///
+    /// `port` is the branch label actually taken: a `switch`/`classifier`
+    /// output label (or the reserved `default`), or the engine-internal
+    /// `continue`/`stop` verdict of a bounded `repeat` iteration.
+    BranchTaken {
+        /// Output port (or repeat verdict) the flow continues on.
+        port: String,
+    },
+    /// A `map` node decided its fan-out (Phase J). The cardinality is the
+    /// RUNTIME collection size, already proven ≤ the structural
+    /// `max_cardinality` of the signed plan — an oversized collection is
+    /// refused BEFORE this entry is written, so a journaled fan-out is
+    /// always a bounded one.
+    MapFanout {
+        /// Number of child iterations the map dispatched.
+        cardinality: u32,
+    },
+    /// A `wait.signal` interruption consumed its mono-usage signal
+    /// (research §12.6, Phase J). Written in the SAME transaction that
+    /// marks the deposited signal consumed — a replayed delivery of the
+    /// same nonce can never re-fire the resume.
+    SignalConsumed {
+        /// Static signal name of the awaited node.
+        signal_name: String,
+        /// The engine-derived mono-usage nonce this consumption spent.
+        nonce: String,
+        /// Digest of the signal payload — never the payload itself.
+        payload_digest: String,
+    },
+    /// A `human.review` interruption consumed its decision (Phase J).
+    /// The decision label is validated against the node's closed
+    /// `decision_labels` BEFORE this entry is written. The signed HITL
+    /// principal/approval binding is Phase L1 — this entry records the
+    /// consumption, not an authenticated approval.
+    HumanDecisionRecorded {
+        /// The engine-derived mono-usage nonce this consumption spent.
+        nonce: String,
+        /// The decision label taken, one of the node's closed set.
+        decision_label: String,
+        /// Digest of the decision payload — never the payload itself.
+        payload_digest: String,
+    },
+    /// A cancellation was requested (research §12.7, Phase J). From this
+    /// entry on the scheduler emits NO new effect; results of effects
+    /// already in flight are kept in the journal but not propagated, and
+    /// the run closes as `cancelled`.
+    CancelRequested {
+        /// Who asked — a closed set, never free-form.
+        origin: CancelOrigin,
+    },
 }
 
 impl RunEventKind {
@@ -128,6 +223,11 @@ impl RunEventKind {
             Self::EffectCompleted { .. } => "effect_completed",
             Self::RunCompleted => "run_completed",
             Self::RunTerminal { .. } => "run_terminal",
+            Self::BranchTaken { .. } => "branch_taken",
+            Self::MapFanout { .. } => "map_fanout",
+            Self::SignalConsumed { .. } => "signal_consumed",
+            Self::HumanDecisionRecorded { .. } => "human_decision_recorded",
+            Self::CancelRequested { .. } => "cancel_requested",
         }
     }
 }

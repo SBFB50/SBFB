@@ -15,6 +15,6 @@
 //! module for the full envelope and upcasting documentation.
 
 pub use sbfb_workflow_core::run_event::{
-    RUN_EVENT_FORMAT_VERSION, RUN_EVENT_UPCASTERS, RunEvent, RunEventKind, RunEventUpcaster,
-    TerminalReason, UpcastError, upcast_payload,
+    CancelOrigin, RUN_EVENT_FORMAT_VERSION, RUN_EVENT_UPCASTERS, RunEvent, RunEventKind,
+    RunEventUpcaster, TerminalReason, UpcastError, upcast_payload,
 };

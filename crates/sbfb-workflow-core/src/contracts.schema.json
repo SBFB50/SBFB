@@ -1404,6 +1404,21 @@
   },
   "RunEvent.v1": {
     "$defs": {
+      "CancelOrigin": {
+        "description": "Who asked for a cancellation. A CLOSED set: cancellation authority is\nhost/timeout only (`CancellationPolicy` doc, graph.rs) — no variant\nexists that a model output could route to, and none carries free-form\ntext.\n\n`BudgetExhausted` is deliberately ABSENT: real budget consumption is\nmetered by the real-adapter layer (Phase K) — inventing the variant\nbefore anything can trigger it would be a legacy decoder for a format\nthat never shipped.",
+        "oneOf": [
+          {
+            "const": "host_operator",
+            "description": "The host operator asked. Always honoured: a pack cannot opt out of\noperator authority (`allow_host_operator_cancel` is a claim the\nengine refuses to let opt out — Phase J enforcement).",
+            "type": "string"
+          },
+          {
+            "const": "workflow_timeout",
+            "description": "The compiled plan's `workflow_timeout_seconds` deadline expired and\nits `cancellation_policy.cancel_on_timeout` is set. The deadline is\nan ABSOLUTE wall-clock value stored in the durable timer table at\nrun start — never re-derived on replay.",
+            "type": "string"
+          }
+        ]
+      },
       "RunEventKind": {
         "description": "What happened at one point of a run.",
         "oneOf": [
@@ -1510,6 +1525,123 @@
               "reason"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A ROUTING decision was taken at the node this entry is about\n(Sprint 83 Phase J). The journal records every scheduler decision\nthat is NOT derivable from plan topology alone, so the reducer\nrebuilds control flow WITHOUT parsing any material payload — the\nreplay-divergence mitigation (THREAT §19): journal the decision\nBEFORE acting on it.\n\n`port` is the branch label actually taken: a `switch`/`classifier`\noutput label (or the reserved `default`), or the engine-internal\n`continue`/`stop` verdict of a bounded `repeat` iteration.",
+            "properties": {
+              "kind": {
+                "const": "branch_taken",
+                "type": "string"
+              },
+              "port": {
+                "description": "Output port (or repeat verdict) the flow continues on.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "port"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A `map` node decided its fan-out (Phase J). The cardinality is the\nRUNTIME collection size, already proven ≤ the structural\n`max_cardinality` of the signed plan — an oversized collection is\nrefused BEFORE this entry is written, so a journaled fan-out is\nalways a bounded one.",
+            "properties": {
+              "cardinality": {
+                "description": "Number of child iterations the map dispatched.",
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "kind": {
+                "const": "map_fanout",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "cardinality"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A `wait.signal` interruption consumed its mono-usage signal\n(research §12.6, Phase J). Written in the SAME transaction that\nmarks the deposited signal consumed — a replayed delivery of the\nsame nonce can never re-fire the resume.",
+            "properties": {
+              "kind": {
+                "const": "signal_consumed",
+                "type": "string"
+              },
+              "nonce": {
+                "description": "The engine-derived mono-usage nonce this consumption spent.",
+                "type": "string"
+              },
+              "payload_digest": {
+                "description": "Digest of the signal payload — never the payload itself.",
+                "type": "string"
+              },
+              "signal_name": {
+                "description": "Static signal name of the awaited node.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "signal_name",
+              "nonce",
+              "payload_digest"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A `human.review` interruption consumed its decision (Phase J).\nThe decision label is validated against the node's closed\n`decision_labels` BEFORE this entry is written. The signed HITL\nprincipal/approval binding is Phase L1 — this entry records the\nconsumption, not an authenticated approval.",
+            "properties": {
+              "decision_label": {
+                "description": "The decision label taken, one of the node's closed set.",
+                "type": "string"
+              },
+              "kind": {
+                "const": "human_decision_recorded",
+                "type": "string"
+              },
+              "nonce": {
+                "description": "The engine-derived mono-usage nonce this consumption spent.",
+                "type": "string"
+              },
+              "payload_digest": {
+                "description": "Digest of the decision payload — never the payload itself.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "nonce",
+              "decision_label",
+              "payload_digest"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A cancellation was requested (research §12.7, Phase J). From this\nentry on the scheduler emits NO new effect; results of effects\nalready in flight are kept in the journal but not propagated, and\nthe run closes as `cancelled`.",
+            "properties": {
+              "kind": {
+                "const": "cancel_requested",
+                "type": "string"
+              },
+              "origin": {
+                "$ref": "#/$defs/CancelOrigin",
+                "description": "Who asked — a closed set, never free-form."
+              }
+            },
+            "required": [
+              "kind",
+              "origin"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -1524,6 +1656,11 @@
           {
             "const": "outcome_unknown",
             "description": "An effect was intended against a target that does not declare\nidempotency, and the process died before the result was journaled.\nThe engine cannot know whether the side output happened, so it\nreports the honest outcome instead of retrying (which could double\nthe effect) or inventing a success.",
+            "type": "string"
+          },
+          {
+            "const": "cancelled",
+            "description": "The run was cancelled (research §12.7 honest cancel, Sprint 83\nPhase J): emission stopped, in-flight results were KEPT in the\njournal but not propagated, and the run closed as cancelled — never\nre-labelled completed. The `cancel_requested` journal entry carries\nWHO asked ([`CancelOrigin`]); this reason records only the outcome.",
             "type": "string"
           }
         ]

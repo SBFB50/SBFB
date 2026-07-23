@@ -1,0 +1,269 @@
+{
+  "cancelled": [
+    {
+      "format_version": 1,
+      "kind": {
+        "kind": "run_started"
+      },
+      "node_instance_id": null,
+      "request_hash": null,
+      "run_id": "run-golden-cancel",
+      "sequence": 0
+    },
+    {
+      "format_version": 1,
+      "kind": {
+        "effect_id": "9963b6a5f0efa9c15a6b40495f5291c8157512dd9473d5240950ff6ea45b76a8",
+        "kind": "effect_intended"
+      },
+      "node_instance_id": "/a",
+      "request_hash": "49ebd0807505822ebf393e1cd6319f7aef422f846061fa6a2e3896f13cf260fe",
+      "run_id": "run-golden-cancel",
+      "sequence": 1
+    },
+    {
+      "format_version": 1,
+      "kind": {
+        "effect_id": "9963b6a5f0efa9c15a6b40495f5291c8157512dd9473d5240950ff6ea45b76a8",
+        "kind": "effect_completed",
+        "receipt_digest": "37e2b4d9e89cf8d105dcf3fbb61a68488d033cf7e169051f2d686c1cb204f5ca"
+      },
+      "node_instance_id": "/a",
+      "request_hash": "49ebd0807505822ebf393e1cd6319f7aef422f846061fa6a2e3896f13cf260fe",
+      "run_id": "run-golden-cancel",
+      "sequence": 2
+    },
+    {
+      "format_version": 1,
+      "kind": {
+        "kind": "cancel_requested",
+        "origin": "host_operator"
+      },
+      "node_instance_id": null,
+      "request_hash": null,
+      "run_id": "run-golden-cancel",
+      "sequence": 3
+    },
+    {
+      "format_version": 1,
+      "kind": {
+        "expected_hash": null,
+        "got_hash": null,
+        "kind": "run_terminal",
+        "reason": "cancelled"
+      },
+      "node_instance_id": null,
+      "request_hash": null,
+      "run_id": "run-golden-cancel",
+      "sequence": 4
+    }
+  ],
+  "orchestrated": [
+    {
+      "format_version": 1,
+      "kind": {
+        "kind": "run_started"
+      },
+      "node_instance_id": null,
+      "request_hash": null,
+      "run_id": "run-golden-orch",
+      "sequence": 0
+    },
+    {
+      "format_version": 1,
+      "kind": {
+        "effect_id": "0ebdd2f1606c75fc9575618c00ab69d9efe2e74d1975a0ebf572530570702d83",
+        "kind": "effect_intended"
+      },
+      "node_instance_id": "/in",
+      "request_hash": "0cc5e53148928b6d650cfa4d1f762df82c60cc61175edc4e909944332bca3e05",
+      "run_id": "run-golden-orch",
+      "sequence": 1
+    },
+    {
+      "format_version": 1,
+      "kind": {
+        "effect_id": "0ebdd2f1606c75fc9575618c00ab69d9efe2e74d1975a0ebf572530570702d83",
+        "kind": "effect_completed",
+        "receipt_digest": "37e2b4d9e89cf8d105dcf3fbb61a68488d033cf7e169051f2d686c1cb204f5ca"
+      },
+      "node_instance_id": "/in",
+      "request_hash": "0cc5e53148928b6d650cfa4d1f762df82c60cc61175edc4e909944332bca3e05",
+      "run_id": "run-golden-orch",
+      "sequence": 2
+    },
+    {
+      "format_version": 1,
+      "kind": {
+        "kind": "branch_taken",
+        "port": "go"
+      },
+      "node_instance_id": "/gate",
+      "request_hash": null,
+      "run_id": "run-golden-orch",
+      "sequence": 3
+    },
+    {
+      "format_version": 1,
+      "kind": {
+        "cardinality": 2,
+        "kind": "map_fanout"
+      },
+      "node_instance_id": "/fan",
+      "request_hash": null,
+      "run_id": "run-golden-orch",
+      "sequence": 4
+    },
+    {
+      "format_version": 1,
+      "kind": {
+        "effect_id": "2c1a49dfc80962edbfa25e4609d6c5513a8f2b1178eb8508286b9c8175371628",
+        "kind": "effect_intended"
+      },
+      "node_instance_id": "/fan~20/m-in",
+      "request_hash": "c44f0923e12509284f233ac31fc66c06ffeec3916fb8f694a6ecb3e975034d26",
+      "run_id": "run-golden-orch",
+      "sequence": 5
+    },
+    {
+      "format_version": 1,
+      "kind": {
+        "effect_id": "2c1a49dfc80962edbfa25e4609d6c5513a8f2b1178eb8508286b9c8175371628",
+        "kind": "effect_completed",
+        "receipt_digest": "f6c394519489d7662d3aa60a05148c37863b3878a6ebb1af1a64e9e867a36819"
+      },
+      "node_instance_id": "/fan~20/m-in",
+      "request_hash": "c44f0923e12509284f233ac31fc66c06ffeec3916fb8f694a6ecb3e975034d26",
+      "run_id": "run-golden-orch",
+      "sequence": 6
+    },
+    {
+      "format_version": 1,
+      "kind": {
+        "effect_id": "7717530e8f10a43dc1bbde627980da2c8ced5e9423d8dec89260b71ac0418fff",
+        "kind": "effect_intended"
+      },
+      "node_instance_id": "/fan~21/m-in",
+      "request_hash": "764bbe86ef8f5941e56373f8d3dce5e258b637b899001deef3712b4962eae14a",
+      "run_id": "run-golden-orch",
+      "sequence": 7
+    },
+    {
+      "format_version": 1,
+      "kind": {
+        "effect_id": "7717530e8f10a43dc1bbde627980da2c8ced5e9423d8dec89260b71ac0418fff",
+        "kind": "effect_completed",
+        "receipt_digest": "a2dc360be1f948eb94fae9df09047de6c15785b77f859d4b22f61dfae88f935f"
+      },
+      "node_instance_id": "/fan~21/m-in",
+      "request_hash": "764bbe86ef8f5941e56373f8d3dce5e258b637b899001deef3712b4962eae14a",
+      "run_id": "run-golden-orch",
+      "sequence": 8
+    },
+    {
+      "format_version": 1,
+      "kind": {
+        "effect_id": "b5aabfbd1159dfa8d6c060b40324b85b3f1d93a383fbeacd5e3dbf13bb8cebc4",
+        "kind": "effect_intended"
+      },
+      "node_instance_id": "/fan~20/m-out",
+      "request_hash": "410480c80671ca09c1368de2133e2ed8ef71f5730bf28f53e33bfe0d9e6cd316",
+      "run_id": "run-golden-orch",
+      "sequence": 9
+    },
+    {
+      "format_version": 1,
+      "kind": {
+        "effect_id": "b5aabfbd1159dfa8d6c060b40324b85b3f1d93a383fbeacd5e3dbf13bb8cebc4",
+        "kind": "effect_completed",
+        "receipt_digest": "f6c394519489d7662d3aa60a05148c37863b3878a6ebb1af1a64e9e867a36819"
+      },
+      "node_instance_id": "/fan~20/m-out",
+      "request_hash": "410480c80671ca09c1368de2133e2ed8ef71f5730bf28f53e33bfe0d9e6cd316",
+      "run_id": "run-golden-orch",
+      "sequence": 10
+    },
+    {
+      "format_version": 1,
+      "kind": {
+        "effect_id": "b5f4a6e23d3d0b33d9ab1e4351daae979547328da248fa12b361459a8044b39c",
+        "kind": "effect_intended"
+      },
+      "node_instance_id": "/fan~21/m-out",
+      "request_hash": "c6de7387cba28687fda8518e9c54e866736f24a3bee24da4186b6beea77a06bf",
+      "run_id": "run-golden-orch",
+      "sequence": 11
+    },
+    {
+      "format_version": 1,
+      "kind": {
+        "effect_id": "b5f4a6e23d3d0b33d9ab1e4351daae979547328da248fa12b361459a8044b39c",
+        "kind": "effect_completed",
+        "receipt_digest": "a2dc360be1f948eb94fae9df09047de6c15785b77f859d4b22f61dfae88f935f"
+      },
+      "node_instance_id": "/fan~21/m-out",
+      "request_hash": "c6de7387cba28687fda8518e9c54e866736f24a3bee24da4186b6beea77a06bf",
+      "run_id": "run-golden-orch",
+      "sequence": 12
+    },
+    {
+      "format_version": 1,
+      "kind": {
+        "kind": "signal_consumed",
+        "nonce": "aca756c7ceadd0c90b19a57a7dbb22a8f8bed96dc3d8b594198a680067652bb0",
+        "payload_digest": "dc3ce303369e549fbb2a64795dfe309d491f04bf5ffbd7410ddb03c2c86c125d",
+        "signal_name": "proceed"
+      },
+      "node_instance_id": "/w",
+      "request_hash": null,
+      "run_id": "run-golden-orch",
+      "sequence": 13
+    },
+    {
+      "format_version": 1,
+      "kind": {
+        "decision_label": "approve",
+        "kind": "human_decision_recorded",
+        "nonce": "21a0ca767a3a3f40feb6b9f225e383655e0e69acdd802bfa8896f7150ab56539",
+        "payload_digest": "9f75d3c5550c5e7aa67794d5d4eeb52215767130f6d93971c86f14b2fa50da42"
+      },
+      "node_instance_id": "/review",
+      "request_hash": null,
+      "run_id": "run-golden-orch",
+      "sequence": 14
+    },
+    {
+      "format_version": 1,
+      "kind": {
+        "effect_id": "d638483f07603cf5af8744f45ac95c1ae5157d84733737faec4e5849fd8b7b18",
+        "kind": "effect_intended"
+      },
+      "node_instance_id": "/out",
+      "request_hash": "bd59091316027af3fbbc914c04fa230709c654049c16e58b13383e6f244dfd5d",
+      "run_id": "run-golden-orch",
+      "sequence": 15
+    },
+    {
+      "format_version": 1,
+      "kind": {
+        "effect_id": "d638483f07603cf5af8744f45ac95c1ae5157d84733737faec4e5849fd8b7b18",
+        "kind": "effect_completed",
+        "receipt_digest": "11b369230a20da8cd87048a637460f0ad83fdcf82a4d47dc6d97e9971867be26"
+      },
+      "node_instance_id": "/out",
+      "request_hash": "bd59091316027af3fbbc914c04fa230709c654049c16e58b13383e6f244dfd5d",
+      "run_id": "run-golden-orch",
+      "sequence": 16
+    },
+    {
+      "format_version": 1,
+      "kind": {
+        "kind": "run_completed"
+      },
+      "node_instance_id": null,
+      "request_hash": null,
+      "run_id": "run-golden-orch",
+      "sequence": 17
+    }
+  ]
+}
