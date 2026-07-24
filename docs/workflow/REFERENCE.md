@@ -50,9 +50,16 @@ answer 200 with honest defaults, seed-count precedent).
 
 Field domains: `status` is one of `"running"`, `"completed"`,
 `"terminal"`; `terminal_reason` is `null` unless the run is terminal,
-then `"step_hash_mismatch"`, `"outcome_unknown"` or `"cancelled"`
-(Phase J added the honest-cancel close — a new REASON string, not a new
-status: a cancelled run projects `status:"terminal"`); `frontier_node` is
+then `"step_hash_mismatch"`, `"outcome_unknown"`, `"cancelled"` or
+`"node_failed"`
+(Phase J added the honest-cancel close, Phase K the node-failure close —
+new REASON strings, not new statuses: both project `status:"terminal"`;
+`outcome_unknown` is NOT new — the Phase E spike already produces it for a
+non-idempotent unconfirmed effect — but Phase K adds its effect-layer
+timeout/orphan producers, same string, same contract); a run whose node is
+PARKED `outcome_unknown` for reconciliation (Phase K host policy) projects
+`status:"running"` — the park is engine-internal until
+`WorkflowPublicProjection.v1`; `frontier_node` is
 the node-instance id string or `null`; `spec_digest` is the digest
 string recorded at run creation or `null`.
 
@@ -84,7 +91,7 @@ recorded by the store — the route renders no liveness verdict (judging
 
 Anchors: `workflow_api.rs:workflow_lease_response`, `store.rs:lease_state`.
 
-### Deferred mutating family (NOT exposed — dated J/K)
+### Deferred mutating family (NOT exposed — re-routed to Phase V)
 
 `POST …/run/{run_id}/restore`, `POST …/workflow/gc`,
 `POST …/workflow/lease/force` are tier-classified **T1** in the D7 inventory
@@ -92,9 +99,11 @@ but deliberately NOT registered: T1 CONFIRM_PROMPT is design-only today (a
 mutating route would ship at effective T0), `restore_from_backup` requires a
 CLOSED store (incompatible with the boot-held handle), and lease-force has
 no legitimate caller while the runtime acquires its lease in-process. The
-clock-source prerequisite GC was waiting on is DELIVERED (Phase J `Clock`
-trait); the mutating ROUTES stay deferred to the effect layer (K). See
-THREAT_MODEL §19/§19.1 (v25) for the full rationale.
+in-process MECHANICS these routes would drive are DELIVERED (Phase J `Clock`
+trait + retention, Phase K effect layer); the mutating ROUTES themselves are
+re-routed by Phase K to **Phase V (Centre des Runs)** — the operator surface
+that carries cancel/retry/replay/reconcile. See THREAT_MODEL §19/§19.2 (v26)
+and the LOOPBACK D7 inventory rows for the full rationale.
 
 ## Storage placement
 

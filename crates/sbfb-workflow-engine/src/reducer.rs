@@ -23,26 +23,32 @@
 //! skipped sources as never-arriving — a join fed only by dead branches is
 //! itself skipped, never a silent forever-hang.
 //!
-//! ## States deliberately never derived in Phase J
+//! ## Effect-layer states (Sprint 83 Phase K)
 //!
-//! The full §12.3 vocabulary is typed here, honestly wider than what J
-//! emits: `created`/`validated`/`queued` (run) belong to the Hub submission
-//! pipeline; `dispatched`/`failed_retryable`/`failed_terminal` AND the
-//! node-level `outcome_unknown` (node) to the Phase K effect layer
-//! (retries, timeouts, error routing, per-node reconciliation — at J the
-//! RUN goes `outcome_unknown` through the resume path while the node shows
-//! its last derived state). They exist as variants so the vocabulary is
-//! stable, and this module documents that no reduction path produces them
-//! yet. Counting note: the research §12.3 list carries 11 node states; the
+//! Phase K derives the states J only typed: `failed_retryable` (journaled
+//! attempt failures under the scope's retry budget), `failed_terminal`
+//! (a non-retryable failure, or the budget exhausted — under
+//! `route-error-port` the node then DELIVERS on its reserved `error`
+//! port), and the node-level `outcome_unknown` (a journaled
+//! `node_outcome_unknown` parks the node for reconciliation; the run
+//! stays alive). A parked node is settled by EVIDENCE only: a completion
+//! whose receipt was recovered through a journaled reconciliation — the
+//! scan refuses a completion on a parked node with no
+//! `reconciliation_recorded` before it, so a reconciliation can never be
+//! skipped and an unknown can never be laundered into a success.
+//! Still never derived here: `created`/`validated`/`queued` (run — Hub
+//! submission pipeline) and `dispatched` (the dispatch/ack split needs a
+//! transport that acknowledges; the local activity layer has none).
+//! Counting note: the research §12.3 list carries 11 node states; the
 //! plan's prose says "10 états de node" — this module types the RESEARCH
 //! list, the wider of the two.
 
 use std::collections::BTreeMap;
 
-use sbfb_workflow_core::compile::{CompiledEdge, CompiledNodeInstance, CompiledPlan};
+use sbfb_workflow_core::compile::{CompiledEdge, CompiledNodeInstance, CompiledPlan, ERROR_PORT};
 use sbfb_workflow_core::graph::{JoinPolicy, WorkflowNode};
 
-use crate::event::{RunEvent, RunEventKind, TerminalReason};
+use crate::event::{ReconcileResolution, RunEvent, RunEventKind, TerminalReason};
 use crate::runtime_id::{child_structural, extend_scope, parent_scope, structural_id};
 
 /// The engine-internal repeat verdict journaled as a `branch_taken` port:
@@ -89,16 +95,18 @@ pub enum RunState {
     OutcomeUnknown,
 }
 
-/// §12.3 node-instance states. `Dispatched`, `FailedRetryable` and
-/// `FailedTerminal` are typed but never derived in Phase J (the effect
-/// layer of Phase K owns them).
+/// §12.3 node-instance states. Phase K derives `FailedRetryable`,
+/// `FailedTerminal` and the node-level `OutcomeUnknown`; only
+/// `Dispatched` remains typed-never-derived (a dispatch/ack split needs
+/// an acknowledging transport the local activity layer does not have).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NodeState {
     /// Not yet reachable: some input is still pending.
     Pending,
     /// Every input satisfied — the scheduler may dispatch it.
     Ready,
-    /// Typed, never derived in Phase J (K's dispatch/ack split).
+    /// Typed, never derived (a dispatch/ack split needs an acknowledging
+    /// transport; the local activity layer has none).
     Dispatched,
     /// An effect was intended and not yet completed.
     Running,
@@ -106,17 +114,23 @@ pub enum NodeState {
     Waiting,
     /// Done: effect completed, decision journaled, or structure satisfied.
     Succeeded,
-    /// Typed, never derived in Phase J (K's retry layer).
+    /// The last journaled attempt failed retryably and the scope's retry
+    /// budget is not exhausted: the scheduler may re-dispatch it (paced by
+    /// the durable retry timer, which changes timing, never outcomes).
     FailedRetryable,
-    /// Typed, never derived in Phase J (K's retry layer).
+    /// A non-retryable failure, or the retry budget exhausted. Settled:
+    /// under `route-error-port` the node delivers on its reserved `error`
+    /// port; under `fail-workflow` the orchestrator closes the run
+    /// (`node_failed`).
     FailedTerminal,
     /// Dead path: every inbound alternative is dead (WCP-30).
     Skipped,
     /// The run closed as cancelled while this node was not yet settled.
     Cancelled,
-    /// Typed, never derived in Phase J at node level (the RUN goes
-    /// `outcome_unknown` through the resume path; per-node refinement is
-    /// the K reconciliation layer).
+    /// PARKED (§12.5): a journaled `node_outcome_unknown` — the effect's
+    /// outcome is unknowable, the node awaits an operator reconciliation,
+    /// and the scheduler never re-dispatches it. Not settled (the run
+    /// cannot auto-complete around it) and not ready.
     OutcomeUnknown,
 }
 
@@ -144,6 +158,12 @@ pub struct RunView {
     pub ready: Vec<String>,
     /// Runtime ids parked on an open interruption, in canonical order.
     pub waiting: Vec<String>,
+    /// Runtime ids parked as `outcome_unknown` awaiting reconciliation
+    /// (Phase K), in canonical order. On a run CLOSED as cancelled the
+    /// cancel overlay wins (the node reads `cancelled`, reconciliation is
+    /// refused on a closed run anyway); the journal keeps the park entry
+    /// either way.
+    pub parked_unknown: Vec<String>,
     /// A cancellation entry exists (whether or not the run closed yet).
     pub cancel_requested: bool,
     /// Every materialised node is settled (and the root scope is fully
@@ -175,13 +195,31 @@ pub enum ReduceError {
         /// Structural bound of the plan.
         bound: u32,
     },
+    /// The journal is CAUSALLY invalid (Phase K hardening, THREAT §19.1
+    /// replay-divergence carry): a completion with no intent before it, an
+    /// attempt failure with no intent, or a completion on a PARKED node
+    /// with no reconciliation before it — the laundering shape. The
+    /// production writers cannot produce these orders; a journal that
+    /// carries one was written by something else, and deriving from it
+    /// would trust what the doors never allowed.
+    #[error("journal causally invalid at {runtime_id}: {reason}")]
+    CausalOrder {
+        /// The offending node instance.
+        runtime_id: String,
+        /// Which order was violated.
+        reason: &'static str,
+    },
 }
 
 /// What the event scan extracted — decisions and effects, keyed by RUNTIME
 /// id, before any topology work.
 #[derive(Debug, Default)]
 struct Facts {
-    intended: BTreeMap<String, ()>,
+    /// Node → the effect id its `EffectIntended` minted. Every later
+    /// effect-layer event on the node (completion, attempt failure, park,
+    /// reconciliation) must carry THIS id — a journal that mixes effect ids
+    /// on one node is causally invalid (Phase K).
+    intended: BTreeMap<String, String>,
     completed: BTreeMap<String, ()>,
     /// One entry per `branch_taken` on the node, in journal order (a
     /// repeat accumulates one verdict per iteration).
@@ -189,6 +227,21 @@ struct Facts {
     fanout: BTreeMap<String, u32>,
     signal_consumed: BTreeMap<String, ()>,
     human_decision: BTreeMap<String, String>,
+    /// Retryable flags of journaled attempt failures, in journal order
+    /// (Phase K).
+    attempt_failures: BTreeMap<String, Vec<bool>>,
+    /// Node → effect id it parked `outcome_unknown` awaiting reconciliation
+    /// (Phase K).
+    parked_unknown: BTreeMap<String, String>,
+    /// Node → effect id whose parked unknown was reconciled
+    /// `result_recovered` — the causal licence for a later completion of
+    /// THAT effect (Phase K).
+    reconciled_recovered: BTreeMap<String, String>,
+    /// Joins whose delivered-source cohort was FROZEN by a journaled
+    /// `join_fired` (Phase K): the reducer only needs to know a join has
+    /// fired (it then reads Succeeded); the frozen cohort itself is read
+    /// by the orchestrator's value resolution, straight from the journal.
+    join_fired: BTreeMap<String, ()>,
     cancel_requested: bool,
     run_completed: bool,
     terminal_reason: Option<TerminalReason>,
@@ -251,6 +304,7 @@ pub fn reduce(plan: &CompiledPlan, events: &[RunEvent]) -> Result<RunView, Reduc
 
     let mut ready: Vec<String> = Vec::new();
     let mut waiting: Vec<String> = Vec::new();
+    let mut parked_unknown: Vec<String> = Vec::new();
     for (id, state) in &node_states {
         match state {
             // Emission stops at the first cancellation entry (§12.7).
@@ -260,6 +314,10 @@ pub fn reduce(plan: &CompiledPlan, events: &[RunEvent]) -> Result<RunView, Reduc
             // mutation pair proved which guard carries which weight).
             NodeState::Ready if !cancel_requested => ready.push(id.clone()),
             NodeState::Waiting if !cancel_requested => waiting.push(id.clone()),
+            // Parked nodes stay listed under a mere cancel REQUEST; once
+            // the run CLOSED as cancelled the overlay above already
+            // relabelled them.
+            NodeState::OutcomeUnknown => parked_unknown.push(id.clone()),
             _ => {}
         }
     }
@@ -269,7 +327,9 @@ pub fn reduce(plan: &CompiledPlan, events: &[RunEvent]) -> Result<RunView, Reduc
     let run_state = match resolver.facts.terminal_reason {
         Some(TerminalReason::Cancelled) => RunState::Cancelled,
         Some(TerminalReason::OutcomeUnknown) => RunState::OutcomeUnknown,
-        Some(TerminalReason::StepHashMismatch) => RunState::Failed,
+        Some(TerminalReason::StepHashMismatch) | Some(TerminalReason::NodeFailed) => {
+            RunState::Failed
+        }
         None if resolver.facts.run_completed => RunState::Completed,
         None if cancel_requested => RunState::CancelRequested,
         None => {
@@ -294,6 +354,7 @@ pub fn reduce(plan: &CompiledPlan, events: &[RunEvent]) -> Result<RunView, Reduc
         node_states,
         ready,
         waiting,
+        parked_unknown,
         cancel_requested,
         fully_settled,
     })
@@ -313,13 +374,31 @@ fn scan(plan: &CompiledPlan, events: &[RunEvent]) -> Result<Facts, ReduceError> 
         }
         match &event.kind {
             RunEventKind::RunStarted => {}
-            RunEventKind::EffectIntended { .. } => {
+            RunEventKind::EffectIntended { effect_id } => {
                 if let Some(rid) = &event.node_instance_id {
-                    facts.intended.insert(rid.clone(), ());
+                    facts.intended.insert(rid.clone(), effect_id.clone());
                 }
             }
-            RunEventKind::EffectCompleted { .. } => {
+            RunEventKind::EffectCompleted { effect_id, .. } => {
                 if let Some(rid) = &event.node_instance_id {
+                    // Causal order (Phase K): a completion needs an intent
+                    // before it, CARRYING THE SAME effect id, and a
+                    // completion on a PARKED node needs a reconciliation of
+                    // THAT effect before it — the laundering shape.
+                    if facts.intended.get(rid) != Some(effect_id) {
+                        return Err(ReduceError::CausalOrder {
+                            runtime_id: rid.clone(),
+                            reason: "completion without a matching prior intent",
+                        });
+                    }
+                    if let Some(parked_effect) = facts.parked_unknown.get(rid)
+                        && facts.reconciled_recovered.get(rid) != Some(parked_effect)
+                    {
+                        return Err(ReduceError::CausalOrder {
+                            runtime_id: rid.clone(),
+                            reason: "completion on a parked node without a matching reconciliation",
+                        });
+                    }
                     facts.completed.insert(rid.clone(), ());
                 }
             }
@@ -362,6 +441,69 @@ fn scan(plan: &CompiledPlan, events: &[RunEvent]) -> Result<Facts, ReduceError> 
             }
             RunEventKind::CancelRequested { .. } => {
                 facts.cancel_requested = true;
+            }
+            RunEventKind::EffectAttemptFailed {
+                effect_id,
+                attempt: _,
+                retryable,
+            } => {
+                if let Some(rid) = &event.node_instance_id {
+                    if facts.intended.get(rid) != Some(effect_id) {
+                        return Err(ReduceError::CausalOrder {
+                            runtime_id: rid.clone(),
+                            reason: "attempt failure without a matching prior intent",
+                        });
+                    }
+                    facts
+                        .attempt_failures
+                        .entry(rid.clone())
+                        .or_default()
+                        .push(*retryable);
+                }
+            }
+            RunEventKind::NodeOutcomeUnknown { effect_id } => {
+                if let Some(rid) = &event.node_instance_id {
+                    if facts.intended.get(rid) != Some(effect_id) {
+                        return Err(ReduceError::CausalOrder {
+                            runtime_id: rid.clone(),
+                            reason: "park without a matching prior intent",
+                        });
+                    }
+                    facts.parked_unknown.insert(rid.clone(), effect_id.clone());
+                }
+            }
+            RunEventKind::ReconciliationRecorded {
+                effect_id,
+                resolution,
+                ..
+            } => {
+                if let Some(rid) = &event.node_instance_id
+                    && *resolution == ReconcileResolution::ResultRecovered
+                {
+                    // A reconciliation only LICENSES a later completion if
+                    // the node was ALREADY parked FOR THIS EFFECT — the
+                    // journal order must be park → reconciliation →
+                    // completion, all on the same effect id. Refuse a
+                    // reconciliation that precedes its park, or names a
+                    // different effect (the shapes that would pre-authorise a
+                    // laundering completion).
+                    if facts.parked_unknown.get(rid) != Some(effect_id) {
+                        return Err(ReduceError::CausalOrder {
+                            runtime_id: rid.clone(),
+                            reason: "reconciliation without a matching prior park",
+                        });
+                    }
+                    facts
+                        .reconciled_recovered
+                        .insert(rid.clone(), effect_id.clone());
+                }
+            }
+            RunEventKind::JoinFired { sources: _ } => {
+                if let Some(rid) = &event.node_instance_id {
+                    // Presence is all the reducer needs (see `Facts`); the
+                    // cohort is read by the orchestrator's value resolution.
+                    facts.join_fired.insert(rid.clone(), ());
+                }
             }
             RunEventKind::RunCompleted => {
                 facts.run_completed = true;
@@ -574,9 +716,18 @@ impl<'p> Resolver<'p> {
             }
             WorkflowNode::Classifier(_) => {
                 // A classifier is an EFFECT (the model call) plus a
-                // journaled decision; both must exist to be done.
+                // journaled decision; both must exist to be done. Its
+                // effect can fail or park like any leaf (Phase K); a
+                // completed effect whose decision is not yet journaled
+                // stays Running.
                 if self.facts.branches.contains_key(runtime) {
                     return NodeState::Succeeded;
+                }
+                if self.facts.completed.contains_key(runtime) {
+                    return NodeState::Running;
+                }
+                if let Some(state) = self.failure_state(structural, runtime) {
+                    return state;
                 }
                 if self.facts.intended.contains_key(runtime) {
                     return NodeState::Running;
@@ -652,10 +803,18 @@ impl<'p> Resolver<'p> {
                 }
             }
 
-            // ── effect leaves (echo activity in Phase J) ──────────────────
+            // ── effect leaves ─────────────────────────────────────────────
             _ => {
                 if self.facts.completed.contains_key(runtime) {
+                    // A completion always wins — on a previously parked
+                    // node it can only exist behind a journaled
+                    // reconciliation (the scan refuses it otherwise), so
+                    // this success rests on recovered EVIDENCE, never on a
+                    // re-label.
                     return NodeState::Succeeded;
+                }
+                if let Some(state) = self.failure_state(structural, runtime) {
+                    return state;
                 }
                 if self.facts.intended.contains_key(runtime) {
                     return NodeState::Running;
@@ -669,6 +828,37 @@ impl<'p> Resolver<'p> {
         }
     }
 
+    /// Effect-layer progression shared by the effect leaves and the
+    /// classifier (Phase K): a journaled park wins over failures, and a
+    /// failure's terminality is a PURE function of the plan's scope error
+    /// policy plus the count of journaled attempt failures.
+    fn failure_state(&self, structural: &str, runtime: &str) -> Option<NodeState> {
+        if self.facts.parked_unknown.contains_key(runtime) {
+            return Some(NodeState::OutcomeUnknown);
+        }
+        let failures = self.facts.attempt_failures.get(runtime)?;
+        let non_retryable = failures.iter().any(|retryable| !*retryable);
+        // The budget is `1 + max_retries` attempts in total.
+        let budget_exhausted = failures.len() > self.max_retries_for(structural) as usize;
+        if non_retryable || budget_exhausted {
+            Some(NodeState::FailedTerminal)
+        } else {
+            Some(NodeState::FailedRetryable)
+        }
+    }
+
+    /// The scope's `max_retries_per_node`: exact scope policy, else the
+    /// root's, else 0 (first failure is terminal — fail-closed, never an
+    /// invented budget).
+    fn max_retries_for(&self, structural: &str) -> u32 {
+        let scope = parent_scope(structural);
+        self.plan
+            .error_policies
+            .get(scope)
+            .or_else(|| self.plan.error_policies.get(""))
+            .map_or(0, |policy| policy.max_retries_per_node)
+    }
+
     /// Join derivation: policy over DECLARED sources, re-observed here at
     /// runtime (H normalised joins as liveness, never authority — the
     /// reducer counts real arrivals).
@@ -676,10 +866,17 @@ impl<'p> Resolver<'p> {
         &mut self,
         join: &sbfb_workflow_core::graph::JoinNode,
         _structural: &str,
-        _runtime: &str,
+        runtime: &str,
         scope_structural: &str,
         scope_runtime: &str,
     ) -> NodeState {
+        // A journaled `join_fired` FREEZES the decision (Phase K): the
+        // cohort was recorded when the policy was satisfied, and a source
+        // arriving later can no longer widen a quorum or replace an `any`
+        // winner — re-observation stops here.
+        if self.facts.join_fired.contains_key(runtime) {
+            return NodeState::Succeeded;
+        }
         let mut succeeded = 0usize;
         let mut dead = 0usize;
         let total = join.source_node_ids.len();
@@ -895,9 +1092,18 @@ impl<'p> Resolver<'p> {
                 Some(_) => EdgeDelivery::Dead,
                 None => EdgeDelivery::Delivered,
             },
-            NodeState::Skipped | NodeState::Cancelled | NodeState::FailedTerminal => {
-                EdgeDelivery::Dead
+            // A terminally-failed node DELIVERS on its reserved `error`
+            // port and is dead everywhere else (Phase K `route-error-port`;
+            // the compiler only wires that port under the routing policy,
+            // so a fail-workflow scope never has the edge to deliver on).
+            NodeState::FailedTerminal => {
+                if edge.from_port == ERROR_PORT {
+                    EdgeDelivery::Delivered
+                } else {
+                    EdgeDelivery::Dead
+                }
             }
+            NodeState::Skipped | NodeState::Cancelled => EdgeDelivery::Dead,
             _ => EdgeDelivery::Pending,
         }
     }

@@ -7,14 +7,18 @@
 //! [`sbfb-workflow-core`](../sbfb_workflow_core/index.html) stays pure
 //! (schema identities, canonicalisation, static validation — no database).
 //!
-//! Three layers, one store: the Phase E SPIKE ([`engine::SpikeEngine`],
+//! Four layers, one store: the Phase E SPIKE ([`engine::SpikeEngine`],
 //! linear runs — kept intact as the frozen proof of the durable core), the
 //! Phase I FULL RUN STORE ([`store::RunStore`] — lease fencing, inbox,
-//! snapshots, GC, backup/restore), and the Phase J ORCHESTRATOR
+//! snapshots, GC, backup/restore), the Phase J ORCHESTRATOR
 //! ([`orchestrator::Orchestrator`] + [`reducer::reduce`] — the
 //! deterministic graph scheduler over `CompiledPlan.v1`, §12.3 states as a
 //! pure reduction of the journal, durable timers, mono-usage signals,
-//! honest cancellation).
+//! honest cancellation), and the Phase K EFFECT LAYER ([`activity`] +
+//! [`process`]/[`fs_effect`] — non-blocking attempts under the single
+//! durable intent, retries/backoff/deadlines, §12.5 unknowable outcomes
+//! with operator reconciliation, descendant-tree cleanup, target-side
+//! fencing).
 //!
 //! ## What Sprint 83 Phase E proves, and what it does not
 //!
@@ -66,10 +70,19 @@
 //!    acquired) still writes in the spike's single-process model; fencing is
 //!    an acquired posture, not an ambient default. And the fence covers the
 //!    STORE's writes, not the external-effect window: a writer suspended
-//!    between its committed intent and `target.apply`, deposed meanwhile,
-//!    can still reach the target — that window stays bounded by the
-//!    TARGET's deduplication (clause 2) until the effect layer verifies the
-//!    fencing token target-side (Phase K).
+//!    between its committed intent and the target-side application, deposed
+//!    meanwhile, could still reach the target. Phase K ADDRESSES that window
+//!    TARGET-SIDE for the activity path by DEMONSTRATING the mechanism:
+//!    [`activity::EffectContext`] carries the writer's lease epoch and a
+//!    fencing-aware target refuses an application below the highest epoch
+//!    its own backend has durably seen ([`activity::FencedFileActivity`] is
+//!    the reference double). Honest bounds: its read-decide-append is NOT
+//!    atomic under concurrent writers (a real production target must provide
+//!    an atomic check-and-apply in its own backend), and the single-writer
+//!    serialised model makes concurrency non-nominal anyway (a deposed
+//!    writer has a LOWER epoch already durably written). The SPIKE's
+//!    blocking `EffectTarget` path keeps the clause-2 posture unchanged — it
+//!    is the frozen proof, not the production adapter.
 //!
 //! The irreducible frontier is B2 (the effect was applied, its result was
 //! not yet journaled). A crash there leaves the engine unable to know
@@ -94,9 +107,22 @@
 //!
 //! The crate resolves NO home directory, reads NO environment variable and
 //! embeds NO path literal: every path (the SQLite file, the echo target's
-//! side-output log) is INJECTED by the caller. That keeps the engine usable
-//! from a daemon, a test, or a CLI without a hidden host contract, and it is
-//! the same discipline the S83 A1 TEST-ISOLATION carry closed elsewhere.
+//! side-output log, a spawned child's working directory) is INJECTED by the
+//! caller — a process effect runs in its constructor-fixed cwd, never in
+//! the runtime's ambient one (ex-Codex r4 K-PROC-CWD-SCOPE-03). Honest
+//! bound: the SUPPORTED path inputs are absolute/existing spellings;
+//! injected paths are frozen canonical at construction, a NON-ABSOLUTE
+//! program (relative OR bare name — the Windows std resolver falls back
+//! to the parent's ambient `PATH` for a bare name the scoped map misses)
+//! is refused at `start` — and on Windows so is an absolute WITHOUT
+//! `.exe` (std tries the `path.exe` sibling first: one scope, two
+//! possible files) — and the remaining raw-relative fallbacks (a
+//! cwd, worktree root or fenced side-output log whose parent never
+//! resolved) are documented ambient dependencies at their constructors,
+//! not closures (ex-Codex r5/r6). That
+//! keeps the engine usable from a daemon, a test, or a CLI without a
+//! hidden host contract, and it is the same discipline the S83 A1
+//! TEST-ISOLATION carry closed elsewhere.
 //!
 //! ## Falsifiability surface
 //!
@@ -150,24 +176,37 @@
 //! live in the outbox row keyed by the idempotency key, so a journal that
 //! outlives the process cannot leak prompt or output content.
 
+pub mod activity;
 pub mod clock;
 pub mod echo;
 pub mod engine;
 pub mod event;
 pub mod fault;
+pub mod fs_effect;
 pub mod hash;
 pub mod orchestrator;
+pub mod process;
 pub mod reducer;
 pub mod runtime_id;
 pub mod signal;
 pub mod store;
 
+pub use activity::{
+    ACTIVITY_RECEIPT_KIND, Activity, ActivityError, ActivityReceipt, EffectContext,
+    FencedFileActivity, PollOutcome, ScriptedActivity, UNFENCED_EPOCH, fenced_side_output_count,
+    read_fenced_side_outputs,
+};
 pub use clock::{Clock, ManualClock};
 pub use engine::{EngineError, RunOutcome, RunSpec, SpikeEngine, StepSpec};
 pub use event::{
-    CancelOrigin, RUN_EVENT_FORMAT_VERSION, RunEvent, RunEventKind, TerminalReason, UpcastError,
+    CancelOrigin, RUN_EVENT_FORMAT_VERSION, ReconcileOrigin, ReconcileResolution, RunEvent,
+    RunEventKind, TerminalReason, UpcastError,
+};
+pub use fs_effect::{
+    FixedWorktreeState, WorktreeFsWriteActivity, WorktreeState, WorktreeStateProvider,
 };
 pub use orchestrator::{Orchestrator, OrchestratorConfig, OrchestratorError, RunProgress};
+pub use process::{EFFECT_INPUT_ENV, KillableChild, ProcessActivity, kill_process_group};
 pub use reducer::{NodeState, ReduceError, RunState, RunView, reduce};
 pub use signal::{NoSignals, ScriptedSignals, SignalDeposit, SignalSource};
 // The falsifiability surface is harness-only since Phase I: no production
@@ -178,5 +217,6 @@ pub use signal::{NoSignals, ScriptedSignals, SignalDeposit, SignalSource};
 pub use fault::{FaultHook, FaultPoint, NoFaults, SpikeKnobs};
 pub use hash::{IdempotencyKey, StepRequest, canonical_digest, step_request_hash};
 pub use store::{
-    GcOutcome, LeaseState, RetentionPolicy, RunStatus, RunStore, Snapshot, SnapshotRead, StoreError,
+    AttemptOutcome, GcOutcome, LeaseState, OpenAttempt, RetentionPolicy, RunStatus, RunStore,
+    Snapshot, SnapshotRead, StoreError,
 };

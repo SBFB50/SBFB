@@ -1419,6 +1419,31 @@
           }
         ]
       },
+      "ReconcileOrigin": {
+        "description": "Who performed a reconciliation of a parked `node_outcome_unknown`\n(Sprint 83 Phase K). A CLOSED set, mirroring [`CancelOrigin`]:\nreconciliation authority is the host operator only — no variant exists\nthat a model output or a pack could route to, and none carries\nfree-form text.",
+        "oneOf": [
+          {
+            "const": "host_operator",
+            "description": "The host operator reconciled — an operator-local gesture, like\nrestore/GC (Phase I): no network route exposes this door.",
+            "type": "string"
+          }
+        ]
+      },
+      "ReconcileResolution": {
+        "description": "What a reconciliation decided. A CLOSED set carrying no free-form text\nand no payload: a recovered result enters through the COMPLETION door\nin the same operator gesture (its receipt digest lands in the\n`effect_completed` entry), never through this entry — so a\nreconciliation alone can never launder an unknown into a success.",
+        "oneOf": [
+          {
+            "const": "abandon",
+            "description": "The operator could not determine the outcome. The run closes as\n`outcome_unknown` — the honest terminal, never an invented success.",
+            "type": "string"
+          },
+          {
+            "const": "result_recovered",
+            "description": "The operator recovered the effect's actual result from the target's\nown durable backend. The accompanying completion entry carries its\ndigest; the node's success comes from THAT evidence, not from this\ndecision.",
+            "type": "string"
+          }
+        ]
+      },
       "RunEventKind": {
         "description": "What happened at one point of a run.",
         "oneOf": [
@@ -1642,6 +1667,107 @@
               "origin"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "One ATTEMPT of an effect failed (Sprint 83 Phase K). The intent\nstays unique per idempotency key — an attempt entry never mints a\nnew intent; it records that target-side work under the SAME key did\nnot confirm. `retryable: false` settles the node as\n`failed_terminal` immediately; `true` leaves it retryable until the\nscope's `max_retries_per_node` budget is exhausted (the reducer\nderives which, purely, from the plan and the count of these\nentries).",
+            "properties": {
+              "attempt": {
+                "description": "1-based attempt number; changes at each retry (§12.5).",
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "effect_id": {
+                "description": "Engine-derived effect id — stable across every attempt.",
+                "type": "string"
+              },
+              "kind": {
+                "const": "effect_attempt_failed",
+                "type": "string"
+              },
+              "retryable": {
+                "description": "Whether the engine may try again under the same key.",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "kind",
+              "effect_id",
+              "attempt",
+              "retryable"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The node's effect outcome is UNKNOWABLE and the run PARKED it for\nreconciliation instead of closing (§12.5, Phase K): a\nnon-idempotent target with no receipt cannot be retried (that could\ndouble the side output) and the absence of a receipt proves\nnothing. Written only when the host configured a reconciliation\npolicy; without one the run closes `run_terminal\n{ outcome_unknown }` exactly as in Phase J. A parked node is\nNEVER re-dispatched.",
+            "properties": {
+              "effect_id": {
+                "description": "Engine-derived effect id left unconfirmed.",
+                "type": "string"
+              },
+              "kind": {
+                "const": "node_outcome_unknown",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "effect_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A host operator reconciled a parked `node_outcome_unknown`\n(Phase K). Closed origin, closed resolution, no payload: a\nrecovered result's material enters through the completion door in\nthe SAME operator gesture, so this entry can never re-label an\nunknown into a success by itself — and the reducer refuses a\ncompletion on a parked node that is not preceded by one of these.",
+            "properties": {
+              "effect_id": {
+                "description": "Engine-derived effect id being reconciled.",
+                "type": "string"
+              },
+              "kind": {
+                "const": "reconciliation_recorded",
+                "type": "string"
+              },
+              "origin": {
+                "$ref": "#/$defs/ReconcileOrigin",
+                "description": "Who reconciled — a closed set, never free-form."
+              },
+              "resolution": {
+                "$ref": "#/$defs/ReconcileResolution",
+                "description": "What was decided — a closed set, never free-form."
+              }
+            },
+            "required": [
+              "kind",
+              "effect_id",
+              "origin",
+              "resolution"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A join FIRED and its delivered-source cohort is FROZEN (Phase K,\nclosing the Phase J carry): a source arriving after this entry can\nno longer widen a `quorum` cohort or replace an `any` winner. The\nreducer reads only that this entry EXISTS (the join is settled); the\nengine's value resolution reads the journaled `sources` cohort —\nneither re-observes runtime arrivals.",
+            "properties": {
+              "kind": {
+                "const": "join_fired",
+                "type": "string"
+              },
+              "sources": {
+                "description": "Node ids (same scope, plan vocabulary) whose edges toward this\njoin had DELIVERED when it fired, in canonical order.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "kind",
+              "sources"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -1660,7 +1786,12 @@
           },
           {
             "const": "cancelled",
-            "description": "The run was cancelled (research §12.7 honest cancel, Sprint 83\nPhase J): emission stopped, in-flight results were KEPT in the\njournal but not propagated, and the run closed as cancelled — never\nre-labelled completed. The `cancel_requested` journal entry carries\nWHO asked ([`CancelOrigin`]); this reason records only the outcome.",
+            "description": "The run was cancelled (research §12.7 honest cancel, Sprint 83\nPhase J): emission stopped, and the run closed as cancelled — never\nre-labelled completed. A result OBSERVED Ready at the cancel drain's\npoll is kept in the journal but not propagated (Phase K); a result\nthat finishes after that poll but before the stop has no second poll\nand is dropped (an inherent race, not a keep-everything guarantee).\nThe `cancel_requested` journal entry carries WHO asked\n([`CancelOrigin`]); this reason records only the outcome.",
+            "type": "string"
+          },
+          {
+            "const": "node_failed",
+            "description": "A node's effect failed terminally (a non-retryable failure, or its\nscope's `max_retries_per_node` budget exhausted) with NOWHERE to\nroute the failure (Sprint 83 Phase K). Written under\n`on_node_failure: fail-workflow`, AND under `route-error-port` when\nthe node has no wired `error` edge (a classifier, or a leaf a plan\nleft unwired) — a failure that cannot be routed fails closed rather\nthan being swallowed. Only a `route-error-port` failure WITH an\n`error` edge routes instead of closing, and then this reason is not\nwritten. The failing attempts are journaled\n(`effect_attempt_failed`); this reason records the workflow-level\noutcome.",
             "type": "string"
           }
         ]

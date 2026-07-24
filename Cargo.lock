@@ -7528,6 +7528,7 @@ name = "sbfb-workflow-engine"
 version = "1.0.0"
 dependencies = [
  "blake3",
+ "libc",
  "rusqlite",
  "rusqlite_migration",
  "sbfb-workflow-core",
@@ -7537,6 +7538,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror 1.0.69",
+ "windows 0.57.0",
 ]
 
 [[package]]

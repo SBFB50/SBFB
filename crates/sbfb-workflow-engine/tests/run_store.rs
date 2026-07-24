@@ -260,8 +260,8 @@ fn store_upgrade_replay_schema_version_guard_at_open() {
             err,
             StoreError::UnsupportedSchemaVersion {
                 found: 99,
-                // 3 since Phase J appended M3 (waits/signals/timers).
-                supported: 3
+                // 4 since Phase K appended M4 (effect attempts).
+                supported: 4
             }
         ),
         "got {err:?}"

@@ -238,12 +238,69 @@ static MIGRATIONS: &[M<'static>] = &[
              max_now_ms INTEGER NOT NULL
          );",
     ),
+    // Phase K — the effect layer's RUNTIME bookkeeping: one row per
+    // ATTEMPT of an effect. The outbox keeps at most ONE intent per node
+    // (its UNIQUE index is the guarantee), so N attempts under that one
+    // intent need a child table. `outcome` NULL = open (in flight);
+    // wall-clock values live here (state table), never in the journal —
+    // WHAT failed and whether it may retry is journaled
+    // (`effect_attempt_failed`), WHEN and with which OS handle is
+    // bookkeeping. `runtime_handle` carries the process-group id an
+    // orphan-reaping resume kills; it is diagnostic data, never authority.
+    M::up(
+        "CREATE TABLE attempts (
+             run_id           TEXT NOT NULL,
+             node_instance_id TEXT NOT NULL,
+             effect_id        TEXT NOT NULL,
+             attempt          INTEGER NOT NULL,
+             started_at_ms    INTEGER NOT NULL,
+             deadline_ms      INTEGER NOT NULL,
+             outcome          TEXT,
+             runtime_handle   TEXT,
+             PRIMARY KEY (run_id, node_instance_id, effect_id, attempt),
+             FOREIGN KEY (run_id) REFERENCES runs(run_id)
+         );",
+    ),
 ];
 
 /// An effect is queued but not confirmed.
 const OUTBOX_PENDING: &str = "pending";
 /// An effect returned its receipt.
 const OUTBOX_APPLIED: &str = "applied";
+
+/// Attempt outcome labels (Phase K) — the closed domain of
+/// `attempts.outcome`. NULL = open. One constant per value, mirrored by
+/// [`AttemptOutcome`]; never a bare literal at a call site.
+const ATTEMPT_OUTCOME_FAILED: &str = "failed";
+const ATTEMPT_OUTCOME_COMPLETED: &str = "completed";
+const ATTEMPT_OUTCOME_LATE: &str = "late";
+const ATTEMPT_OUTCOME_CANCELLED: &str = "cancelled";
+const ATTEMPT_OUTCOME_UNKNOWN: &str = "unknown";
+
+/// How an attempt's bookkeeping row may be closed by a caller-facing door
+/// (the journaled paths — failure, park — close their row themselves).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AttemptOutcome {
+    /// The attempt's process/work was stopped by the cancel path.
+    Cancelled,
+    /// The attempt's result landed AFTER a cancellation
+    /// (`record_late_completion` carries the journal side).
+    Late,
+    /// The attempt's outcome is unknowable and the RUN closed terminally
+    /// `outcome_unknown` (the no-reconciliation-policy path — the park
+    /// path closes its own row through `record_node_outcome_unknown`).
+    Unknown,
+}
+
+impl AttemptOutcome {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Cancelled => ATTEMPT_OUTCOME_CANCELLED,
+            Self::Late => ATTEMPT_OUTCOME_LATE,
+            Self::Unknown => ATTEMPT_OUTCOME_UNKNOWN,
+        }
+    }
+}
 
 /// A wait is open: its nonce is spendable exactly once.
 const WAIT_OPEN: &str = "open";
@@ -337,6 +394,24 @@ pub struct PendingEffect {
     /// intent time. A resume against a DIFFERENT backend must not be allowed
     /// to reuse the key: the receipt lives in the first one.
     pub dedup_scope: String,
+}
+
+/// One OPEN attempt of an effect (Phase K): runtime bookkeeping under the
+/// single durable intent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpenAttempt {
+    /// Node whose effect is being attempted.
+    pub node_instance_id: String,
+    /// Engine-derived effect id — stable across attempts.
+    pub effect_id: String,
+    /// 1-based attempt number.
+    pub attempt: u32,
+    /// When this attempt started (caller's clock, state table only).
+    pub started_at_ms: i64,
+    /// ABSOLUTE deadline of this attempt.
+    pub deadline_ms: i64,
+    /// OS-level handle (process-group id) an orphan-reaping resume kills.
+    pub runtime_handle: Option<String>,
 }
 
 /// The store failed.
@@ -1099,6 +1174,20 @@ impl RunStore {
                     "completion for {effect_id} matched {updated} pending outbox rows"
                 )));
             }
+            // Close the open attempt's bookkeeping row with the same
+            // atomicity (Phase K; 0 rows for the spike path, which has no
+            // attempts — deliberately uncounted).
+            conn.execute(
+                "UPDATE attempts SET outcome = ?1
+                 WHERE run_id = ?2 AND node_instance_id = ?3 AND effect_id = ?4
+                   AND outcome IS NULL",
+                params![
+                    ATTEMPT_OUTCOME_COMPLETED,
+                    run_id,
+                    node_instance_id,
+                    effect_id
+                ],
+            )?;
             conn.execute(
                 "UPDATE runs SET frontier_node = ?1 WHERE run_id = ?2",
                 params![node_instance_id, run_id],
@@ -1178,6 +1267,12 @@ impl RunStore {
                     "late completion for {effect_id} matched {updated} pending outbox rows"
                 )));
             }
+            conn.execute(
+                "UPDATE attempts SET outcome = ?1
+                 WHERE run_id = ?2 AND node_instance_id = ?3 AND effect_id = ?4
+                   AND outcome IS NULL",
+                params![ATTEMPT_OUTCOME_LATE, run_id, node_instance_id, effect_id],
+            )?;
             // Deliberately NO frontier update — that is the whole point.
             Ok(())
         })
@@ -2253,11 +2348,11 @@ impl RunStore {
         })
     }
 
-    /// Journal one SCHEDULER DECISION (`branch_taken`, `map_fanout`) for a
-    /// node, in its own transaction — written BEFORE the scheduler acts on
-    /// the decision, which is the replay-divergence mitigation: the reducer
-    /// rebuilds control flow from these entries without parsing any
-    /// payload.
+    /// Journal one SCHEDULER DECISION (`branch_taken`, `map_fanout`,
+    /// `join_fired`) for a node, in its own transaction — written BEFORE
+    /// the scheduler acts on the decision, which is the replay-divergence
+    /// mitigation: the reducer rebuilds control flow from these entries
+    /// without parsing any payload.
     pub(crate) fn record_decision(
         &self,
         run_id: &str,
@@ -2267,7 +2362,9 @@ impl RunStore {
         debug_assert!(
             matches!(
                 kind,
-                RunEventKind::BranchTaken { .. } | RunEventKind::MapFanout { .. }
+                RunEventKind::BranchTaken { .. }
+                    | RunEventKind::MapFanout { .. }
+                    | RunEventKind::JoinFired { .. }
             ),
             "record_decision is the door for scheduler decisions only"
         );
@@ -2275,6 +2372,329 @@ impl RunStore {
             append_event(conn, run_id, Some(node_instance_id), None, kind)?;
             Ok(())
         })
+    }
+
+    // ── effect attempts (Phase K) ─────────────────────────────────────────
+
+    /// Open one ATTEMPT of an effect: runtime bookkeeping under the single
+    /// durable intent (the outbox row). Refused when no PENDING outbox row
+    /// exists for the key (an attempt without an intent is the causal
+    /// order the reducer also refuses) or when an attempt is already open
+    /// (one in-flight attempt per effect — the child-table mirror of
+    /// `outbox_one_effect_per_node`).
+    #[allow(clippy::too_many_arguments)]
+    pub fn record_attempt_started(
+        &self,
+        run_id: &str,
+        node_instance_id: &str,
+        effect_id: &str,
+        attempt: u32,
+        started_at_ms: i64,
+        deadline_ms: i64,
+        runtime_handle: Option<&str>,
+    ) -> Result<(), StoreError> {
+        self.in_immediate_tx(|conn| {
+            let pending: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM outbox
+                 WHERE run_id = ?1 AND node_instance_id = ?2 AND effect_id = ?3 AND state = ?4",
+                params![run_id, node_instance_id, effect_id, OUTBOX_PENDING],
+                |row| row.get(0),
+            )?;
+            if pending != 1 {
+                return Err(StoreError::InvalidInput {
+                    what: "attempt",
+                    reason: format!("no pending intent for effect {effect_id}"),
+                });
+            }
+            let open: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM attempts
+                 WHERE run_id = ?1 AND node_instance_id = ?2 AND effect_id = ?3
+                   AND outcome IS NULL",
+                params![run_id, node_instance_id, effect_id],
+                |row| row.get(0),
+            )?;
+            if open != 0 {
+                return Err(StoreError::InvalidInput {
+                    what: "attempt",
+                    reason: format!("an attempt is already open for effect {effect_id}"),
+                });
+            }
+            conn.execute(
+                "INSERT INTO attempts
+                 (run_id, node_instance_id, effect_id, attempt, started_at_ms,
+                  deadline_ms, outcome, runtime_handle)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, ?7)",
+                params![
+                    run_id,
+                    node_instance_id,
+                    effect_id,
+                    i64::from(attempt),
+                    started_at_ms,
+                    deadline_ms,
+                    runtime_handle
+                ],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// Attach the OS-level runtime handle (a process-group id) to the open
+    /// attempt, once the adapter knows it. Diagnostic bookkeeping an
+    /// orphan-reaping resume reads — never authority.
+    pub fn set_attempt_handle(
+        &self,
+        run_id: &str,
+        node_instance_id: &str,
+        effect_id: &str,
+        attempt: u32,
+        runtime_handle: &str,
+    ) -> Result<(), StoreError> {
+        self.in_immediate_tx(|conn| {
+            conn.execute(
+                "UPDATE attempts SET runtime_handle = ?1
+                 WHERE run_id = ?2 AND node_instance_id = ?3 AND effect_id = ?4
+                   AND attempt = ?5 AND outcome IS NULL",
+                params![
+                    runtime_handle,
+                    run_id,
+                    node_instance_id,
+                    effect_id,
+                    i64::from(attempt)
+                ],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// The node's OPEN attempt, if any (at most one by construction).
+    pub fn open_attempt(
+        &self,
+        run_id: &str,
+        node_instance_id: &str,
+    ) -> Result<Option<OpenAttempt>, StoreError> {
+        self.conn
+            .query_row(
+                "SELECT node_instance_id, effect_id, attempt, started_at_ms,
+                        deadline_ms, runtime_handle
+                 FROM attempts
+                 WHERE run_id = ?1 AND node_instance_id = ?2 AND outcome IS NULL",
+                params![run_id, node_instance_id],
+                open_attempt_from_row,
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
+    /// Every OPEN attempt of the run, in canonical node order — what the
+    /// cancel path walks to stop in-flight work.
+    pub fn open_attempts(&self, run_id: &str) -> Result<Vec<OpenAttempt>, StoreError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT node_instance_id, effect_id, attempt, started_at_ms,
+                    deadline_ms, runtime_handle
+             FROM attempts
+             WHERE run_id = ?1 AND outcome IS NULL
+             ORDER BY node_instance_id ASC",
+        )?;
+        let rows = stmt.query_map(params![run_id], open_attempt_from_row)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+    }
+
+    /// Journal one attempt FAILURE and close its bookkeeping row, in ONE
+    /// transaction. Journal hygiene: refused on a run that is not RUNNING
+    /// (the fire-timer precedent — no orphan entries on a closed journal).
+    pub fn record_attempt_failed(
+        &self,
+        run_id: &str,
+        node_instance_id: &str,
+        effect_id: &str,
+        attempt: u32,
+        retryable: bool,
+    ) -> Result<(), StoreError> {
+        self.in_immediate_tx(|conn| {
+            require_running(conn, run_id, "effect_attempt_failed")?;
+            append_event(
+                conn,
+                run_id,
+                Some(node_instance_id),
+                None,
+                &RunEventKind::EffectAttemptFailed {
+                    effect_id: effect_id.to_string(),
+                    attempt,
+                    retryable,
+                },
+            )?;
+            let closed = conn.execute(
+                "UPDATE attempts SET outcome = ?1
+                 WHERE run_id = ?2 AND node_instance_id = ?3 AND effect_id = ?4
+                   AND attempt = ?5 AND outcome IS NULL",
+                params![
+                    ATTEMPT_OUTCOME_FAILED,
+                    run_id,
+                    node_instance_id,
+                    effect_id,
+                    i64::from(attempt)
+                ],
+            )?;
+            if closed != 1 {
+                return Err(StoreError::Corrupt(format!(
+                    "attempt failure for {effect_id}#{attempt} matched {closed} open rows"
+                )));
+            }
+            Ok(())
+        })
+    }
+
+    /// Close an open attempt's bookkeeping row WITHOUT a journal entry —
+    /// the cancel path's stop (the journal already carries
+    /// `cancel_requested`; a per-attempt entry would say nothing new).
+    pub fn close_attempt(
+        &self,
+        run_id: &str,
+        node_instance_id: &str,
+        effect_id: &str,
+        attempt: u32,
+        outcome: AttemptOutcome,
+    ) -> Result<(), StoreError> {
+        self.in_immediate_tx(|conn| {
+            conn.execute(
+                "UPDATE attempts SET outcome = ?1
+                 WHERE run_id = ?2 AND node_instance_id = ?3 AND effect_id = ?4
+                   AND attempt = ?5 AND outcome IS NULL",
+                params![
+                    outcome.as_str(),
+                    run_id,
+                    node_instance_id,
+                    effect_id,
+                    i64::from(attempt)
+                ],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// Close the node's OPEN attempt row (by `outcome IS NULL`, no attempt
+    /// number needed) — the no-reconciliation-policy terminal path (the
+    /// park path closes its row atomically inside
+    /// `record_node_outcome_unknown`). Deliberately NOT gated on a RUNNING
+    /// run and called AFTER `record_terminal`: the two doors are separate
+    /// transactions, and terminal-first fails safe (a crash between them
+    /// leaves benign closed-run bookkeeping, never a Running run whose
+    /// closed row would collide with the next attempt's PK). No journal
+    /// entry: the run's `run_terminal { outcome_unknown }` is the decision.
+    pub fn close_open_attempt(
+        &self,
+        run_id: &str,
+        node_instance_id: &str,
+        effect_id: &str,
+        outcome: AttemptOutcome,
+    ) -> Result<(), StoreError> {
+        self.in_immediate_tx(|conn| {
+            conn.execute(
+                "UPDATE attempts SET outcome = ?1
+                 WHERE run_id = ?2 AND node_instance_id = ?3 AND effect_id = ?4
+                   AND outcome IS NULL",
+                params![outcome.as_str(), run_id, node_instance_id, effect_id],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// PARK the node as `outcome_unknown` (§12.5, reconciliation policy
+    /// configured): journal the park and close the open attempt, in ONE
+    /// transaction. The run STAYS RUNNING — that is the whole point; the
+    /// no-policy path calls [`RunStore::record_terminal`] instead.
+    pub fn record_node_outcome_unknown(
+        &self,
+        run_id: &str,
+        node_instance_id: &str,
+        effect_id: &str,
+    ) -> Result<(), StoreError> {
+        self.in_immediate_tx(|conn| {
+            require_running(conn, run_id, "node_outcome_unknown")?;
+            append_event(
+                conn,
+                run_id,
+                Some(node_instance_id),
+                None,
+                &RunEventKind::NodeOutcomeUnknown {
+                    effect_id: effect_id.to_string(),
+                },
+            )?;
+            conn.execute(
+                "UPDATE attempts SET outcome = ?1
+                 WHERE run_id = ?2 AND node_instance_id = ?3 AND effect_id = ?4
+                   AND outcome IS NULL",
+                params![ATTEMPT_OUTCOME_UNKNOWN, run_id, node_instance_id, effect_id],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// Journal an operator RECONCILIATION of a parked node. Refused on a
+    /// run that is not RUNNING: a closed run is absorbing — reconciling a
+    /// TERMINAL `outcome_unknown` is exactly the laundering K.4 forbids.
+    /// The caller (orchestrator) verifies the node IS parked; a recovered
+    /// result's material goes through the completion door in the same
+    /// gesture.
+    pub fn record_reconciliation(
+        &self,
+        run_id: &str,
+        node_instance_id: &str,
+        effect_id: &str,
+        origin: crate::event::ReconcileOrigin,
+        resolution: crate::event::ReconcileResolution,
+    ) -> Result<(), StoreError> {
+        self.in_immediate_tx(|conn| {
+            require_running(conn, run_id, "reconciliation_recorded")?;
+            append_event(
+                conn,
+                run_id,
+                Some(node_instance_id),
+                None,
+                &RunEventKind::ReconciliationRecorded {
+                    effect_id: effect_id.to_string(),
+                    origin,
+                    resolution,
+                },
+            )?;
+            Ok(())
+        })
+    }
+
+    /// Fire one due timer WITHOUT journaling anything — the pacing timers
+    /// of the effect layer (attempt deadlines, retry backoff). Same CAS as
+    /// [`RunStore::fire_timer_with_cancel`] (at most one fire ever), same
+    /// journal-hygiene gate on a RUNNING run; but pacing is not a
+    /// decision, so nothing reaches the journal and outcomes cannot
+    /// depend on it.
+    pub(crate) fn fire_timer_plain(
+        &self,
+        run_id: &str,
+        timer_id: &str,
+    ) -> Result<bool, StoreError> {
+        self.in_immediate_tx(|conn| {
+            let fired = conn.execute(
+                "UPDATE timers SET fired = 1
+                 WHERE run_id = ?1 AND timer_id = ?2 AND fired = 0
+                   AND EXISTS (SELECT 1 FROM runs r
+                               WHERE r.run_id = ?1 AND r.status = ?3)",
+                params![run_id, timer_id, RunStatus::Running.as_str()],
+            )?;
+            Ok(fired == 1)
+        })
+    }
+
+    /// Whether a timer has FIRED (pacing reads for the retry gate).
+    pub(crate) fn timer_fired(&self, run_id: &str, timer_id: &str) -> Result<bool, StoreError> {
+        let fired: Option<i64> = self
+            .conn
+            .query_row(
+                "SELECT fired FROM timers WHERE run_id = ?1 AND timer_id = ?2",
+                params![run_id, timer_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(fired == Some(1))
     }
 
     // ── disposable snapshots (Phase I) ────────────────────────────────────
@@ -2554,6 +2974,15 @@ impl RunStore {
                         conn.execute("DELETE FROM inbox WHERE run_id = ?1", params![run_id])?;
                         conn.execute("DELETE FROM outbox WHERE run_id = ?1", params![run_id])?;
                         conn.execute("DELETE FROM run_events WHERE run_id = ?1", params![run_id])?;
+                        // Phase J/K child state (waits, signals, timers,
+                        // attempts) goes with the run — leaving any row
+                        // behind would trip the runs FOREIGN KEY below
+                        // (latent since J for a completed run holding a
+                        // timer row; surfaced by the K attempts table).
+                        conn.execute("DELETE FROM waits WHERE run_id = ?1", params![run_id])?;
+                        conn.execute("DELETE FROM signals WHERE run_id = ?1", params![run_id])?;
+                        conn.execute("DELETE FROM timers WHERE run_id = ?1", params![run_id])?;
+                        conn.execute("DELETE FROM attempts WHERE run_id = ?1", params![run_id])?;
                         if faults.hit(FaultPoint::InsideGcTransaction) == FaultAction::Halt {
                             return Err(StoreError::HaltedInTransaction {
                                 at: FaultPoint::InsideGcTransaction,
@@ -2565,6 +2994,13 @@ impl RunStore {
                     RunStatus::Terminal => {
                         conn.execute("DELETE FROM snapshots WHERE run_id = ?1", params![run_id])?;
                         conn.execute("DELETE FROM inbox WHERE run_id = ?1", params![run_id])?;
+                        // Bookkeeping child state is purgeable; the runs
+                        // row and the run_terminal entry — the DIAGNOSIS —
+                        // survive below.
+                        conn.execute("DELETE FROM waits WHERE run_id = ?1", params![run_id])?;
+                        conn.execute("DELETE FROM signals WHERE run_id = ?1", params![run_id])?;
+                        conn.execute("DELETE FROM timers WHERE run_id = ?1", params![run_id])?;
+                        conn.execute("DELETE FROM attempts WHERE run_id = ?1", params![run_id])?;
                         conn.execute(
                             "DELETE FROM outbox WHERE run_id = ?1 AND state != ?2",
                             params![run_id, OUTBOX_PENDING],
@@ -2618,6 +3054,10 @@ impl RunStore {
             conn.execute("DELETE FROM inbox WHERE run_id = ?1", params![run_id])?;
             conn.execute("DELETE FROM outbox WHERE run_id = ?1", params![run_id])?;
             conn.execute("DELETE FROM run_events WHERE run_id = ?1", params![run_id])?;
+            conn.execute("DELETE FROM waits WHERE run_id = ?1", params![run_id])?;
+            conn.execute("DELETE FROM signals WHERE run_id = ?1", params![run_id])?;
+            conn.execute("DELETE FROM timers WHERE run_id = ?1", params![run_id])?;
+            conn.execute("DELETE FROM attempts WHERE run_id = ?1", params![run_id])?;
             conn.execute("DELETE FROM runs WHERE run_id = ?1", params![run_id])?;
             Ok(())
         })
@@ -2825,7 +3265,35 @@ impl RunStore {
             "state_digest",
         ];
         const LEASE: &[&str] = &["id", "owner", "epoch", "expires_at_ms"];
-        let required: &[(&str, &[&str])] = if user_version >= 3 {
+        const ATTEMPTS: &[&str] = &[
+            "run_id",
+            "node_instance_id",
+            "effect_id",
+            "attempt",
+            "started_at_ms",
+            "deadline_ms",
+            "outcome",
+            "runtime_handle",
+        ];
+        const WAITS: &[&str] = &[
+            "run_id",
+            "node_instance_id",
+            "signal_name",
+            "nonce",
+            "status",
+        ];
+        const SIGNALS: &[&str] = &[
+            "run_id",
+            "nonce",
+            "payload",
+            "decision_label",
+            "expires_at_ms",
+            "deposited_at_ms",
+            "consumed",
+        ];
+        const TIMERS: &[&str] = &["run_id", "timer_id", "deadline_ms", "fired"];
+        const CLOCK_WATERMARK: &[&str] = &["id", "max_now_ms"];
+        let required: &[(&str, &[&str])] = if user_version >= 4 {
             &[
                 ("runs", RUNS_V3),
                 ("run_events", RUN_EVENTS),
@@ -2833,30 +3301,24 @@ impl RunStore {
                 ("inbox", INBOX),
                 ("snapshots", SNAPSHOTS),
                 ("lease", LEASE),
-                (
-                    "waits",
-                    &[
-                        "run_id",
-                        "node_instance_id",
-                        "signal_name",
-                        "nonce",
-                        "status",
-                    ],
-                ),
-                (
-                    "signals",
-                    &[
-                        "run_id",
-                        "nonce",
-                        "payload",
-                        "decision_label",
-                        "expires_at_ms",
-                        "deposited_at_ms",
-                        "consumed",
-                    ],
-                ),
-                ("timers", &["run_id", "timer_id", "deadline_ms", "fired"]),
-                ("clock_watermark", &["id", "max_now_ms"]),
+                ("waits", WAITS),
+                ("signals", SIGNALS),
+                ("timers", TIMERS),
+                ("clock_watermark", CLOCK_WATERMARK),
+                ("attempts", ATTEMPTS),
+            ]
+        } else if user_version >= 3 {
+            &[
+                ("runs", RUNS_V3),
+                ("run_events", RUN_EVENTS),
+                ("outbox", OUTBOX),
+                ("inbox", INBOX),
+                ("snapshots", SNAPSHOTS),
+                ("lease", LEASE),
+                ("waits", WAITS),
+                ("signals", SIGNALS),
+                ("timers", TIMERS),
+                ("clock_watermark", CLOCK_WATERMARK),
             ]
         } else if user_version >= 2 {
             &[
@@ -2928,6 +3390,7 @@ impl RunStore {
                 "signals" => &["run_id", "nonce"],
                 "timers" => &["run_id", "timer_id"],
                 "clock_watermark" => &["id"],
+                "attempts" => &["run_id", "node_instance_id", "effect_id", "attempt"],
                 _ => &[],
             };
             let mut actual_pk: Vec<&str> = found
@@ -2951,7 +3414,14 @@ impl RunStore {
             // inbox's unknown-run refusal is this constraint, nothing else.
             let needs_fk = matches!(
                 *table,
-                "run_events" | "outbox" | "inbox" | "snapshots" | "waits" | "signals" | "timers"
+                "run_events"
+                    | "outbox"
+                    | "inbox"
+                    | "snapshots"
+                    | "waits"
+                    | "signals"
+                    | "timers"
+                    | "attempts"
             );
             if needs_fk {
                 // The guarantee is precisely "run_id REFERENCES runs" — a
@@ -3111,6 +3581,46 @@ impl RunStore {
         })
     }
 
+    /// HARNESS entry point — like
+    /// [`RunStore::append_raw_event_for_harness`] but NODE-SCOPED, so the
+    /// Phase K causal-order guards (completion without intent, completion
+    /// on a parked node without reconciliation) can be exercised against
+    /// journals no production door can write. Behind `spike-faults`.
+    #[cfg(feature = "spike-faults")]
+    pub fn append_raw_node_event_for_harness(
+        &self,
+        run_id: &str,
+        node_instance_id: &str,
+        kind: &str,
+        payload: &str,
+    ) -> Result<u64, StoreError> {
+        self.in_immediate_tx(|conn| {
+            let sequence: i64 = conn.query_row(
+                "SELECT next_sequence FROM runs WHERE run_id = ?1",
+                params![run_id],
+                |row| row.get(0),
+            )?;
+            conn.execute(
+                "INSERT INTO run_events
+                     (run_id, sequence, format_version, kind, node_instance_id, request_hash, payload)
+                 VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6)",
+                params![
+                    run_id,
+                    sequence,
+                    i64::from(RUN_EVENT_FORMAT_VERSION),
+                    kind,
+                    node_instance_id,
+                    payload
+                ],
+            )?;
+            conn.execute(
+                "UPDATE runs SET next_sequence = ?1 WHERE run_id = ?2",
+                params![sequence + 1, run_id],
+            )?;
+            Ok(sequence as u64)
+        })
+    }
+
     /// `BEGIN IMMEDIATE` / `COMMIT` / `ROLLBACK` around one closure — the
     /// explicit-transaction shape already used by the coordinator feed
     /// (`nexus-coordinator-rs/src/public_feed.rs`).
@@ -3191,6 +3701,43 @@ fn snapshot_digest_subject(
         "upto": upto_sequence,
         "state": state,
     })
+}
+
+/// Map one attempts row to [`OpenAttempt`] (shared by the single-row and
+/// the per-run readers).
+fn open_attempt_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<OpenAttempt> {
+    let attempt_raw: i64 = row.get(2)?;
+    Ok(OpenAttempt {
+        node_instance_id: row.get(0)?,
+        effect_id: row.get(1)?,
+        attempt: u32::try_from(attempt_raw)
+            .map_err(|_| rusqlite::Error::IntegralValueOutOfRange(2, attempt_raw))?,
+        started_at_ms: row.get(3)?,
+        deadline_ms: row.get(4)?,
+        runtime_handle: row.get(5)?,
+    })
+}
+
+/// Journal hygiene guard (Phase K, the fire-timer SD-5 precedent made
+/// reusable): a door that appends to the journal refuses a run that is not
+/// RUNNING, so a closed journal never grows orphan entries. Callers MUST
+/// already be inside the write transaction.
+fn require_running(conn: &Connection, run_id: &str, to: &'static str) -> Result<(), StoreError> {
+    let status: Option<String> = conn
+        .query_row(
+            "SELECT status FROM runs WHERE run_id = ?1",
+            params![run_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    match status.as_deref() {
+        Some(s) if s == RunStatus::Running.as_str() => Ok(()),
+        other => Err(StoreError::InvalidTransition {
+            run_id: run_id.to_string(),
+            from: other.unwrap_or("absent").to_string(),
+            to,
+        }),
+    }
 }
 
 /// Append one entry and advance the run's sequence. Callers MUST already be

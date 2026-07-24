@@ -55,7 +55,10 @@ use serde::{Deserialize, Serialize};
 /// exists, ADDING variants to [`RunEventKind`] REDEFINES version 1 rather
 /// than bumping — Phase J added its scheduler-decision entries
 /// (`branch_taken`, `map_fanout`, `signal_consumed`,
-/// `human_decision_recorded`, `cancel_requested`) exactly this way. The
+/// `human_decision_recorded`, `cancel_requested`) exactly this way, and
+/// Phase K added its effect-layer entries (`effect_attempt_failed`,
+/// `node_outcome_unknown`, `reconciliation_recorded`, `join_fired`) the
+/// same way. The
 /// constant moves the day a released journal must stay readable across the
 /// change, and its first bump must bring the missing upcaster hop with it
 /// (the chain-length invariant fails closed otherwise).
@@ -76,11 +79,26 @@ pub enum TerminalReason {
     /// the effect) or inventing a success.
     OutcomeUnknown,
     /// The run was cancelled (research §12.7 honest cancel, Sprint 83
-    /// Phase J): emission stopped, in-flight results were KEPT in the
-    /// journal but not propagated, and the run closed as cancelled — never
-    /// re-labelled completed. The `cancel_requested` journal entry carries
-    /// WHO asked ([`CancelOrigin`]); this reason records only the outcome.
+    /// Phase J): emission stopped, and the run closed as cancelled — never
+    /// re-labelled completed. A result OBSERVED Ready at the cancel drain's
+    /// poll is kept in the journal but not propagated (Phase K); a result
+    /// that finishes after that poll but before the stop has no second poll
+    /// and is dropped (an inherent race, not a keep-everything guarantee).
+    /// The `cancel_requested` journal entry carries WHO asked
+    /// ([`CancelOrigin`]); this reason records only the outcome.
     Cancelled,
+    /// A node's effect failed terminally (a non-retryable failure, or its
+    /// scope's `max_retries_per_node` budget exhausted) with NOWHERE to
+    /// route the failure (Sprint 83 Phase K). Written under
+    /// `on_node_failure: fail-workflow`, AND under `route-error-port` when
+    /// the node has no wired `error` edge (a classifier, or a leaf a plan
+    /// left unwired) — a failure that cannot be routed fails closed rather
+    /// than being swallowed. Only a `route-error-port` failure WITH an
+    /// `error` edge routes instead of closing, and then this reason is not
+    /// written. The failing attempts are journaled
+    /// (`effect_attempt_failed`); this reason records the workflow-level
+    /// outcome.
+    NodeFailed,
 }
 
 impl TerminalReason {
@@ -93,8 +111,40 @@ impl TerminalReason {
             Self::StepHashMismatch => "step_hash_mismatch",
             Self::OutcomeUnknown => "outcome_unknown",
             Self::Cancelled => "cancelled",
+            Self::NodeFailed => "node_failed",
         }
     }
+}
+
+/// Who performed a reconciliation of a parked `node_outcome_unknown`
+/// (Sprint 83 Phase K). A CLOSED set, mirroring [`CancelOrigin`]:
+/// reconciliation authority is the host operator only — no variant exists
+/// that a model output or a pack could route to, and none carries
+/// free-form text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ReconcileOrigin {
+    /// The host operator reconciled — an operator-local gesture, like
+    /// restore/GC (Phase I): no network route exposes this door.
+    HostOperator,
+}
+
+/// What a reconciliation decided. A CLOSED set carrying no free-form text
+/// and no payload: a recovered result enters through the COMPLETION door
+/// in the same operator gesture (its receipt digest lands in the
+/// `effect_completed` entry), never through this entry — so a
+/// reconciliation alone can never launder an unknown into a success.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ReconcileResolution {
+    /// The operator could not determine the outcome. The run closes as
+    /// `outcome_unknown` — the honest terminal, never an invented success.
+    Abandon,
+    /// The operator recovered the effect's actual result from the target's
+    /// own durable backend. The accompanying completion entry carries its
+    /// digest; the node's success comes from THAT evidence, not from this
+    /// decision.
+    ResultRecovered,
 }
 
 /// Who asked for a cancellation. A CLOSED set: cancellation authority is
@@ -211,6 +261,59 @@ pub enum RunEventKind {
         /// Who asked — a closed set, never free-form.
         origin: CancelOrigin,
     },
+    /// One ATTEMPT of an effect failed (Sprint 83 Phase K). The intent
+    /// stays unique per idempotency key — an attempt entry never mints a
+    /// new intent; it records that target-side work under the SAME key did
+    /// not confirm. `retryable: false` settles the node as
+    /// `failed_terminal` immediately; `true` leaves it retryable until the
+    /// scope's `max_retries_per_node` budget is exhausted (the reducer
+    /// derives which, purely, from the plan and the count of these
+    /// entries).
+    EffectAttemptFailed {
+        /// Engine-derived effect id — stable across every attempt.
+        effect_id: String,
+        /// 1-based attempt number; changes at each retry (§12.5).
+        attempt: u32,
+        /// Whether the engine may try again under the same key.
+        retryable: bool,
+    },
+    /// The node's effect outcome is UNKNOWABLE and the run PARKED it for
+    /// reconciliation instead of closing (§12.5, Phase K): a
+    /// non-idempotent target with no receipt cannot be retried (that could
+    /// double the side output) and the absence of a receipt proves
+    /// nothing. Written only when the host configured a reconciliation
+    /// policy; without one the run closes `run_terminal
+    /// { outcome_unknown }` exactly as in Phase J. A parked node is
+    /// NEVER re-dispatched.
+    NodeOutcomeUnknown {
+        /// Engine-derived effect id left unconfirmed.
+        effect_id: String,
+    },
+    /// A host operator reconciled a parked `node_outcome_unknown`
+    /// (Phase K). Closed origin, closed resolution, no payload: a
+    /// recovered result's material enters through the completion door in
+    /// the SAME operator gesture, so this entry can never re-label an
+    /// unknown into a success by itself — and the reducer refuses a
+    /// completion on a parked node that is not preceded by one of these.
+    ReconciliationRecorded {
+        /// Engine-derived effect id being reconciled.
+        effect_id: String,
+        /// Who reconciled — a closed set, never free-form.
+        origin: ReconcileOrigin,
+        /// What was decided — a closed set, never free-form.
+        resolution: ReconcileResolution,
+    },
+    /// A join FIRED and its delivered-source cohort is FROZEN (Phase K,
+    /// closing the Phase J carry): a source arriving after this entry can
+    /// no longer widen a `quorum` cohort or replace an `any` winner. The
+    /// reducer reads only that this entry EXISTS (the join is settled); the
+    /// engine's value resolution reads the journaled `sources` cohort —
+    /// neither re-observes runtime arrivals.
+    JoinFired {
+        /// Node ids (same scope, plan vocabulary) whose edges toward this
+        /// join had DELIVERED when it fired, in canonical order.
+        sources: Vec<String>,
+    },
 }
 
 impl RunEventKind {
@@ -228,6 +331,10 @@ impl RunEventKind {
             Self::SignalConsumed { .. } => "signal_consumed",
             Self::HumanDecisionRecorded { .. } => "human_decision_recorded",
             Self::CancelRequested { .. } => "cancel_requested",
+            Self::EffectAttemptFailed { .. } => "effect_attempt_failed",
+            Self::NodeOutcomeUnknown { .. } => "node_outcome_unknown",
+            Self::ReconciliationRecorded { .. } => "reconciliation_recorded",
+            Self::JoinFired { .. } => "join_fired",
         }
     }
 }

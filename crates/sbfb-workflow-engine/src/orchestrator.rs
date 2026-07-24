@@ -20,11 +20,12 @@
 //!
 //! Everything the walk decides is either DERIVED from the plan topology
 //! (reducer) or JOURNALED BEFORE it is acted on (`branch_taken`,
-//! `map_fanout`, consumptions, cancellation). The ready-set is dispatched
-//! in canonical id order under a bounded in-flight cap — admission order
-//! is a pure function of the journal, never of a HashMap or a clock. The
-//! echo activity of Phase E is the only effect target; real adapters are
-//! Phase K.
+//! `map_fanout`, `join_fired`, attempt failures, parks, consumptions,
+//! cancellation). The ready-set is dispatched in canonical id order under
+//! a bounded in-flight cap — admission order is a pure function of the
+//! journal, never of a HashMap or a clock. Retry BACKOFF is durable
+//! pacing (`er:` timers): it changes WHEN a retry dispatches, never what
+//! any outcome is.
 //!
 //! ## Value plumbing
 //!
@@ -35,25 +36,46 @@
 //! output resolution inverts it (single-port maps collapse to the port's
 //! value, so a value passes through a leaf chain UNCHANGED — what makes
 //! the golden fixtures' pre-seeded routing fields reach their switch).
+//! A structured activity receipt (Phase K) carries its `output` member
+//! instead; a terminally-failed leaf resolves to a deterministic error
+//! object on its `error` edge.
 //!
-//! ## What Phase J does NOT do (honest bounds)
+//! ## The effect layer (Sprint 83 Phase K)
 //!
-//! Real effects, retries/backoff, per-node timeouts, receipts,
-//! `outcome_unknown` reconciliation and the external-effect window are
-//! Phase K. Capability attenuation is L, the secret vault and the signed
-//! HITL approval are L1. A failing effect target surfaces as an error and
-//! leaves the run resumable — error-policy routing (`on_node_failure`) is
-//! K's retry layer.
+//! [`Orchestrator::execute`] drives the FROZEN blocking Phase E/J walk
+//! (echo target, journal behaviour pinned by the golden fixtures);
+//! [`Orchestrator::execute_activity`] drives the non-blocking
+//! [`Activity`] adapter and owns what J deferred: per-attempt deadlines
+//! from the plan's `default_node_timeout_seconds`, journaled failures
+//! under the scope's `max_retries_per_node`, `on_node_failure` routing
+//! (`fail-workflow` closes as `node_failed`; `route-error-port` delivers
+//! the reserved `error` edge), the §12.5 unknowable outcome (terminal, or
+//! PARKED for an operator [`Orchestrator::reconcile_unknown`] when the
+//! host policy says so), the §12.7 late-result routing on cancel, and the
+//! fencing epoch presented target-side.
+//!
+//! ## What Phase K does NOT do (honest bounds)
+//!
+//! Capability attenuation is L, the secret vault and the signed HITL
+//! approval are L1, the rich provider attestation (Ed25519 receipt with
+//! model/CLI facts) is the Phase O adapter layer. Budget METERING
+//! (`cancel_on_budget_exhausted`) still has no meter. Failure REASONS
+//! surface in errors, never in the journal (payload-free by type).
 
 use std::collections::BTreeMap;
 
-use sbfb_workflow_core::compile::{CompiledNodeInstance, CompiledPlan, compiled_plan_digest};
-use sbfb_workflow_core::graph::{JoinPolicy, WorkflowNode};
+use sbfb_workflow_core::compile::{
+    CompiledNodeInstance, CompiledPlan, ERROR_PORT, compiled_plan_digest,
+};
+use sbfb_workflow_core::graph::{JoinPolicy, NodeFailureAction, WorkflowNode};
 
+use crate::activity::{Activity, ActivityError, ActivityReceipt, EffectContext, PollOutcome};
 use crate::clock::Clock;
 use crate::echo::{EffectTarget, TargetError};
 use crate::engine::EngineError;
-use crate::event::{CancelOrigin, TerminalReason};
+use crate::event::{
+    CancelOrigin, ReconcileOrigin, ReconcileResolution, RunEventKind, TerminalReason,
+};
 use crate::hash::{
     HashError, IdempotencyKey, StepRequest, canonical_string, derive_effect_id, derive_wait_nonce,
     step_request_hash, validate_identity_component,
@@ -64,7 +86,7 @@ use crate::reducer::{
 };
 use crate::runtime_id::{child_structural, extend_scope, parent_scope, structural_id};
 use crate::signal::SignalSource;
-use crate::store::{RunStatus, RunStore, StoreError};
+use crate::store::{AttemptOutcome, OpenAttempt, PendingEffect, RunStatus, RunStore, StoreError};
 
 /// Context string of the orchestrated run's spec digest: binds the run to
 /// `(plan digest, input payload)`, so a resume with another plan or input
@@ -96,6 +118,32 @@ pub const DEFAULT_MAX_IN_FLIGHT: usize = 8;
 /// Default lease TTL an orchestrator asks for.
 pub const DEFAULT_LEASE_TTL_MS: i64 = 30_000;
 
+/// Timer-id prefix of the retry-backoff pacing timers (Phase K):
+/// `er:<effect_id>#<failed attempt>`. Effect ids are 64 hex chars, so the
+/// id stays far under the identity bound whatever the node id length.
+pub const RETRY_TIMER_PREFIX: &str = "er:";
+
+/// First retry backoff (doubles per failed attempt).
+pub const RETRY_BACKOFF_BASE_MS: i64 = 1_000;
+
+/// Backoff ceiling — pacing stays bounded (THREAT §19.2 retry-storm), and
+/// pacing NEVER decides outcomes: only the journaled failure count and
+/// the plan's retry budget do.
+pub const RETRY_BACKOFF_MAX_MS: i64 = 60_000;
+
+/// The bounded exponential backoff after `failed_attempts` failures.
+fn backoff_ms(failed_attempts: u32) -> i64 {
+    let shift = failed_attempts.saturating_sub(1).min(16);
+    RETRY_BACKOFF_BASE_MS
+        .saturating_mul(1_i64 << shift)
+        .min(RETRY_BACKOFF_MAX_MS)
+}
+
+/// Pacing timer id of the retry after `failed_attempts` failures.
+fn retry_timer_id(effect_id: &str, failed_attempts: u32) -> String {
+    format!("{RETRY_TIMER_PREFIX}{effect_id}#{failed_attempts}")
+}
+
 /// Host-side configuration of one orchestrator.
 #[derive(Debug, Clone)]
 pub struct OrchestratorConfig {
@@ -105,6 +153,14 @@ pub struct OrchestratorConfig {
     pub lease_ttl_ms: i64,
     /// Bounded in-flight dispatch cap, ≥ 1.
     pub max_in_flight: usize,
+    /// The reconciliation policy (§12.5/§12.7 "pas propagé sans politique
+    /// explicite", Phase K): when `true`, an unknowable non-idempotent
+    /// effect PARKS its node (`node_outcome_unknown`, run stays alive)
+    /// for an operator reconciliation; when `false` (DEFAULT — the
+    /// Phase J behaviour, unchanged) the run closes terminally as
+    /// `outcome_unknown`. A HOST policy, deliberately not a field of the
+    /// signed plan.
+    pub park_unknown_for_reconciliation: bool,
 }
 
 impl OrchestratorConfig {
@@ -114,6 +170,7 @@ impl OrchestratorConfig {
             writer_id: writer_id.into(),
             lease_ttl_ms: DEFAULT_LEASE_TTL_MS,
             max_in_flight: DEFAULT_MAX_IN_FLIGHT,
+            park_unknown_for_reconciliation: false,
         }
     }
 }
@@ -193,6 +250,31 @@ pub enum OrchestratorError {
         /// What was wrong.
         reason: String,
     },
+    /// The activity adapter failed at its boundary (Phase K). A
+    /// [`ActivityError::Fenced`] surfaces here: a deposed writer must
+    /// stop, not journal.
+    #[error(transparent)]
+    Activity(#[from] ActivityError),
+    /// A reconciliation was asked on a node that is not parked
+    /// `outcome_unknown` (Phase K): nothing to reconcile — refusing loudly
+    /// is what keeps the door from becoming a generic completion writer.
+    #[error("node {node_instance_id} is not parked outcome_unknown")]
+    NotParked {
+        /// The node the operator named.
+        node_instance_id: String,
+    },
+    /// A `result_recovered` reconciliation carried no receipt: recovery
+    /// without evidence is the laundering K.4 forbids.
+    #[error("result_recovered reconciliation requires the recovered receipt")]
+    ReconcileNeedsReceipt,
+    /// A `result_recovered` reconciliation carried a structured receipt
+    /// bound to a DIFFERENT node/effect: a receipt for another effect is
+    /// not evidence for this one.
+    #[error("recovered receipt does not bind to {node_instance_id}'s effect")]
+    ReconcileReceiptMismatch {
+        /// The parked node the operator named.
+        node_instance_id: String,
+    },
     // NOTE: the clock-regression refusal (THREAT §19.1 timer skew) lives at
     // the STORE door — `StoreError::SignalRefused` from
     // `consume_signal_atomic` — because the deposit's durable
@@ -204,6 +286,43 @@ pub enum OrchestratorError {
 impl From<EngineError> for OrchestratorError {
     fn from(e: EngineError) -> Self {
         Self::Step(Box::new(e))
+    }
+}
+
+/// The effect adapter one `execute` call drives: the FROZEN blocking
+/// target of the Phase E/J walk, or the Phase K non-blocking activity.
+/// Private on purpose — the public surface is the two `execute` methods,
+/// and the Target arm's journal behaviour is byte-frozen by the J golden
+/// fixtures.
+enum EffectDriver<'a> {
+    /// The blocking spike-era target (echo). Journal behaviour identical
+    /// to Phase J: intent → apply → completion, no attempts machinery.
+    Target(&'a mut dyn EffectTarget),
+    /// The Phase K non-blocking activity: attempts, retries/backoff,
+    /// per-attempt deadlines, park/reconciliation, target-side fencing.
+    Activity(&'a mut dyn Activity),
+}
+
+impl EffectDriver<'_> {
+    fn name(&self) -> String {
+        match self {
+            Self::Target(t) => t.name().to_string(),
+            Self::Activity(a) => a.name().to_string(),
+        }
+    }
+
+    fn is_idempotent(&self) -> bool {
+        match self {
+            Self::Target(t) => t.is_idempotent(),
+            Self::Activity(a) => a.is_idempotent(),
+        }
+    }
+
+    fn dedup_scope(&self) -> String {
+        match self {
+            Self::Target(t) => t.dedup_scope(),
+            Self::Activity(a) => a.dedup_scope(),
+        }
     }
 }
 
@@ -253,19 +372,180 @@ impl Orchestrator {
         Ok(())
     }
 
+    /// Reconcile a PARKED `outcome_unknown` node (§12.5, Phase K) — an
+    /// OPERATOR-LOCAL gesture, like restore/GC: no network route exposes
+    /// it. Two resolutions, both journaled with a closed origin:
+    ///
+    /// - [`ReconcileResolution::Abandon`] — the outcome stays unknowable;
+    ///   the run closes terminally as `outcome_unknown` (honest, never a
+    ///   success).
+    /// - [`ReconcileResolution::ResultRecovered`] — the operator
+    ///   recovered the effect's ACTUAL receipt from the target's own
+    ///   backend; it goes through the COMPLETION door (digest journaled,
+    ///   frontier advanced), so the node's success rests on evidence.
+    ///   The next `execute*` call continues downstream.
+    ///
+    /// Refused on a run that is not RUNNING (closed states are
+    /// absorbing — reconciling a TERMINAL `outcome_unknown` is exactly
+    /// the laundering K.4 forbids) and on a node that is not parked.
+    pub fn reconcile_unknown(
+        &mut self,
+        run_id: &str,
+        rid: &str,
+        resolution: ReconcileResolution,
+        recovered_receipt: Option<&str>,
+        clock: &dyn Clock,
+    ) -> Result<(), OrchestratorError> {
+        self.acquire(clock)?;
+        let now = clock.now_ms();
+        self.store.advance_clock_watermark(now)?;
+
+        let events = self.store.load_events(run_id)?;
+        let parked = events.iter().any(|e| {
+            e.node_instance_id.as_deref() == Some(rid)
+                && matches!(e.kind, RunEventKind::NodeOutcomeUnknown { .. })
+        });
+        let completed = events.iter().any(|e| {
+            e.node_instance_id.as_deref() == Some(rid)
+                && matches!(e.kind, RunEventKind::EffectCompleted { .. })
+        });
+        if !parked || completed {
+            return Err(OrchestratorError::NotParked {
+                node_instance_id: rid.to_string(),
+            });
+        }
+        let pending = self
+            .store
+            .pending_effect(run_id, rid)?
+            .ok_or_else(|| OrchestratorError::Plan(format!("no pending intent for {rid}")))?;
+
+        match resolution {
+            ReconcileResolution::Abandon => {
+                self.store.record_reconciliation(
+                    run_id,
+                    rid,
+                    &pending.effect_id,
+                    ReconcileOrigin::HostOperator,
+                    ReconcileResolution::Abandon,
+                )?;
+                self.store.record_terminal(
+                    run_id,
+                    Some(rid),
+                    TerminalReason::OutcomeUnknown,
+                    None,
+                    None,
+                    Some(now),
+                )?;
+            }
+            ReconcileResolution::ResultRecovered => {
+                let receipt = recovered_receipt.ok_or(OrchestratorError::ReconcileNeedsReceipt)?;
+                // Recovery is EVIDENCE-only: the operator MUST supply a
+                // structured `ActivityReceipt` that PARSES and BINDS to this
+                // exact node/effect. An opaque/empty/foreign string is not
+                // evidence — it would launder an unknown into a success (the
+                // completion door alone binds only the request hash, which a
+                // hand-written blob can carry). A raw spike echo receipt is
+                // NOT a valid recovery here: the reconcile door is stricter
+                // than the normal in-run completion path on purpose.
+                let parsed = ActivityReceipt::parse(receipt).ok_or_else(|| {
+                    OrchestratorError::ReconcileReceiptMismatch {
+                        node_instance_id: rid.to_string(),
+                    }
+                })?;
+                if parsed.run_id != run_id
+                    || parsed.node_instance_id != rid
+                    || parsed.effect_id != pending.effect_id
+                    || parsed.request_hash != pending.request_hash
+                {
+                    return Err(OrchestratorError::ReconcileReceiptMismatch {
+                        node_instance_id: rid.to_string(),
+                    });
+                }
+                self.store.record_reconciliation(
+                    run_id,
+                    rid,
+                    &pending.effect_id,
+                    ReconcileOrigin::HostOperator,
+                    ReconcileResolution::ResultRecovered,
+                )?;
+                self.store.record_completion(
+                    run_id,
+                    rid,
+                    &pending.effect_id,
+                    &pending.request_hash,
+                    receipt,
+                )?;
+            }
+        }
+        Ok(())
+    }
+
     /// Run — or resume — `run_id` of `plan` with `input` against `target`,
     /// draining `signals`, until the run completes, parks on an open
     /// interruption, or closes. Calling it again with the same identifiers
     /// is the RESUME path: memoised effects are served from the journal
     /// and the target is not touched again (§12.6 — resuming never re-runs
     /// a confirmed effect).
-    #[allow(clippy::too_many_lines)]
+    ///
+    /// This is the Phase E/J BLOCKING walk, journal-frozen by the golden
+    /// fixtures. The Phase K effect layer (retries, timeouts, park,
+    /// target-side fencing) drives [`Orchestrator::execute_activity`].
     pub fn execute(
         &mut self,
         plan: &CompiledPlan,
         run_id: &str,
         input: &serde_json::Value,
         target: &mut dyn EffectTarget,
+        clock: &dyn Clock,
+        signals: &mut dyn SignalSource,
+    ) -> Result<RunProgress, OrchestratorError> {
+        self.execute_inner(
+            plan,
+            run_id,
+            input,
+            &mut EffectDriver::Target(target),
+            clock,
+            signals,
+        )
+    }
+
+    /// Run — or resume — `run_id` against a NON-BLOCKING [`Activity`]
+    /// (Sprint 83 Phase K). Same walk and same guarantees as
+    /// [`Orchestrator::execute`], plus the effect layer: per-attempt
+    /// deadlines from the plan's `default_node_timeout_seconds`,
+    /// journaled attempt failures, bounded retry backoff under the
+    /// scope's `max_retries_per_node`, the honest §12.5 unknowable
+    /// outcome (terminal, or PARKED when
+    /// [`OrchestratorConfig::park_unknown_for_reconciliation`] is set),
+    /// the §12.7 late-result routing on cancel, and the fencing epoch
+    /// propagated target-side. An in-flight effect returns the call with
+    /// its node `Running` — drive again to poll.
+    pub fn execute_activity(
+        &mut self,
+        plan: &CompiledPlan,
+        run_id: &str,
+        input: &serde_json::Value,
+        activity: &mut dyn Activity,
+        clock: &dyn Clock,
+        signals: &mut dyn SignalSource,
+    ) -> Result<RunProgress, OrchestratorError> {
+        self.execute_inner(
+            plan,
+            run_id,
+            input,
+            &mut EffectDriver::Activity(activity),
+            clock,
+            signals,
+        )
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn execute_inner(
+        &mut self,
+        plan: &CompiledPlan,
+        run_id: &str,
+        input: &serde_json::Value,
+        driver: &mut EffectDriver<'_>,
         clock: &dyn Clock,
         signals: &mut dyn SignalSource,
     ) -> Result<RunProgress, OrchestratorError> {
@@ -363,7 +643,9 @@ impl Orchestrator {
             self.store.advance_clock_watermark(now)?;
 
             // 1. Durable timers first: a due deadline is a decision to
-            // journal before anything else this pass.
+            // journal before anything else this pass. Retry-backoff
+            // timers (`er:`) are PACING — they fire without journaling
+            // (outcomes never depend on them, only dispatch timing does).
             for (timer_id, _deadline) in self.store.due_timers(run_id, now)? {
                 if timer_id == WORKFLOW_TIMEOUT_TIMER_ID {
                     self.store.fire_timer_with_cancel(
@@ -371,6 +653,8 @@ impl Orchestrator {
                         &timer_id,
                         CancelOrigin::WorkflowTimeout,
                     )?;
+                } else if timer_id.starts_with(RETRY_TIMER_PREFIX) {
+                    self.store.fire_timer_plain(run_id, &timer_id)?;
                 }
             }
 
@@ -396,10 +680,18 @@ impl Orchestrator {
                     // whose effect was never attempted (a B1 crash) would
                     // otherwise get its FIRST emission after the
                     // cancellation (Codex r1 P1). Pending rows stay
-                    // pending, honestly journaled; a result that ARRIVES
-                    // late lands through `record_late_completion` (kept,
-                    // frontier untouched) and full reconciliation is the
-                    // Phase K effect layer.
+                    // pending, honestly journaled.
+                    //
+                    // Activity mode (Phase K): in-flight attempts are
+                    // STOPPED before the close — the descendant process
+                    // tree dies — and a result that finished just before
+                    // the stop is ROUTED through `record_late_completion`
+                    // (kept, frontier untouched, never propagated): the
+                    // §12.7 late-result door gets its production caller
+                    // here.
+                    if let EffectDriver::Activity(activity) = driver {
+                        self.drain_open_attempts_on_cancel(plan, run_id, *activity)?;
+                    }
                     self.store.record_terminal(
                         run_id,
                         None,
@@ -416,6 +708,68 @@ impl Orchestrator {
             // 3. Open the waits of newly-parked nodes and drain the host's
             // signal source into durable deposits.
             let mut progressed = false;
+
+            // 3a. FREEZE fired joins (Phase K, the J carry): a join the
+            // reducer sees Succeeded without a journaled cohort gets its
+            // delivered sources recorded NOW — a late-arriving source can
+            // no longer widen a quorum or replace an `any` winner, in the
+            // view or in the value resolution.
+            for (rid, state) in &view.node_states {
+                if *state != NodeState::Succeeded {
+                    continue;
+                }
+                let instance = self.instance(plan, rid)?;
+                let WorkflowNode::Join(join) = &instance.node else {
+                    continue;
+                };
+                let already = events.iter().any(|e| {
+                    e.node_instance_id.as_deref() == Some(rid.as_str())
+                        && matches!(e.kind, RunEventKind::JoinFired { .. })
+                });
+                if already {
+                    continue;
+                }
+                let sources = self.delivered_join_sources(plan, run_id, rid, join)?;
+                self.store
+                    .record_decision(run_id, rid, &RunEventKind::JoinFired { sources })?;
+                progressed = true;
+            }
+
+            // 3b. Terminally-failed nodes close the run with the honest
+            // diagnosis (Phase K) UNLESS the failure has somewhere to go:
+            // under `route-error-port` the reducer delivers the node's
+            // `error` edge and nothing closes here. But a failure with NO
+            // wired `error` edge (a classifier — the compiler forbids the
+            // edge on it — or a leaf a plan simply left unwired) cannot be
+            // routed: it FAILS CLOSED here, never swallowed into a silent
+            // completion.
+            let mut closed_node_failed = false;
+            for (rid, state) in &view.node_states {
+                if *state != NodeState::FailedTerminal {
+                    continue;
+                }
+                if !is_effect_leaf(&self.instance(plan, rid)?.node) {
+                    continue;
+                }
+                let routes_error = self.failure_action(plan, rid)
+                    == NodeFailureAction::RouteErrorPort
+                    && self.has_error_edge(plan, rid);
+                if !routes_error {
+                    self.store.record_terminal(
+                        run_id,
+                        Some(rid),
+                        TerminalReason::NodeFailed,
+                        None,
+                        None,
+                        Some(now),
+                    )?;
+                    closed_node_failed = true;
+                    break;
+                }
+            }
+            if closed_node_failed {
+                continue;
+            }
             for rid in &view.waiting {
                 let instance = self.instance(plan, rid)?;
                 let channel = match &instance.node {
@@ -476,6 +830,15 @@ impl Orchestrator {
                 if *state == NodeState::Running && is_effect_leaf(&self.instance(plan, rid)?.node) {
                     candidates.push(rid.clone());
                 }
+                // Retryable failures re-enter the ready set in ACTIVITY
+                // mode — paced by the durable retry timer, gated inside
+                // `run_activity_effect` (Phase K).
+                if *state == NodeState::FailedRetryable
+                    && matches!(driver, EffectDriver::Activity(_))
+                    && is_effect_leaf(&self.instance(plan, rid)?.node)
+                {
+                    candidates.push(rid.clone());
+                }
             }
             candidates.sort();
             candidates.dedup();
@@ -484,10 +847,10 @@ impl Orchestrator {
                 .take(self.config.max_in_flight.max(1))
                 .collect();
             for rid in &batch {
-                let (did_execute, did_memoise) = self.dispatch(plan, run_id, rid, target)?;
-                executed += usize::from(did_execute);
-                memoised += usize::from(did_memoise);
-                progressed = true;
+                let outcome = self.dispatch(plan, run_id, rid, driver, now)?;
+                executed += usize::from(outcome.executed);
+                memoised += usize::from(outcome.memoised);
+                progressed |= outcome.progressed;
             }
 
             if progressed {
@@ -614,15 +977,18 @@ impl Orchestrator {
             }))
     }
 
-    /// Dispatch one READY node. Returns `(executed, memoised)` for the
-    /// effect leaves; routing decisions count as neither.
+    /// Dispatch one READY node. Routing decisions count as neither
+    /// executed nor memoised, but always as progress; an in-flight
+    /// activity that is not due yet is the one NON-progressing outcome
+    /// (the caller returns the state instead of spinning).
     fn dispatch(
         &mut self,
         plan: &CompiledPlan,
         run_id: &str,
         rid: &str,
-        target: &mut dyn EffectTarget,
-    ) -> Result<(bool, bool), OrchestratorError> {
+        driver: &mut EffectDriver<'_>,
+        now: i64,
+    ) -> Result<DispatchOutcome, OrchestratorError> {
         let instance = self.instance(plan, rid)?;
         match instance.node.clone() {
             WorkflowNode::Switch(node) => {
@@ -647,14 +1013,19 @@ impl Orchestrator {
                     rid,
                     &crate::event::RunEventKind::BranchTaken { port },
                 )?;
-                Ok((false, false))
+                Ok(DispatchOutcome::decision())
             }
             WorkflowNode::Classifier(node) => {
-                // The model call is an EFFECT (echo in Phase J); the label
-                // is read from the effect OUTPUT and validated against the
-                // closed set — an out-of-set proposal routes to `default`
-                // deterministically (§19.3), it never mints a port.
-                let (did_execute, did_memoise) = self.run_effect(plan, run_id, rid, target)?;
+                // The model call is an EFFECT; the label is read from the
+                // effect OUTPUT and validated against the closed set — an
+                // out-of-set proposal routes to `default` deterministically
+                // (§19.3), it never mints a port. In activity mode the
+                // effect may still be in flight (or failed/parked): the
+                // decision is journaled only once the effect CONFIRMED.
+                let outcome = self.run_effect(plan, run_id, rid, driver, now)?;
+                if self.store.completed_effect(run_id, rid)?.is_none() {
+                    return Ok(outcome);
+                }
                 let output = self.node_output(plan, run_id, rid)?;
                 let proposed = output
                     .get(CLASSIFIER_LABEL_FIELD)
@@ -670,7 +1041,7 @@ impl Orchestrator {
                     rid,
                     &crate::event::RunEventKind::BranchTaken { port },
                 )?;
-                Ok((did_execute, did_memoise))
+                Ok(outcome)
             }
             WorkflowNode::Map(node) => {
                 let payload = self.input_value(plan, run_id, rid)?;
@@ -702,7 +1073,7 @@ impl Orchestrator {
                         cardinality: len as u32,
                     },
                 )?;
-                Ok((false, false))
+                Ok(DispatchOutcome::decision())
             }
             // Repeat/Subworkflow activate by DERIVATION (their children
             // enter the ready-set); Parallel/Join/Waits never reach the
@@ -712,26 +1083,27 @@ impl Orchestrator {
             | WorkflowNode::Parallel(_)
             | WorkflowNode::Join(_)
             | WorkflowNode::WaitSignal(_)
-            | WorkflowNode::HumanReview(_) => Ok((false, false)),
-            // Every remaining kind is an effect leaf on the echo activity.
-            _ => self.run_effect(plan, run_id, rid, target),
+            | WorkflowNode::HumanReview(_) => Ok(DispatchOutcome::decision()),
+            // Every remaining kind is an effect leaf on the driver.
+            _ => self.run_effect(plan, run_id, rid, driver, now),
         }
     }
 
-    /// The Phase E per-step mechanics — memoised / pending / intent /
-    /// apply / completion — against the production store doors. The spike
-    /// engine keeps its own linear copy: its crash harness is the frozen
-    /// proof of Phase E, and this walk must not disturb it; both paths go
-    /// through the SAME store doors, which carry the guarantees.
+    /// The shared fail-closed replay checks (memoised divergence, pending
+    /// divergence, idempotency-claim and dedup-scope drift) plus the
+    /// per-driver step mechanics. Both paths go through the SAME store
+    /// doors, which carry the guarantees; the spike engine keeps its own
+    /// linear copy as the frozen Phase E proof.
     fn run_effect(
         &mut self,
         plan: &CompiledPlan,
         run_id: &str,
         rid: &str,
-        target: &mut dyn EffectTarget,
-    ) -> Result<(bool, bool), OrchestratorError> {
+        driver: &mut EffectDriver<'_>,
+        now: i64,
+    ) -> Result<DispatchOutcome, OrchestratorError> {
         let input = self.effect_input_map(plan, run_id, rid)?;
-        let request = StepRequest::new(rid.to_string(), target.name(), input.clone())?;
+        let request = StepRequest::new(rid.to_string(), driver.name(), input.clone())?;
         let request_hash = step_request_hash(&request)?;
 
         if let Some(done) = self.store.completed_effect(run_id, rid)? {
@@ -759,10 +1131,10 @@ impl Orchestrator {
                 }
                 .into());
             }
-            return Ok((false, true));
+            return Ok(DispatchOutcome::memoised());
         }
 
-        let effect_id = match self.store.pending_effect(run_id, rid)? {
+        let pending = match self.store.pending_effect(run_id, rid)? {
             Some(pending) => {
                 if pending.request_hash != request_hash {
                     self.store.record_terminal(
@@ -780,58 +1152,655 @@ impl Orchestrator {
                     }
                     .into());
                 }
-                if pending.target_idempotent != target.is_idempotent() {
+                if pending.target_idempotent != driver.is_idempotent() {
                     return Err(EngineError::TargetIdempotencyChanged {
                         node_instance_id: rid.to_string(),
                         journaled: pending.target_idempotent,
-                        live: target.is_idempotent(),
+                        live: driver.is_idempotent(),
                     }
                     .into());
                 }
-                if pending.dedup_scope != target.dedup_scope() {
+                if pending.dedup_scope != driver.dedup_scope() {
                     return Err(EngineError::TargetScopeChanged {
                         node_instance_id: rid.to_string(),
                         journaled: pending.dedup_scope,
-                        live: target.dedup_scope(),
+                        live: driver.dedup_scope(),
                     }
                     .into());
                 }
-                if !pending.target_idempotent {
-                    self.store.record_terminal(
-                        run_id,
-                        Some(rid),
-                        TerminalReason::OutcomeUnknown,
-                        None,
-                        None,
-                        None,
-                    )?;
-                    return Err(EngineError::OutcomeUnknown {
-                        node_instance_id: rid.to_string(),
-                        effect_id: pending.effect_id,
-                    }
-                    .into());
-                }
-                pending.effect_id
+                Some(pending)
             }
+            None => None,
+        };
+
+        match driver {
+            EffectDriver::Target(target) => {
+                let effect_id = match pending {
+                    Some(pending) => {
+                        if !pending.target_idempotent {
+                            // The Phase J resume semantics, unchanged: an
+                            // unconfirmed non-idempotent effect is
+                            // unknowable — the blocking path has no
+                            // attempt bookkeeping to narrow it.
+                            self.store.record_terminal(
+                                run_id,
+                                Some(rid),
+                                TerminalReason::OutcomeUnknown,
+                                None,
+                                None,
+                                None,
+                            )?;
+                            return Err(EngineError::OutcomeUnknown {
+                                node_instance_id: rid.to_string(),
+                                effect_id: pending.effect_id,
+                            }
+                            .into());
+                        }
+                        pending.effect_id
+                    }
+                    None => {
+                        let effect_id = derive_effect_id(run_id, rid, &request_hash);
+                        self.store.record_intent_atomic(
+                            run_id,
+                            rid,
+                            &request_hash,
+                            &effect_id,
+                            target.is_idempotent(),
+                            &target.dedup_scope(),
+                        )?;
+                        effect_id
+                    }
+                };
+                let key = IdempotencyKey::new(run_id, rid, effect_id.as_str())?;
+                let receipt = target.apply(&key, &input)?;
+                self.store
+                    .record_completion(run_id, rid, &effect_id, &request_hash, &receipt)?;
+                Ok(DispatchOutcome::executed())
+            }
+            EffectDriver::Activity(activity) => self.run_activity_effect(
+                plan,
+                run_id,
+                rid,
+                *activity,
+                pending,
+                &request_hash,
+                input,
+                now,
+            ),
+        }
+    }
+
+    /// The Phase K non-blocking step mechanics: attempts under the single
+    /// durable intent, per-attempt deadlines, journaled failures with
+    /// bounded backoff, the honest §12.5 unknowable outcome, and the
+    /// fencing epoch presented target-side.
+    #[allow(clippy::too_many_arguments)]
+    fn run_activity_effect(
+        &mut self,
+        plan: &CompiledPlan,
+        run_id: &str,
+        rid: &str,
+        activity: &mut dyn Activity,
+        pending: Option<PendingEffect>,
+        request_hash: &str,
+        input: BTreeMap<String, String>,
+        now: i64,
+    ) -> Result<DispatchOutcome, OrchestratorError> {
+        let pending = match pending {
+            Some(pending) => pending,
             None => {
-                let effect_id = derive_effect_id(run_id, rid, &request_hash);
+                let effect_id = derive_effect_id(run_id, rid, request_hash);
                 self.store.record_intent_atomic(
                     run_id,
                     rid,
-                    &request_hash,
+                    request_hash,
                     &effect_id,
-                    target.is_idempotent(),
-                    &target.dedup_scope(),
+                    activity.is_idempotent(),
+                    &activity.dedup_scope(),
                 )?;
-                effect_id
+                self.store
+                    .pending_effect(run_id, rid)?
+                    .ok_or_else(|| OrchestratorError::Plan(format!("intent vanished for {rid}")))?
             }
         };
-
+        let effect_id = pending.effect_id.clone();
         let key = IdempotencyKey::new(run_id, rid, effect_id.as_str())?;
-        let receipt = target.apply(&key, &input)?;
+        let fencing_epoch = self
+            .store
+            .active_lease_epoch()
+            .unwrap_or(crate::activity::UNFENCED_EPOCH);
+
+        match self.store.open_attempt(run_id, rid)? {
+            None => {
+                let failures = self.journaled_failures(run_id, rid)?;
+                if failures > 0 {
+                    // Pacing gate: the retry timer scheduled at the last
+                    // failure must have fired (the due-timer step fires it
+                    // when its ABSOLUTE deadline passed the watermarked
+                    // clock). Pacing changes timing, never outcomes.
+                    let timer = retry_timer_id(&effect_id, failures);
+                    // Self-heal (mirror of the workflow-timeout re-propose):
+                    // the failure and its backoff timer are journaled in TWO
+                    // transactions; a crash between them would lose the timer
+                    // and strand the run in FailedRetryable forever. Re-arm
+                    // idempotently — INSERT OR IGNORE, so the normal path
+                    // (timer already present) is a no-op, and a crash-lost
+                    // timer is re-created with a fresh backoff deadline.
+                    let deadline = now.saturating_add(backoff_ms(failures));
+                    self.store.schedule_timer(run_id, &timer, deadline)?;
+                    if !self.store.timer_fired(run_id, &timer)? {
+                        return Ok(DispatchOutcome::idle());
+                    }
+                }
+                let attempt = failures + 1;
+                let deadline = now.saturating_add(self.node_timeout_ms(plan, rid));
+                self.store.record_attempt_started(
+                    run_id, rid, &effect_id, attempt, now, deadline, None,
+                )?;
+                let ctx = EffectContext {
+                    key: key.clone(),
+                    attempt,
+                    fencing_epoch,
+                    deadline_ms: deadline,
+                    input: input.clone(),
+                };
+                match activity.start(&ctx) {
+                    Ok(()) => {
+                        if let Some(handle) = activity.runtime_handle(&ctx) {
+                            self.store
+                                .set_attempt_handle(run_id, rid, &effect_id, attempt, &handle)?;
+                        }
+                        // A synchronous activity may already be Ready:
+                        // poll once in the same pass. Whatever the poll
+                        // says, THIS branch journaled an intent and/or
+                        // opened an attempt — durable progress: the loop
+                        // must re-reduce so the caller never gets a
+                        // pre-intent view back.
+                        let outcome = self
+                            .poll_open_attempt(plan, run_id, rid, activity, &pending, &ctx, now)?;
+                        Ok(DispatchOutcome {
+                            progressed: true,
+                            ..outcome
+                        })
+                    }
+                    Err(ActivityError::Fenced { seen, presented }) => {
+                        // A deposed writer must STOP — surfacing loudly,
+                        // journaling nothing (its journal write would be
+                        // fenced by the CAS anyway).
+                        Err(ActivityError::Fenced { seen, presented }.into())
+                    }
+                    Err(err) => {
+                        let retryable = start_failure_retryable(&err);
+                        self.record_failure_with_backoff(
+                            plan, run_id, rid, &effect_id, attempt, retryable, now,
+                        )?;
+                        Ok(DispatchOutcome::progressed_only())
+                    }
+                }
+            }
+            Some(open) => {
+                let ctx = EffectContext {
+                    key,
+                    attempt: open.attempt,
+                    fencing_epoch,
+                    deadline_ms: open.deadline_ms,
+                    input,
+                };
+                self.poll_open_attempt_resumable(
+                    plan, run_id, rid, activity, &pending, &ctx, &open, now,
+                )
+            }
+        }
+    }
+
+    /// Poll the attempt this pass started (no orphan handling needed —
+    /// the activity knows the key).
+    #[allow(clippy::too_many_arguments)]
+    fn poll_open_attempt(
+        &mut self,
+        plan: &CompiledPlan,
+        run_id: &str,
+        rid: &str,
+        activity: &mut dyn Activity,
+        pending: &PendingEffect,
+        ctx: &EffectContext,
+        now: i64,
+    ) -> Result<DispatchOutcome, OrchestratorError> {
+        match activity.poll(ctx)? {
+            PollOutcome::Ready { output, facts } => {
+                self.complete_activity(run_id, rid, pending, ctx, activity, output, facts)?;
+                Ok(DispatchOutcome::executed())
+            }
+            PollOutcome::Pending => {
+                self.judge_deadline(plan, run_id, rid, activity, pending, ctx, now)
+            }
+            PollOutcome::Failed { retryable, reason } => {
+                let _ = reason; // journal stays payload-free by type
+                self.record_failure_with_backoff(
+                    plan,
+                    run_id,
+                    rid,
+                    &pending.effect_id,
+                    ctx.attempt,
+                    retryable,
+                    now,
+                )?;
+                Ok(DispatchOutcome::progressed_only())
+            }
+        }
+    }
+
+    /// Poll a PRE-EXISTING open attempt — the resume path: an activity
+    /// that does not know the key anymore is a previous incarnation's
+    /// orphan, reaped by the journaled handle then decided by the
+    /// JOURNALED idempotency claim (§12.5).
+    #[allow(clippy::too_many_arguments)]
+    fn poll_open_attempt_resumable(
+        &mut self,
+        plan: &CompiledPlan,
+        run_id: &str,
+        rid: &str,
+        activity: &mut dyn Activity,
+        pending: &PendingEffect,
+        ctx: &EffectContext,
+        open: &OpenAttempt,
+        now: i64,
+    ) -> Result<DispatchOutcome, OrchestratorError> {
+        match activity.poll(ctx) {
+            Ok(outcome) => match outcome {
+                PollOutcome::Ready { output, facts } => {
+                    self.complete_activity(run_id, rid, pending, ctx, activity, output, facts)?;
+                    Ok(DispatchOutcome::executed())
+                }
+                PollOutcome::Pending => {
+                    self.judge_deadline(plan, run_id, rid, activity, pending, ctx, now)
+                }
+                PollOutcome::Failed { retryable, reason } => {
+                    let _ = reason;
+                    self.record_failure_with_backoff(
+                        plan,
+                        run_id,
+                        rid,
+                        &pending.effect_id,
+                        ctx.attempt,
+                        retryable,
+                        now,
+                    )?;
+                    Ok(DispatchOutcome::progressed_only())
+                }
+            },
+            Err(ActivityError::UnknownAttempt) => {
+                // Orphan of a previous incarnation. Best-effort reap of
+                // the journaled handle, then the §12.5 decision on the
+                // JOURNALED claim: an interrupted idempotent attempt is a
+                // retryable failure; a non-idempotent one is unknowable —
+                // the attempt row narrows E's window (intent→completion)
+                // to attempt-start→completion, and inside it the honest
+                // answer is still "unknown".
+                activity.reap_orphan(ctx, open.runtime_handle.as_deref())?;
+                if pending.target_idempotent {
+                    self.record_failure_with_backoff(
+                        plan,
+                        run_id,
+                        rid,
+                        &pending.effect_id,
+                        ctx.attempt,
+                        true,
+                        now,
+                    )?;
+                    Ok(DispatchOutcome::progressed_only())
+                } else {
+                    self.unknowable_outcome(run_id, rid, pending, now)
+                }
+            }
+            Err(err) => Err(err.into()),
+        }
+    }
+
+    /// Judge an in-flight attempt against its ABSOLUTE deadline: not due
+    /// keeps it in flight (no progress); due stops it and applies §12.5 —
+    /// idempotent targets fail retryably, non-idempotent ones are
+    /// unknowable.
+    #[allow(clippy::too_many_arguments)]
+    fn judge_deadline(
+        &mut self,
+        plan: &CompiledPlan,
+        run_id: &str,
+        rid: &str,
+        activity: &mut dyn Activity,
+        pending: &PendingEffect,
+        ctx: &EffectContext,
+        now: i64,
+    ) -> Result<DispatchOutcome, OrchestratorError> {
+        if now < ctx.deadline_ms {
+            return Ok(DispatchOutcome::idle());
+        }
+        // Deadline crossed: stop the work (kills the descendant tree for
+        // a process activity) BEFORE deciding — a still-running effect
+        // must not race its own verdict.
+        activity.cancel(ctx)?;
+        if pending.target_idempotent {
+            self.record_failure_with_backoff(
+                plan,
+                run_id,
+                rid,
+                &pending.effect_id,
+                ctx.attempt,
+                true,
+                now,
+            )?;
+            Ok(DispatchOutcome::progressed_only())
+        } else {
+            self.unknowable_outcome(run_id, rid, pending, now)
+        }
+    }
+
+    /// §12.5's unknowable outcome, under the host's reconciliation
+    /// policy: PARK the node (run stays alive, operator reconciles) or
+    /// close the run terminally — NEVER an automatic retry, NEVER an
+    /// invented success.
+    fn unknowable_outcome(
+        &mut self,
+        run_id: &str,
+        rid: &str,
+        pending: &PendingEffect,
+        now: i64,
+    ) -> Result<DispatchOutcome, OrchestratorError> {
+        if self.config.park_unknown_for_reconciliation {
+            self.store
+                .record_node_outcome_unknown(run_id, rid, &pending.effect_id)?;
+            Ok(DispatchOutcome::progressed_only())
+        } else {
+            // TERMINAL FIRST, then close the attempt row: the two doors are
+            // separate transactions, and this order fails safe — a crash
+            // between them leaves a closed run with an open attempt row
+            // (benign bookkeeping, purged by GC, never resumed). The
+            // inverse order would leave a RUNNING run whose closed attempt
+            // row collides with the next `record_attempt_started` PK on
+            // resume — a permanently stuck run (re-review K).
+            self.store.record_terminal(
+                run_id,
+                Some(rid),
+                TerminalReason::OutcomeUnknown,
+                None,
+                None,
+                Some(now),
+            )?;
+            self.store.close_open_attempt(
+                run_id,
+                rid,
+                &pending.effect_id,
+                AttemptOutcome::Unknown,
+            )?;
+            Err(EngineError::OutcomeUnknown {
+                node_instance_id: rid.to_string(),
+                effect_id: pending.effect_id.clone(),
+            }
+            .into())
+        }
+    }
+
+    /// Journal one attempt failure, then — when the scope's budget still
+    /// allows a retry — schedule the bounded-backoff pacing timer the
+    /// next dispatch is gated on.
+    #[allow(clippy::too_many_arguments)]
+    fn record_failure_with_backoff(
+        &mut self,
+        plan: &CompiledPlan,
+        run_id: &str,
+        rid: &str,
+        effect_id: &str,
+        attempt: u32,
+        retryable: bool,
+        now: i64,
+    ) -> Result<(), OrchestratorError> {
         self.store
-            .record_completion(run_id, rid, &effect_id, &request_hash, &receipt)?;
-        Ok((true, false))
+            .record_attempt_failed(run_id, rid, effect_id, attempt, retryable)?;
+        let budget = self.max_retries(plan, rid);
+        if retryable && attempt <= budget {
+            let deadline = now.saturating_add(backoff_ms(attempt));
+            self.store
+                .schedule_timer(run_id, &retry_timer_id(effect_id, attempt), deadline)?;
+        }
+        Ok(())
+    }
+
+    /// Confirm the effect: render the structured §17.1(6) receipt and
+    /// write the completion through the store door (digest to the
+    /// journal, material to the outbox).
+    #[allow(clippy::too_many_arguments)]
+    fn complete_activity(
+        &mut self,
+        run_id: &str,
+        rid: &str,
+        pending: &PendingEffect,
+        ctx: &EffectContext,
+        activity: &dyn Activity,
+        output: serde_json::Value,
+        facts: BTreeMap<String, String>,
+    ) -> Result<(), OrchestratorError> {
+        let receipt = ActivityReceipt {
+            kind: crate::activity::ACTIVITY_RECEIPT_KIND.to_string(),
+            run_id: run_id.to_string(),
+            node_instance_id: rid.to_string(),
+            effect_id: pending.effect_id.clone(),
+            attempt: ctx.attempt,
+            request_hash: pending.request_hash.clone(),
+            activity: activity.name().to_string(),
+            dedup_scope: pending.dedup_scope.clone(),
+            fencing_epoch: ctx.fencing_epoch,
+            facts,
+            output,
+        }
+        .render()?;
+        self.store.record_completion(
+            run_id,
+            rid,
+            &pending.effect_id,
+            &pending.request_hash,
+            &receipt,
+        )?;
+        Ok(())
+    }
+
+    /// Count the journaled attempt failures of one node.
+    fn journaled_failures(&self, run_id: &str, rid: &str) -> Result<u32, OrchestratorError> {
+        let events = self.store.load_events(run_id)?;
+        let count = events
+            .iter()
+            .filter(|e| e.node_instance_id.as_deref() == Some(rid))
+            .filter(|e| matches!(e.kind, RunEventKind::EffectAttemptFailed { .. }))
+            .count();
+        Ok(u32::try_from(count).unwrap_or(u32::MAX))
+    }
+
+    /// The scope's per-node timeout, in milliseconds (exact scope, else
+    /// root, else the conservative 1s floor — a missing policy must never
+    /// mean "no deadline").
+    fn node_timeout_ms(&self, plan: &CompiledPlan, rid: &str) -> i64 {
+        let scope = parent_scope(&structural_id(rid)).to_string();
+        plan.timeout_policies
+            .get(&scope)
+            .or_else(|| plan.timeout_policies.get(""))
+            .map_or(1_000, |policy| {
+                i64::from(policy.default_node_timeout_seconds.get()).saturating_mul(1000)
+            })
+    }
+
+    /// The scope's `max_retries_per_node` (exact scope, else root, else
+    /// 0 — the reducer's mirror; the two MUST agree or the pacing gate
+    /// and the derived state drift apart).
+    fn max_retries(&self, plan: &CompiledPlan, rid: &str) -> u32 {
+        let scope = parent_scope(&structural_id(rid)).to_string();
+        plan.error_policies
+            .get(&scope)
+            .or_else(|| plan.error_policies.get(""))
+            .map_or(0, |policy| policy.max_retries_per_node)
+    }
+
+    /// Whether the node has an `error` edge wired FROM it — the port a
+    /// `route-error-port` failure delivers on. Absent (a classifier, or a
+    /// leaf a plan left unwired) means the failure has nowhere to route and
+    /// must fail closed.
+    fn has_error_edge(&self, plan: &CompiledPlan, rid: &str) -> bool {
+        let structural = structural_id(rid);
+        plan.edges
+            .iter()
+            .any(|e| e.from == structural && e.from_port == ERROR_PORT)
+    }
+
+    /// The scope's failure action (exact scope, else root, else
+    /// fail-workflow — fail-closed).
+    fn failure_action(&self, plan: &CompiledPlan, rid: &str) -> NodeFailureAction {
+        let scope = parent_scope(&structural_id(rid)).to_string();
+        plan.error_policies
+            .get(&scope)
+            .or_else(|| plan.error_policies.get(""))
+            .map_or(NodeFailureAction::FailWorkflow, |policy| {
+                policy.on_node_failure
+            })
+    }
+
+    /// The delivered sources of a join at fire time — the cohort the
+    /// `join_fired` entry freezes.
+    fn delivered_join_sources(
+        &self,
+        plan: &CompiledPlan,
+        run_id: &str,
+        rid: &str,
+        join: &sbfb_workflow_core::graph::JoinNode,
+    ) -> Result<Vec<String>, OrchestratorError> {
+        let structural = structural_id(rid);
+        let scope_structural = parent_scope(&structural).to_string();
+        let scope_runtime = parent_scope(rid).to_string();
+        let mut sources = Vec::new();
+        for source in &join.source_node_ids {
+            let source_structural = child_structural(&scope_structural, source);
+            let source_rid = format!(
+                "{scope_runtime}{}",
+                &source_structural[scope_structural.len()..]
+            );
+            let delivered = plan
+                .edges
+                .iter()
+                .filter(|e| e.from == source_structural && e.to == structural)
+                .try_fold(false, |acc, edge| {
+                    Ok::<bool, OrchestratorError>(
+                        acc || self.edge_delivered(
+                            plan,
+                            run_id,
+                            &edge.from,
+                            &source_rid,
+                            &edge.from_port,
+                        )?,
+                    )
+                })?;
+            if delivered {
+                sources.push(source.clone());
+            }
+        }
+        Ok(sources)
+    }
+
+    /// Cancel-path drain (§12.7, Phase K): stop every open attempt; a
+    /// result that FINISHED just before the stop is kept through
+    /// `record_late_completion` (frontier untouched, never propagated),
+    /// everything else closes as cancelled bookkeeping.
+    fn drain_open_attempts_on_cancel(
+        &mut self,
+        plan: &CompiledPlan,
+        run_id: &str,
+        activity: &mut dyn Activity,
+    ) -> Result<(), OrchestratorError> {
+        let fencing_epoch = self
+            .store
+            .active_lease_epoch()
+            .unwrap_or(crate::activity::UNFENCED_EPOCH);
+        for open in self.store.open_attempts(run_id)? {
+            let rid = open.node_instance_id.clone();
+            let Some(pending) = self.store.pending_effect(run_id, &rid)? else {
+                self.store.close_attempt(
+                    run_id,
+                    &rid,
+                    &open.effect_id,
+                    open.attempt,
+                    AttemptOutcome::Cancelled,
+                )?;
+                continue;
+            };
+            let input = self.effect_input_map(plan, run_id, &rid)?;
+            let ctx = EffectContext {
+                key: IdempotencyKey::new(run_id, rid.as_str(), pending.effect_id.as_str())?,
+                attempt: open.attempt,
+                fencing_epoch,
+                deadline_ms: open.deadline_ms,
+                input,
+            };
+            // One LAST look before the stop. A result OBSERVED Ready at
+            // this poll is evidence and is kept (§12.7) — but NEVER
+            // propagated: the late door leaves the frontier alone. (Honest
+            // bound: a result that finishes AFTER this poll but before the
+            // stop has no second poll and is dropped — an inherent race,
+            // not a lost-forever guarantee.)
+            match activity.poll(&ctx) {
+                Ok(PollOutcome::Ready { output, facts }) => {
+                    let receipt = ActivityReceipt {
+                        kind: crate::activity::ACTIVITY_RECEIPT_KIND.to_string(),
+                        run_id: run_id.to_string(),
+                        node_instance_id: rid.clone(),
+                        effect_id: pending.effect_id.clone(),
+                        attempt: ctx.attempt,
+                        request_hash: pending.request_hash.clone(),
+                        activity: activity.name().to_string(),
+                        dedup_scope: pending.dedup_scope.clone(),
+                        fencing_epoch: ctx.fencing_epoch,
+                        facts,
+                        output,
+                    }
+                    .render()?;
+                    self.store.record_late_completion(
+                        run_id,
+                        &rid,
+                        &pending.effect_id,
+                        &pending.request_hash,
+                        &receipt,
+                    )?;
+                }
+                Err(ActivityError::UnknownAttempt) => {
+                    // A PREVIOUS incarnation's orphan: this activity does
+                    // not know the key, so `cancel` would be a no-op and
+                    // the surviving process group would leak past the
+                    // cancel. Reap it by the JOURNALED handle (the same
+                    // door the normal resume uses), then close the row.
+                    activity.reap_orphan(&ctx, open.runtime_handle.as_deref())?;
+                    self.store.close_attempt(
+                        run_id,
+                        &rid,
+                        &open.effect_id,
+                        open.attempt,
+                        AttemptOutcome::Cancelled,
+                    )?;
+                }
+                // Still in flight (or a scripted failure): stop the work and
+                // close the bookkeeping.
+                Ok(PollOutcome::Pending) | Ok(PollOutcome::Failed { .. }) => {
+                    activity.cancel(&ctx)?;
+                    self.store.close_attempt(
+                        run_id,
+                        &rid,
+                        &open.effect_id,
+                        open.attempt,
+                        AttemptOutcome::Cancelled,
+                    )?;
+                }
+                // A REAL adapter error (fenced-out, precondition, I/O…)
+                // propagates — the same discipline as the normal resume
+                // path, never swallowed into a silent close (ex-Codex
+                // K-CANCEL-ERR-02).
+                Err(err) => return Err(err.into()),
+            }
+        }
+        Ok(())
     }
 
     // ── value resolution ─────────────────────────────────────────────────
@@ -956,20 +1925,28 @@ impl Orchestrator {
                     .next_back();
                 Ok(decided.as_deref() == Some(from_port))
             }
-            _ => self.node_settled_successfully(plan, run_id, from_structural, from_rid),
+            _ => self.node_delivery(plan, run_id, from_rid, from_port),
         }
     }
 
-    fn node_settled_successfully(
+    /// Delivery of a non-routing source's edge, mirroring the reducer
+    /// (Phase K): a SUCCEEDED node delivers on every port except the
+    /// reserved `error` one; a FAILED-TERMINAL node delivers on `error`
+    /// alone (`route-error-port`).
+    fn node_delivery(
         &self,
         plan: &CompiledPlan,
         run_id: &str,
-        _structural: &str,
         rid: &str,
+        from_port: &str,
     ) -> Result<bool, OrchestratorError> {
         let events = self.store.load_events(run_id)?;
         let view = reduce(plan, &events)?;
-        Ok(view.node_states.get(rid).copied() == Some(NodeState::Succeeded))
+        Ok(match view.node_states.get(rid).copied() {
+            Some(NodeState::Succeeded) => from_port != ERROR_PORT,
+            Some(NodeState::FailedTerminal) => from_port == ERROR_PORT,
+            _ => false,
+        })
     }
 
     /// The output value an edge carries from its (succeeded) source.
@@ -993,6 +1970,19 @@ impl Orchestrator {
             WorkflowNode::Join(join) => {
                 let scope_structural = parent_scope(from_structural).to_string();
                 let scope_runtime = parent_scope(from_rid).to_string();
+                // The FROZEN cohort wins (Phase K): once `join_fired` is
+                // journaled, the value is collected from that cohort
+                // alone — a source arriving later can no longer replace
+                // an `any` winner or widen the collection.
+                let frozen: Option<Vec<String>> = self
+                    .store
+                    .load_events(run_id)?
+                    .iter()
+                    .filter(|e| e.node_instance_id.as_deref() == Some(from_rid))
+                    .find_map(|e| match &e.kind {
+                        RunEventKind::JoinFired { sources } => Some(sources.clone()),
+                        _ => None,
+                    });
                 let mut collected: BTreeMap<String, serde_json::Value> = BTreeMap::new();
                 for source in &join.source_node_ids {
                     let source_structural = child_structural(&scope_structural, source);
@@ -1004,22 +1994,26 @@ impl Orchestrator {
                     // toward THIS join DELIVERED — the same criterion the
                     // reducer's join_state counts (Codex r2 P1: state-only
                     // collection would include a routing source that
-                    // succeeded on another port).
-                    let delivered = plan
-                        .edges
-                        .iter()
-                        .filter(|e| e.from == source_structural && e.to == *from_structural)
-                        .try_fold(false, |acc, edge| {
-                            Ok::<bool, OrchestratorError>(
-                                acc || self.edge_delivered(
-                                    plan,
-                                    run_id,
-                                    &edge.from,
-                                    &source_rid,
-                                    &edge.from_port,
-                                )?,
-                            )
-                        })?;
+                    // succeeded on another port) — restricted to the
+                    // frozen cohort when one is journaled.
+                    let delivered = match &frozen {
+                        Some(cohort) => cohort.contains(source),
+                        None => plan
+                            .edges
+                            .iter()
+                            .filter(|e| e.from == source_structural && e.to == *from_structural)
+                            .try_fold(false, |acc, edge| {
+                                Ok::<bool, OrchestratorError>(
+                                    acc || self.edge_delivered(
+                                        plan,
+                                        run_id,
+                                        &edge.from,
+                                        &source_rid,
+                                        &edge.from_port,
+                                    )?,
+                                )
+                            })?,
+                    };
                     if delivered {
                         collected
                             .insert(source.clone(), self.node_output(plan, run_id, &source_rid)?);
@@ -1093,13 +2087,24 @@ impl Orchestrator {
                 self.scope_output(plan, run_id, &structural, &child_scope)
             }
             WorkflowNode::Subworkflow(_) => self.scope_output(plan, run_id, &structural, rid),
-            // Effect leaves: invert the echo receipt (JCS of the input
-            // map; single-port maps collapse to the port's value).
+            // Effect leaves: a structured activity receipt carries its
+            // output member (Phase K); the spike's raw echo receipt
+            // inverts the input map (single-port maps collapse to the
+            // port's value). A FAILED-TERMINAL leaf resolves to a
+            // deterministic error object — what the `error` edge carries.
             _ => {
-                let done = self
-                    .store
-                    .completed_effect(run_id, rid)?
-                    .ok_or_else(|| OrchestratorError::Plan(format!("{rid} has no receipt yet")))?;
+                let Some(done) = self.store.completed_effect(run_id, rid)? else {
+                    let failures = self.journaled_failures(run_id, rid)?;
+                    if failures > 0 {
+                        return Ok(serde_json::json!({
+                            "error": { "node": rid, "attempts": failures }
+                        }));
+                    }
+                    return Err(OrchestratorError::Plan(format!("{rid} has no receipt yet")));
+                };
+                if let Some(receipt) = ActivityReceipt::parse(&done.receipt) {
+                    return Ok(receipt.output);
+                }
                 let map: BTreeMap<String, String> = serde_json::from_str(&done.receipt)
                     .map_err(|e| OrchestratorError::Plan(format!("receipt of {rid}: {e}")))?;
                 if map.len() == 1 {
@@ -1208,6 +2213,70 @@ impl Orchestrator {
             Ok(serde_json::Value::Object(outputs.into_iter().collect()))
         }
     }
+}
+
+/// What one dispatch did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct DispatchOutcome {
+    executed: bool,
+    memoised: bool,
+    progressed: bool,
+}
+
+impl DispatchOutcome {
+    /// A routing/structural decision was journaled (or nothing had to
+    /// be): the pass moved.
+    fn decision() -> Self {
+        Self {
+            executed: false,
+            memoised: false,
+            progressed: true,
+        }
+    }
+
+    /// The effect confirmed this pass.
+    fn executed() -> Self {
+        Self {
+            executed: true,
+            memoised: false,
+            progressed: true,
+        }
+    }
+
+    /// The journal already carried the answer.
+    fn memoised() -> Self {
+        Self {
+            executed: false,
+            memoised: true,
+            progressed: true,
+        }
+    }
+
+    /// Something was journaled (a failure, a park) without confirming.
+    fn progressed_only() -> Self {
+        Self {
+            executed: false,
+            memoised: false,
+            progressed: true,
+        }
+    }
+
+    /// In flight and not due: nothing moved — the caller must NOT spin.
+    fn idle() -> Self {
+        Self {
+            executed: false,
+            memoised: false,
+            progressed: false,
+        }
+    }
+}
+
+/// Whether a START-side adapter refusal is worth retrying: transient I/O
+/// is; a precondition mismatch or a contract refusal is not (the world
+/// the plan was made against is gone, or the request itself is out of
+/// contract).
+fn start_failure_retryable(err: &ActivityError) -> bool {
+    matches!(err, ActivityError::Io(_))
 }
 
 /// A node whose dispatch goes through the effect-step mechanics — the

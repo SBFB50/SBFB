@@ -10,8 +10,9 @@
 >
 > **Status: UNDER CONSTRUCTION (S83).** Delivered at this seed: pack format
 > (F), language + agent definitions (G), compiler (H), durable run store (I),
-> run store loopback READ surface (I1). The orchestrator (J), effects (K),
-> permissions (L), adapters (N/O) and the Workflow Hub app are later phases —
+> run store loopback READ surface (I1), deterministic orchestrator (J),
+> effect layer — activities, retries, idempotence, outcome_unknown (K).
+> Permissions (L), adapters (N/O) and the Workflow Hub app are later phases —
 > a fact about them absent from a rank-1 repo file is **`Not evidenced`**.
 >
 > **Truth Stack** (trust the higher rank on conflict):
@@ -48,10 +49,12 @@
   never a wire version; `DOMAIN_RUN_EVENT_V1` stays RESERVED 0-producer).
 - [LOOPBACK_ENDPOINTS_TRUST_TIERS.md](../security/LOOPBACK_ENDPOINTS_TRUST_TIERS.md):
   D7 inventory §3 — the T0 representative row for this family, plus the 3
-  MUTATING endpoints (restore / gc / lease-force) tier-classified **T1 with
-  implementation dated J/K** (they do NOT exist in the router today).
-- [THREAT_MODEL.md](../security/THREAT_MODEL.md): §19 asset A11 + the 7
-  T-RUN-* rows bounding this surface (v24 = the I1 concretization).
+  MUTATING endpoints (restore / gc / lease-force) tier-classified **T1,
+  re-routed to Phase V** (the "Centre des Runs" operator surface) by Phase K
+  (they do NOT exist in the router today; K is engine-only).
+- [THREAT_MODEL.md](../security/THREAT_MODEL.md): §19 asset A11 + the
+  T-RUN-* rows, plus §19.2 (asset A12) — the effect layer's own threats
+  (v26 = the Phase K effect surface).
 
 ## Contract tests (drift gates)
 

@@ -114,6 +114,16 @@ pub const HANDOFF_PORT: &str = "to";
 /// The failure route port, wired only under `route-error-port` policy.
 pub const ERROR_PORT: &str = "error";
 
+/// Ceiling on ONE routing/decision label, in bytes (Sprint 83 Phase K,
+/// closing the J carry "borne label vs String compilateur"): the engine's
+/// deposit door bounds a stored `decision_label` at
+/// `MAX_SIGNAL_PAYLOAD_BYTES` (256 KiB), so a longer label would compile
+/// into a plan whose `human.review` decision can never be DEPOSITED — a
+/// valid-but-unresumable plan. The compiler refuses it instead. The engine
+/// asserts the two constants stay equal (it depends on this crate; the
+/// reverse import would invert the dependency).
+pub const MAX_DECISION_LABEL_BYTES: usize = 256 * 1024;
+
 /// Field names the freeze §8 rule 6 treats as CLASSIFICATION discriminants:
 /// a `switch` may not discriminate on one of these when the field's
 /// provenance traces to a model output and an effect depends on the route.
@@ -1715,6 +1725,18 @@ impl<'a> PlanBuilder<'a> {
                             workflow_id: wf.to_string(),
                             node_id: node_id.clone(),
                             detail: format!("label `{label}` is duplicated"),
+                        });
+                    }
+                    // Storage-aligned bound (Phase K): a label the engine's
+                    // deposit door would refuse to STORE must not compile.
+                    if label.len() > MAX_DECISION_LABEL_BYTES {
+                        return Err(CompileError::InvalidRoutingLabels {
+                            workflow_id: wf.to_string(),
+                            node_id: node_id.clone(),
+                            detail: format!(
+                                "label of {} bytes exceeds the {MAX_DECISION_LABEL_BYTES}-byte storage bound",
+                                label.len()
+                            ),
                         });
                     }
                 }
@@ -3884,6 +3906,15 @@ mod tests {
             &with_switch(serde_json::json!(["a", "a"])),
             |e| matches!(e, CompileError::InvalidRoutingLabels { detail, .. } if detail.contains("duplicated")),
             "duplicated label",
+        );
+        // Phase K storage-aligned bound: a label the engine's deposit
+        // door would refuse to STORE (256 KiB) must not compile — a
+        // valid-but-unresumable plan is a refusal class, not a surprise.
+        let oversized = "x".repeat(MAX_DECISION_LABEL_BYTES + 1);
+        expect_error(
+            &with_switch(serde_json::json!([oversized])),
+            |e| matches!(e, CompileError::InvalidRoutingLabels { detail, .. } if detail.contains("storage bound")),
+            "label beyond the storage bound",
         );
     }
 
