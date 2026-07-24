@@ -40,9 +40,9 @@ chantier ; `NEUF` = enforcement créé par S83.
 | 6 | `G-UNKNOWN` | effet non idempotent perdu devient `outcome_unknown` | **K** | — | test | NEUF | `cargo nextest run -p sbfb-workflow-engine outcome_unknown` | tests K |
 | 7 | `G-FS-PROCESS-EFFECT` | HEAD/index/worktree préconditions, racine FS et descendants processus vérifiés en K/Q/AA (§23) | **K** (ouvre) | **Q** (companion IPC) + **AA** (ferme, dogfood Factory) | test | NEUF | `cargo nextest run -p sbfb-workflow-engine fs_process` | tests K + AA (Windows inclus) |
 | 8 | `G-CAPABILITY` | atténuation, expiration, audience, profondeur testées par propriétés | **L** | — | test | NEUF | `cargo nextest run -p sbfb-workflow-engine capability` | tests propriété L |
-| 9 | `G-SECRET` | canari absent app KV, DB, logs, blobs, prompts, traces, exports | **L** | — | test | NEUF | `cargo nextest run -p sbfb-workflow-engine secret_canary` | tests L |
-| 10 | `G-SECRET-VAULT` | credentials providers liés/rotés/supprimés dans un coffre hôte, jamais dans le run/app | **L** | — | test | NEUF | `cargo nextest run -p sbfb-workflow-engine vault` | coffre L (rotation/zeroize) |
-| 11 | `G-HITL` | iframe incapable d'approuver ; mutation des paramètres invalide la décision | **L** | — | test | NEUF | `npm run test:e2e -- hitl` + `cargo nextest run hitl` | HITL chrome hôte signé |
+| 9 | `G-SECRET` | canari absent app KV, DB, logs, blobs, prompts, traces, exports | **L1** | — | test | NEUF | `cargo nextest run -p sbfb-workflow-engine secret_canary` | tests L1 |
+| 10 | `G-SECRET-VAULT` | credentials providers liés/rotés/supprimés dans un coffre hôte, jamais dans le run/app | **L1** | — | test | NEUF | `cargo nextest run -p sbfb-workflow-engine vault` | coffre L1 (rotation/zeroize) |
+| 11 | `G-HITL` | iframe incapable d'approuver ; mutation des paramètres invalide la décision | **L1** | — | test | NEUF | `npm run test:e2e -- hitl` + `cargo nextest run hitl` | HITL chrome hôte signé |
 | 12 | `G-STORE` | fault injection journal/outbox sans perte ni double émission | **E** (ouvre) / **I** | — | test | NEUF | `cargo nextest run -p sbfb-workflow-engine store` | run store SQLite I |
 | 13 | `G-UPGRADE-REPLAY` | ancien run rejoué après upgrade ; events/upcasters, runtime, adapters pinning prouvés | **I** | — | test | NEUF | `cargo nextest run -p sbfb-workflow-engine upgrade_replay` | upcasters + snapshots I |
 | 14 | `G-SINGLE-WRITER` | lease/fencing empêche deux runtimes d'émettre la même outbox | **I** | — | test | NEUF | `cargo nextest run -p sbfb-workflow-engine single_writer` | fencing I |
@@ -75,7 +75,7 @@ chantier ; `NEUF` = enforcement créé par S83.
 | 41 | `G-A11Y-AT` | matrice Windows/macOS/iOS/Android/Linux, lecteurs d'écran, braille, voice, switch archivée | **B** (réserve matrice) | **AI1** (ferme, multi-AT) | artefact + humain | NEUF | revue matrice AT (5 OS) | matrice multi-AT |
 | 42 | `G-A11Y-COGA` | compréhension, mémoire, attention, erreurs, reprise testées avec utilisateurs concernés | **B** (harness) + surfaces | AI1 | test + humain | NEUF | harness COGA + panel | matrice COGA |
 | 43 | `G-A11Y-PREFS` | axes fonctionnels empilables preboot ; aucun diagnostic/need dans DOM, app, trace, réseau | **B** (ouvre) | AI1 (consolidation, G-A11Y-* ferment) | test | NEUF | `npm run test:e2e -- prefs-preboot` | préférences privées B |
-| 44 | `G-A11Y-HOST` | grants, secrets, HITL, publication, erreurs du chrome hôte au même niveau | **L** / **Q** (chrome hôte) | AI1 | test | NEUF | `npm run test:e2e -- host-a11y` | chrome hôte L/Q |
+| 44 | `G-A11Y-HOST` | grants, secrets, HITL, publication, erreurs du chrome hôte au même niveau | **L1** / **Q** (chrome hôte) | AI1 | test | NEUF | `npm run test:e2e -- host-a11y` | chrome hôte L1/Q |
 | 45 | `G-A11Y-USERS` | deux rounds / panel rémunéré ; zéro barrière P0/P1 sur parcours critiques | **W1** (round 1, ouvre) | **AI1** (round 2, ferme) | artefact + humain | NEUF | panel rémunéré (checkpoints AM-10) | rapports panel round 1/2 |
 | 46 | `G-I18N` | nouveaux messages extraits et parité locale gatée | **B** (ouvre) + phases UI | — | script | ÉTENDU (3 scripts Lingui existants) | `npm run lint` + gates Lingui (`web/scripts/scan-en-strings.sh`) | catalogues locale |
 | 47 | `G-PERF` | budgets chiffrés graphe/timeline/Babel et size-limit verrouillés | **AI** | — | script | ÉTENDU (`size-limit` existant) | `npm run size` + budgets chiffrés | budgets AI |
@@ -83,6 +83,13 @@ chantier ; `NEUF` = enforcement créé par S83.
 **Comptes** : 47 gates §23, 0 orphelin. Statut : **40 NEUF + 7 ÉTENDU**
 (G-PHASE-GRAMMAR, G-WIRE-COMPAT, G-HOOK-FINALITY, G-WORKFLOW-CSP,
 G-SUPPLY-CHAIN, G-I18N, G-PERF) ; 0 EXISTANT pur (toutes touchent au chantier).
+
+> **Réconciliation AM-4 (Phase L, 2026-07-24, §4.4 statut re-vérifié)** : la
+> matrice a été figée au cadrage Phase A, AVANT la re-coupe AM-4 qui scinde
+> L (permissions/atténuation) et **L1** (coffre `secret_ref` + HITL signé).
+> Les rows 9 `G-SECRET`, 10 `G-SECRET-VAULT`, 11 `G-HITL` et 44 `G-A11Y-HOST`
+> ont donc migré leur phase propriétaire **`L → L1`** (plan §Phase L1 l.1009-1015).
+> Phase L ne ferme que **row 8 `G-CAPABILITY`**. 0 orphelin conservé.
 
 ### Gates process repo (hors 47, EXISTANT — rappel de complétude)
 `G1` Design Review Board (`sprint83_design_review.md`, hook Check 5) et `G9`
@@ -116,7 +123,7 @@ une subsomption documentée par un gate/WA-T (AM-2).
 | Acceptance | Résumé (§18) | Phases propriétaires (§19) | Gates associés | Mécanisme | Artefact |
 |---|---|---|---|---|---|
 | **HUB-T1** Auteur sans JSON | canvas/outline/mode-guide → même digest sémantique ; undo/autosave/recovery | **S**, T, U | `G-SCOPE-FLOOR`, `G-A11Y-AUTHORING` | test (Playwright) | `web/e2e/workflow-hub-author.spec.ts` |
-| **HUB-T2** Confiance avant run | agents/providers/outils/coûts/grants/HITL visibles ; mutation invalide la confirmation | **U** (C, L) | `G-BRIDGE-GRANT`, `G-CAPABILITY`, `G-HITL` | test | inspecteurs U + spec preflight |
+| **HUB-T2** Confiance avant run | agents/providers/outils/coûts/grants/HITL visibles ; mutation invalide la confirmation | **U** (C, L, L1) | `G-BRIDGE-GRANT`, `G-CAPABILITY`, `G-HITL` | test | inspecteurs U + spec preflight |
 | **HUB-T3** Run durable | kill/restart runtime, reprise frontier, `outcome_unknown` sans double effet | **V** (E, I, J, K) | `G-STORE`, `G-UPGRADE-REPLAY`, `G-EFFECT` | test | `web/e2e/workflow-hub-run.spec.ts` |
 | **HUB-T4** Catalogue et cycle complet | découvrir/installer-désactivé/activer/forker/update-reconsent/rollback/deprecate/revoke | **X** | `G-PUBLISH-RECOVERY`, `G-RRV-PROJECTION`, `G-LIFECYCLE` | test | `web/e2e/workflow-hub-lifecycle.spec.ts` |
 | **HUB-T5** Cross-app | packs externes exécutables ouverts/forkés/réévalués/invoqués ; Ideas→Conception→Factory + Babel ; logique ne migre pas dans le Hub | **Y** (D, Z..AF, AJ) | `G-APPCALL`, `G-FACTORY-CONTRACT`, `G-FACTORY-CUTOVER` | test | verticals Z..AF |

@@ -24,7 +24,9 @@
 //! The compiler closes the STATIC half of Plan-Then-Execute: the SET of
 //! capabilities, the topology, the pinned artefacts, the bounds. It does not
 //! bind capabilities per effect (`effect_id` binding = runtime, Phases J/K),
-//! does not intersect the seven authority layers (Phase L), does not bind
+//! does not intersect the seven authority layers (that computation is
+//! delivered in `sbfb-workflow-engine::capability`, Phase L; its per-effect
+//! binding into dispatch is the run-surface phase), does not bind
 //! secrets (`secret_ref` keystore binding = Phase L1), does not touch
 //! SSRF/DNS egress (Phase P), and ships no TS mirror or canvas authoring
 //! surface (Phase T — the Rust schema snapshot is this phase's sole
@@ -135,8 +137,12 @@ pub const MAX_DECISION_LABEL_BYTES: usize = 256 * 1024;
 /// (`sensitivity`, `clearance`, …) escapes this refusal — the same
 /// best-effort residual class as the secret/endpoint scan (THREAT_MODEL §18
 /// T-PLAN-CLASSIFICATION-LAUNDER caveat); the frozen rule 6 defines the
-/// catalogued scope, and typed capability classes (Phase L, §14.2) make it
-/// precise. Publication stays backstopped by the HITL domination rule.
+/// catalogued scope. The typed capability classes now exist engine-side
+/// (`sbfb-workflow-engine::capability`, §14.2), but this compiler
+/// recognition stays NOMINAL — once that computation is bound into dispatch
+/// (the run-surface phase) the runtime intersection WILL judge the effect
+/// class by TYPE in defense-in-depth; it does not tighten this static
+/// membership. Publication stays backstopped by the HITL domination rule.
 pub const CLASSIFICATION_DISCRIMINANTS: [&str; 6] = [
     "visibility",
     "classification",
@@ -169,10 +175,12 @@ pub const CLASSIFICATION_LABEL_TERMS: [&str; 6] = [
 /// call must be dominated by a `human.review` gate.
 ///
 /// NOMINAL v1 bound (honesty): a publishing capability named without any of
-/// these segments (`content.share`, `feed.upload`, …) is NOT captured — the
-/// typed capability classes of Phase L (§14.2) make the publication class
-/// precise; until then this marker set is a best-effort under-inclusive
-/// recogniser, stated as such in THREAT_MODEL §18.
+/// these segments (`content.share`, `feed.upload`, …) is NOT captured by
+/// this STATIC marker set. The typed capability classes now exist engine-side
+/// (§14.2): once bound into dispatch (run-surface phase) the runtime WILL
+/// judge the publication class by TYPE, not by name (defense-in-depth), but
+/// this compiler marker set stays a best-effort under-inclusive STATIC
+/// recogniser, stated as such in THREAT_MODEL §18/§19.3.
 pub const PUBLICATION_CAPABILITY_MARKERS: [&str; 4] =
     ["publish", "egress", "announce", "broadcast"];
 
@@ -2413,8 +2421,10 @@ fn upstream_agent_invokers(graph: &SbfbWorkflowGraph, node_id: &str) -> Vec<Stri
 /// Does any effect depend on this node's route downstream?
 ///
 /// Deliberately BROADER than the freeze §8.6 letter ("un capability.call
-/// d'egress ou de publication") on two axes (fail-closed until the typed
-/// capability classes of Phase L make the effect class precise): v1 treats
+/// d'egress ou de publication") on two axes (fail-closed; the typed
+/// capability classes now exist engine-side [§19.3] but this static
+/// recognition stays broad-by-design — the runtime WILL refine by type once
+/// bound into dispatch): v1 treats
 /// EVERY `capability.call` as an effect, and treats a downstream
 /// `map`/`repeat`/`subworkflow` as one too (Codex r2 — the child scope is
 /// expanded and validated on its own, but a PARENT-scope classification

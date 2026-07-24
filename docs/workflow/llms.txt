@@ -11,8 +11,10 @@
 > **Status: UNDER CONSTRUCTION (S83).** Delivered at this seed: pack format
 > (F), language + agent definitions (G), compiler (H), durable run store (I),
 > run store loopback READ surface (I1), deterministic orchestrator (J),
-> effect layer — activities, retries, idempotence, outcome_unknown (K).
-> Permissions (L), adapters (N/O) and the Workflow Hub app are later phases —
+> effect layer — activities, retries, idempotence, outcome_unknown (K),
+> effective-capability COMPUTATION — 7-layer monotone intersection, 17 typed
+> classes (L). The per-effect BINDING of L into dispatch, the secret vault +
+> signed HITL (L1), adapters (N/O) and the Workflow Hub app are later phases —
 > a fact about them absent from a rank-1 repo file is **`Not evidenced`**.
 >
 > **Truth Stack** (trust the higher rank on conflict):
@@ -54,7 +56,27 @@
   (they do NOT exist in the router today; K is engine-only).
 - [THREAT_MODEL.md](../security/THREAT_MODEL.md): §19 asset A11 + the
   T-RUN-* rows, plus §19.2 (asset A12) — the effect layer's own threats
-  (v26 = the Phase K effect surface).
+  (v26 = the Phase K effect surface), plus §19.3 (asset A13) — the
+  permissions surface (v27 = the Phase L capability computation).
+
+## Permissions surface (rank-1 source, S83 Phase L)
+
+- [capability.rs](../../crates/sbfb-workflow-engine/src/capability.rs): the
+  authoritative `effective_capabilities` computation — the monotone
+  intersection of the seven authority layers (§14.1) over 17 typed capability
+  classes (§14.2). PURE: no I/O, no serde derive (nothing serialized —
+  census DOMAIN 29 untouched), the OS toggle and local policy come from an
+  injected `CapabilityPolicy` trait. Each present layer can only ATTENUATE;
+  meet is field-by-field with per-field direction (min quota/timeout,
+  intersect destinations, MAX approval, UNION of the `DataPolicy` flags —
+  never a total max that would drop an orthogonal axis). Multiple same-
+  audience grants for a ref reduce to the DOMINATING grant (the one every
+  other refines) if it exists, else a fail-closed drop — permutation-
+  invariant, never a synthesised field-wise LUB. Mirrors — never calls —
+  `sbfb-manifest::grant_v0` (wrong domain: the 16 bridge verbs). The
+  per-effect BINDING into dispatch and the authority-refusal journal are the
+  run-surface phase (DS-1); the secret vault and signed HITL are L1 (the
+  layer-7 decision here is an OPAQUE ref, empty in L, fail-closed on `Human`).
 
 ## Contract tests (drift gates)
 

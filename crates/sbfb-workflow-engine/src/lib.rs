@@ -177,6 +177,7 @@
 //! outlives the process cannot leak prompt or output content.
 
 pub mod activity;
+pub mod capability;
 pub mod clock;
 pub mod echo;
 pub mod engine;
@@ -195,6 +196,11 @@ pub use activity::{
     ACTIVITY_RECEIPT_KIND, Activity, ActivityError, ActivityReceipt, EffectContext,
     FencedFileActivity, PollOutcome, ScriptedActivity, UNFENCED_EPOCH, fenced_side_output_count,
     read_fenced_side_outputs,
+};
+pub use capability::{
+    ApprovalLevel, BoundedCapability, CapabilityClass, CapabilityGrant, CapabilityPolicy, Ceiling,
+    ClassConstraint, DataPolicy, DestinationBound, EffectNeed, EffectiveCapabilities,
+    GrantAudience, HitlValidity, OpenPolicy, RefConstraint, effective_capabilities,
 };
 pub use clock::{Clock, ManualClock};
 pub use engine::{EngineError, RunOutcome, RunSpec, SpikeEngine, StepSpec};

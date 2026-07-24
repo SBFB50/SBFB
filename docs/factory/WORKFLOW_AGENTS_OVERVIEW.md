@@ -41,7 +41,7 @@ topologie/outils/destinations/grants/classification/HITL/budgets.
 | Crate | Rôle | Contraintes |
 |---|---|---|
 | `sbfb-workflow-core` | **pur** : schémas, canonicalisation + digests, validation statique, compilation du plan immuable, fixtures golden | sans Tokio / réseau / DB — déterministe, testable en isolation |
-| `sbfb-workflow-engine` | hôte-neutre : reducer + machine d'état, scheduler local, retries/timers/joins/boucles bornées, inbox/outbox + idempotence, checkpoints + replay | traits `store/clock/activity/artifact/signal/secret/policy`, aucun couplage UI |
+| `sbfb-workflow-engine` | hôte-neutre : reducer + machine d'état, scheduler local, retries/timers/joins/boucles bornées, inbox/outbox + idempotence, checkpoints + replay, **surface permissions** (`effective_capabilities` = intersection monotone des 7 couches sur 17 classes typées, Phase L — computation autoritaire ; reliure per-effet différée à la phase run-surface) | traits `store/clock/activity/artifact/signal/secret/policy` (`policy` = `CapabilityPolicy`, réalisé L), aucun couplage UI |
 
 Le moteur durable est de la famille **mémoïsation-de-steps + journal append-only**
 (pas de replay-total, pas de WASM). Le journal (`RunEvent.v1`, PK

@@ -14,7 +14,9 @@
 //! The scheduler only ever DISPATCHES nodes of the compiled plan — a node
 //! that is not a plan occurrence cannot be executed, which is the runtime
 //! half of "the signed graph IS the plan" (T-PLAN-LLM-MUTATION's scheduler
-//! part; the per-effect capability binding is Phases K/L).
+//! part). The effective-capability COMPUTATION is the [`crate::capability`]
+//! module (the monotone intersection of the seven authority layers); this
+//! scheduler does not yet consult it per effect.
 //!
 //! ## Determinism
 //!
@@ -56,8 +58,10 @@
 //!
 //! ## What Phase K does NOT do (honest bounds)
 //!
-//! Capability attenuation is L, the secret vault and the signed HITL
-//! approval are L1, the rich provider attestation (Ed25519 receipt with
+//! Capability attenuation is COMPUTED by the [`crate::capability`] module;
+//! this effect layer does not itself consult that computation (binding it
+//! into dispatch is the run-surface phase). The secret vault and the signed
+//! HITL approval are L1, the rich provider attestation (Ed25519 receipt with
 //! model/CLI facts) is the Phase O adapter layer. Budget METERING
 //! (`cancel_on_budget_exhausted`) still has no meter. Failure REASONS
 //! surface in errors, never in the journal (payload-free by type).

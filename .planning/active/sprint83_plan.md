@@ -1498,6 +1498,28 @@ bornée), child-runs, **HITL** (intervention humaine requise), pause/cancel/retr
 **`outcome_unknown` affiché honnêtement — jamais un faux succès** (MUR jamais bouton, §12.7).
 Consomme le runtime E/I/J/K (autorité host-side ; le Hub RESTITUE l'état du journal, ne le
 possède pas). Surface Hub → a11y fermée avant commit. Ferme HUB-T3.
+**Reliure DS-1 (héritée de Phase L) — contrat explicite** : c'est ici que la computation
+autoritaire `effective_capabilities` (module `capability`, Phase L) est CÂBLÉE dans le dispatch
+d'effet (`orchestrator::run_effect`). Exigences NON négociables de la reliure (Codex r2 P2) :
+(1) intersection recomputée PAR-ATTEMPT à l'émission contre le `now_ms` watermarké (jamais un
+verdict d'autorité mis en cache) ; (2) refus d'autorité JOURNALISÉS comme décisions (le replay
+lit le journal, jamais la policy live) ; (3) résolveur autoritaire `capability_ref`
+(String pack/plan) → `BoundedCapability` typée **fail-closed : inconnu/mal-mappé ⇒ REFUS**
+(ferme la moitié frontière de T-CAP-CLASS-UNKNOWN-FAILOPEN, aujourd'hui « bornée ») ;
+(4) provenance autoritaire de `EffectNeed` (dérivée du plan compilé, jamais d'une sortie modèle) ;
+(5) validation de la destination/quota/timeout/data-policy de l'effet RÉEL contre la borne
+retournée ; (6) unicité — ou erreur typée surfacée à l'opérateur — pour plusieurs grants
+d'une même ref/audience (le module droppe fail-closed mais silencieusement, cf. borne T-CAP-WIDEN-BYPASS) ;
+(7) distinction d'API entre candidat déclaré (`from_declared`) et résultat calculé (un futur
+type/newtype de résultat non forgeable) ; (8) liaison à l'identité EXACTE (Codex r3) — la reliure
+ne passe à la couche release QUE les grants de la release installée (digest/identité), à la couche
+pack QUE ceux de la version pack courante (un grant release-A ne vaut pas pour release-B, pack-v1
+pas pour pack-v2 — `GrantAudience` ne distingue que le TYPE, le sujet exact est de la responsabilité
+de l'appelant) + `EffectNeed::One` imposé au dispatch avec concordance classe/opération réelle.
+Les décisions HITL rendues ici alimentent la couche 7.
+Ferme T-CAP-EXPIRY-TOCTOU-RETRY / T-CAP-REPLAY-REAUTHORIZE (THREAT §19.3). **Dette possédée par V** :
+`compile.rs:606-610` (« per-effect enforcement binding is Phases J/K/L », champ schemars laissé
+byte-intact pour préserver le golden) devient factuellement exact quand cette reliure est livrée.
 
 ### V.2 Livrables
 - `examples/workflow-hub/` : centre des runs (liste/statuts/timeline/child-runs/HITL/
