@@ -2023,7 +2023,8 @@ subset (no UDS / peer-creds — the Operator is TCP loopback only):
   (`sse_allows_nonsensitive`).
 - **Model** : the SSE spawn no longer hardcodes `"sonnet"` (G9, violates
   the model rule `feedback_model_46`); it reads `ChatSendRequest.model`
-  with default `claude-opus-4-8[1m]`.
+  with default `claude-opus-5[1m]` (4.8 → Opus 5 le 2026-07-25, aligne sur
+  `CLAUDE.md` §Regle modele).
 - **Spawn safety** : `spawn_claude_stream` (`llm_bridge.rs`) gained a
   configurable timeout (subprocess killed if exceeded) and a pre-spawn
   resolution check emitting a clear "claude CLI not found in PATH"

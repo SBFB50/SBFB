@@ -485,8 +485,8 @@ fn chat_stream_uses_opus_model() {
         .text()
         .unwrap();
     assert!(
-        body.contains("claude-opus-4-8[1m]"),
-        "stream must spawn with the opus-4-8 model, got: {body}"
+        body.contains("claude-opus-5[1m]"),
+        "stream must spawn with the frozen Opus 5 model, got: {body}"
     );
     assert!(
         !body.contains("--model sonnet"),
@@ -624,7 +624,7 @@ fn sensitive_action_gated_regardless_of_provider() {
 }
 
 // P2-OLLAMA-MODEL-PICKER (S73 Phase B): a non-Claude intention must run with
-// the SELECTED model, never the Claude id `claude-opus-4-8[1m]` (which does
+// the SELECTED model, never the Claude id `claude-opus-5[1m]` (which does
 // not exist in a local Ollama and made every non-Claude turn fail).
 // End-to-end proof: a mock Ollama captures the `model` the operator sends to
 // `/api/generate`.
@@ -721,7 +721,7 @@ fn non_claude_intent_uses_selected_model() {
     );
     assert_ne!(
         model.as_deref(),
-        Some("claude-opus-4-8[1m]"),
+        Some("claude-opus-5[1m]"),
         "Ollama must never receive the Claude model id"
     );
 }

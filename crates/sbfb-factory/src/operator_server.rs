@@ -466,15 +466,17 @@ fn default_project_id() -> String {
 }
 
 /// G9 (D4): default agent model for the Claude arm. The frozen model rule
-/// mandates the explicit id `claude-opus-4-8[1m]` everywhere a Claude agent
+/// mandates the explicit id `claude-opus-5[1m]` everywhere a Claude agent
 /// is invoked — never the alias `opus` nor the prior hardcoded `sonnet`.
+/// Bumped 4.8 → Opus 5 on 2026-07-25 with the process canon (`CLAUDE.md`
+/// §Regle modele): the doc and the id this code spawns must not drift apart.
 fn default_model() -> String {
-    "claude-opus-4-8[1m]".to_string()
+    "claude-opus-5[1m]".to_string()
 }
 
 /// Per-provider default model (P2-OLLAMA-MODEL-PICKER, S73 Phase B).
 ///
-/// The model rule (`claude-opus-4-8[1m]` everywhere) governs **Claude**
+/// The model rule (`claude-opus-5[1m]` everywhere) governs **Claude**
 /// invocations only. Ollama and Network must NOT inherit that id — it does
 /// not exist in a local Ollama, so every non-Claude intention that omitted a
 /// model failed. Each non-Claude provider gets a sensible local default,
@@ -1527,7 +1529,7 @@ async fn handle_chat_send(
     // G9 (D4) + P2-OLLAMA-MODEL-PICKER (S73 Phase B): persist the model for
     // THIS turn's provider so the bodyless SSE GET reads it back. An explicit
     // client model wins; otherwise it resolves to the provider's own default
-    // — Ollama/Network never inherit the Claude id `claude-opus-4-8[1m]`.
+    // — Ollama/Network never inherit the Claude id `claude-opus-5[1m]`.
     let requested_model = req.model.trim();
     session.model = if requested_model.is_empty() {
         default_model_for_provider(&session.provider)
@@ -1668,7 +1670,7 @@ async fn handle_chat_stream(
 
     // G9 (D4) + P2-OLLAMA-MODEL-PICKER (S73 Phase B): use the session model;
     // if somehow empty, fall back to the provider's own default (Claude →
-    // `claude-opus-4-8[1m]`, Ollama/Network → their local default), never the
+    // `claude-opus-5[1m]`, Ollama/Network → their local default), never the
     // prior hardcoded `sonnet` and never the Claude id forced onto Ollama.
     let model = if model.trim().is_empty() {
         default_model_for_provider(&provider)
@@ -1864,11 +1866,11 @@ mod tests {
     // P2-OLLAMA-MODEL-PICKER (S73 Phase B): the per-provider default model.
     #[test]
     fn claude_provider_keeps_the_frozen_opus_model() {
-        // The model rule (`claude-opus-4-8[1m]`) governs Claude invocations.
-        assert_eq!(default_model_for_provider("claude"), "claude-opus-4-8[1m]");
+        // The model rule (`claude-opus-5[1m]`) governs Claude invocations.
+        assert_eq!(default_model_for_provider("claude"), "claude-opus-5[1m]");
         // Empty / unknown providers fall back to the Claude default pilot.
-        assert_eq!(default_model_for_provider(""), "claude-opus-4-8[1m]");
-        assert_eq!(default_model_for_provider("gpt-9"), "claude-opus-4-8[1m]");
+        assert_eq!(default_model_for_provider(""), "claude-opus-5[1m]");
+        assert_eq!(default_model_for_provider("gpt-9"), "claude-opus-5[1m]");
     }
 
     #[test]
@@ -1878,7 +1880,7 @@ mod tests {
         for provider in ["ollama", "local", "network"] {
             let model = default_model_for_provider(provider);
             assert_ne!(
-                model, "claude-opus-4-8[1m]",
+                model, "claude-opus-5[1m]",
                 "provider={provider} must not inherit the Claude model"
             );
             assert!(

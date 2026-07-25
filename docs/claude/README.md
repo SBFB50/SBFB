@@ -85,8 +85,9 @@ Process courant (ne pas réinventer) :
     supervisor, n'attends aucun verdict GO-*/BLOCK-*. Codex (GPT-5.6 Sol) = vérif
     croisée externe après review Workflow PASS-PENDING. Seul gate automatisé
     au commit = hook phase-precommit-lightcheck.sh.
-  - Modèle agents : ID explicite claude-opus-4-8[1m], jamais l'alias « opus »,
-    jamais passer le param model à Agent().
+  - Modèle agents : ID explicite claude-opus-5[1m], jamais l'alias « opus »,
+    jamais passer le param model à Agent(). Pour les sous-agents `agent()` d'un
+    Workflow, l'override explicite est au contraire OBLIGATOIRE.
 
 GATE DE CONFIRMATION DE LECTURE (obligatoire, AVANT toute action). Quand le
 pre-flight §7.1 a tourné, restitue en <=6 lignes :
@@ -1071,7 +1072,7 @@ partages), le fan-out avant-plan est le mode par defaut sur.
 Plan section Phase X lue
   |
   v
-Workflow preflight (fan-out agents 1M, claude-opus-4-8[1m])
+Workflow preflight (fan-out agents 1M, claude-opus-5[1m])
   |  5 scans factuels S1a-S4 en parallele + synthese -> verdict
   v
 Code ecrit par Claude (execution phase standard, main-thread)
@@ -1230,7 +1231,7 @@ n'existe pas de review final `PASS` ni de commit autorise.
 
 Le preflight et la review de phase sont des etapes de LECTURE /
 verification : elles s'orchestrent en **Workflow ultracode**
-(fan-out d'agents independants, 1M tokens chacun, claude-opus-4-8[1m],
+(fan-out d'agents independants, 1M tokens chacun, claude-opus-5[1m],
 + verification adversariale + synthese). Gain mesure : ~3x sur
 phases > 10 fichiers. Le Workflow ne code JAMAIS une phase en
 parallele (editions concurrentes des fichiers partages = conflits +
@@ -2372,13 +2373,22 @@ IMMEDIATEMENT apres le pre-flight, AVANT la detection de cas :
 # === Regle modele agents (§7.1.1) ===
 
 Ne JAMAIS passer le parametre `model` dans les appels Agent().
-Les 6 agents ont `model: claude-opus-4-8[1m]` dans leur frontmatter
-(.claude/agents/*.md). Le parametre `model` de l'outil Agent()
-OVERRIDE le frontmatter — et les alias (`opus`) n'ont pas de
+Les 5 agents enregistres ont `model: claude-opus-5[1m]` dans leur
+frontmatter (.claude/agents/*.md). Le parametre `model` de l'outil
+Agent() OVERRIDE le frontmatter — et les alias (`opus`) n'ont pas de
 resolution garantie vers la bonne version. Utiliser l'ID explicite
-`claude-opus-4-8[1m]`. Omission = heritage correct. Bascule 4.6 → 4.8
-le 2026-05-28 ; la regression MRCR qui motivait le pin 4.6 (cf. §7.x
-A/B test S22) etait specifique a Opus 4.7 et ne s'applique pas a 4.8.
+`claude-opus-5[1m]`. Omission = heritage correct. Bascule 4.6 → 4.8
+le 2026-05-28 (la regression MRCR qui motivait le pin 4.6, cf. §7.x
+A/B test S22, etait specifique a Opus 4.7), puis **4.8 → Opus 5 le
+2026-07-25** (directive PO en S83 Phase L1).
+
+EXCEPTION, sens INVERSE, pour les sous-agents d'un Workflow : un
+`agent()` de Workflow retombe sur le defaut Haiku 4.5 s'il n'a pas
+d'override, donc il faut y passer `model: 'claude-opus-5[1m]'`
+EXPLICITEMENT a chaque appel (maps `parallel`/`pipeline` ET etapes de
+synthese). Et quand l'ID de modele change, re-lancer le Workflow a
+NEUF : un `resumeFromRunId` rejouerait le cache des agents de
+l'ancien modele.
 
 # === Détection du cas + routage agent ===
 

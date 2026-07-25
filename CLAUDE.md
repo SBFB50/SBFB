@@ -66,11 +66,14 @@ fan-out Workflow en avant-plan, et ne terminer le tour qu'avec un arbre
 de travail propre.
 
 **Regle modele** : ne JAMAIS passer le parametre `model` dans les
-appels Agent(). Les agents ont `model: claude-opus-4-8[1m]` dans
+appels Agent(). Les agents ont `model: claude-opus-5[1m]` dans
 leur frontmatter — le param model override le frontmatter, et il
-faut toujours utiliser l'ID explicite `claude-opus-4-8[1m]`, jamais
+faut toujours utiliser l'ID explicite `claude-opus-5[1m]`, jamais
 l'alias `opus` (resolution d'alias non garantie). Bascule 4.6 → 4.8
-le 2026-05-28 (modele plus capable, contexte 1M conserve).
+le 2026-05-28, puis **4.8 → Opus 5 le 2026-07-25** (directive PO en
+S83 Phase L1 ; contexte 1M conserve). Meme ID pour les sous-agents
+`agent()` d'un Workflow ultracode, ou l'override est OBLIGATOIRE
+(sans lui ils retombent sur le defaut Haiku 4.5).
 
 Ref detaillee : `docs/claude/README.md §7` + `.claude/agents/*.md`.
 

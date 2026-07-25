@@ -9,7 +9,7 @@ description: >
   vs code ecrit, et produit un rapport plus profond que les gates Claude combines.
   Invoquer apres "deep review phase X", "full review", "review before Codex".
 tools: Read, Grep, Glob, Bash, Write
-model: claude-opus-4-8[1m]
+model: claude-opus-5[1m]
 effort: high
 ---
 
