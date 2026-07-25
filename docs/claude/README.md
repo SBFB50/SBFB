@@ -2390,6 +2390,18 @@ synthese). Et quand l'ID de modele change, re-lancer le Workflow a
 NEUF : un `resumeFromRunId` rejouerait le cache des agents de
 l'ancien modele.
 
+EFFORT (directive PO 2026-07-25) : `effort: max` dans le frontmatter
+des 5 agents enregistres, et `effort: 'max'` sur chaque `agent()` de
+Workflow d'une etape de DECOUVERTE / VERIFICATION. C'est le SEUL
+levier de profondeur par-agent — le « fast mode » n'est PAS
+configurable par agent (verifie sur la doc officielle : la liste des
+champs de frontmatter supportes n'en contient aucun, et il n'existe
+pas d'ID de modele `-fast`/`[fast]`) ; c'est un reglage de SESSION
+(`/fast`, cle `fastMode` des settings, coupable par
+`CLAUDE_CODE_DISABLE_FAST_MODE=1`). `model` accepte `sonnet`/`opus`/
+`haiku`/`fable` OU un full model ID — d'ou la legitimite de
+`claude-opus-5[1m]`.
+
 # === Détection du cas + routage agent ===
 
 Compare ce que tu vois avec les 4 cas ci-dessous. Le main thread

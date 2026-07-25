@@ -75,6 +75,16 @@ S83 Phase L1 ; contexte 1M conserve). Meme ID pour les sous-agents
 `agent()` d'un Workflow ultracode, ou l'override est OBLIGATOIRE
 (sans lui ils retombent sur le defaut Haiku 4.5).
 
+**Regle effort** : `effort: max` sur les 5 agents enregistres
+(frontmatter) et `effort: 'max'` sur chaque `agent()` de Workflow
+d'une etape de DECOUVERTE ou de VERIFICATION (preflight, review,
+audit gate, kickoff, recherche) — directive PO 2026-07-25. C'est le
+SEUL levier de profondeur par-agent : le « fast mode » n'est PAS
+configurable par agent (aucune cle de frontmatter, aucun ID de
+modele `-fast`/`[fast]`), c'est un reglage de SESSION (`/fast`,
+`fastMode` en settings). Un `effort` bas reste legitime pour une
+etape purement mecanique, jamais pour un jugement.
+
 Ref detaillee : `docs/claude/README.md §7` + `.claude/agents/*.md`.
 
 ## Modele de rendu — plateforme universelle (Sprint 12+)

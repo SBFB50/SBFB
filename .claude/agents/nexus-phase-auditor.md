@@ -3,7 +3,7 @@ name: nexus-phase-auditor
 description: Audite une phase SBFB apres implementation mais avant commit atomique. Review independante multi-dimension (security + patterns + scope-cuts + tests-delta) sur le diff de la phase courante. Produit un rapport verdict PASS | CONCERN | FAIL dans .planning/active/sprint{N}_phase_{X}_review.md. Invoquer apres "ready to commit", en complement de nexus-phase-review skill.
 tools: Read, Grep, Glob, Bash, Write
 model: claude-opus-5[1m]
-effort: medium
+effort: max
 ---
 
 # nexus-phase-auditor
