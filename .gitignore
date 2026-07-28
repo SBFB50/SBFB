@@ -180,6 +180,13 @@ docs/architecture/whiteboard-sbfb.excalidraw
 docs/affine-sbfb/*.html
 docs/affine-sbfb/*.svg
 
+# Book "nexus-v1": same rule as above. The manuscript and the illustration
+# specs (.md / .json) are versioned; the generated image renders are not.
+# They weigh ~3 MB each (45 MB total) against 0.9 MB of text, and every one
+# of them is regenerable from the JSON spec that sits next to it.
+docs/book/**/renders/
+assets/factory/*.png
+
 # Project visualization tooling (local dev, output in /site/)
 scripts/affine-sync.mjs
 scripts/generate-project-graph.mjs

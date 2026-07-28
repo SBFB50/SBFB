@@ -105,3 +105,9 @@ vendor/** linguist-vendored -whitespace
 # requires. Same for the per-round review snapshots.
 *codex_review*.md -whitespace
 *_review_r*.md -whitespace
+# Prose manuscript (docs/book/): a trailing double-space is a hard line break
+# in Markdown, not a defect — stripping it would change how the text renders.
+# Same reasoning as the two rules above: this is authored prose, not SBFB code,
+# so the whitespace police does not apply. Line-ending normalization still
+# does (`* text=auto eol=lf` above is untouched).
+docs/book/** -whitespace
