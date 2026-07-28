@@ -238,10 +238,15 @@ Runtime isolation roadmap dans
   reste P1 STANDING], SEEDER-DIAL-TAIL G-2, supply-chain rouge CI-1, leg
   operator Node20 CI-2). **S83 OUVERT Cas C `550a913` = chantier Workflow
   Agents** (app Workflow Hub sandboxée + Runtime Rust HÔTE + packs signés +
-  protocole ; ratifié PO Q1 ; **archive v2.2** Q2 ; 43 phases A..AJ1 ;
+  protocole ; ratifié PO Q1 ; **archive v2.2** Q2 ; plancher kickoff 41 phases,
+  **45 phases de travail à ce jour** après les re-coupes AM-7 A1/I1/L1/M1
+  [compte RECALCULÉ, jamais recopié : `grep -cE "^## Phase " sprint83_plan.md`
+  = 46 moins Phase 0] ;
   app-authoring S79 résolu Phase R Q8=A [scaffold Hub via app-authoring,
   exit renforcée digest+lineage] ; ressources préalable engageables Q9).
-  Prochain : Phase A (après ratification complète Checkpoint §11).
+  Phases A..L1 committées ; **M/M1 re-coupées le 2026-07-28** sur préflight
+  PLAN-ADAPT (M artefacts+ACL ferme G-ARTIFACT-ACL ; M1 canonicalisation
+  signée + provenance ferme G-PROVENANCE). Prochain : Phase M.
   **S79 DONE — capacité Factory « app-authoring »** (anime.js 4.5.0 + daisyUI
   5.5.23 maîtrisés dans le process Factory) : 8 phases feature A-H + Phase I
   docs-contract closure. Knowledge packs versionnés blake3 + prompt-kind

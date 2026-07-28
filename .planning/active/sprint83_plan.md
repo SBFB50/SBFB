@@ -2,7 +2,8 @@
 
 > **ACTIVABLE** (Cas C ; Phase 0 = audit gate S82 JOUÉE — verdict CONDITIONAL PASS
 > `74531d4`, 3 conditions acquittées au kickoff §3/§6). **Source unique d'autorité :
-> `sprint83_kickoff.md`** (D1..D5 gelés §4, outline 41 phases §5, carries routés §6,
+> `sprint83_kickoff.md`** (D1..D5 gelés §4, outline 41 phases §5 — **plancher**, les
+> re-coupes sont nominales AM-7, carries routés §6,
 > scope cuts 14 §7, risk register §9). Ce plan MATÉRIALISE le kickoff — il ne
 > ré-ouvre aucune décision gelée. Hiérarchie documentaire : `docs/claude/README.md`
 > + `docs/agent/AGENT_SYSTEM.md` + `docs/agent/PROCESS.md` > Research Pack global
@@ -1016,49 +1017,163 @@ G-SECRET/G-HITL ; débloque N).
 
 ---
 
-## Phase M — Artefacts, ACL et provenance
+## Phase M — Artefacts, ACL et confidentialité (pré-coupe AM-4, préflight PLAN-ADAPT)
+
+> **Re-coupe mid-sprint du 2026-07-28.** La Phase M d'origine portait DEUX gates
+> indépendantes (`G-ARTIFACT-ACL` + `G-PROVENANCE`) et neuf livrables sur trois crates.
+> Le préflight (`sprint83_phase_m_preflight.md`, verdict **PLAN-ADAPT**) a établi que
+> quatre livrables de l'ancien M.2 étaient irréalisables tels qu'écrits. Décision PO du
+> 2026-07-28 : couper en **M** (artefacts + ACL → `G-ARTIFACT-ACL`) et **M1**
+> (canonicalisation signée + provenance → `G-PROVENANCE`), sur le patron des pré-coupes
+> L1/I1/P1 déjà jouées dans ce sprint. Aucun livrable n'est abandonné.
 
 ### M.1 Scope
-`ArtifactRef` typé (content-addressed), façade blob hôte, classes **public/privé/secret/
-réseau**, audience, chiffrement, rétention, suppression, **lineage**, receipts — **digest ≠
-droit de lecture** (connaître le digest ne permet PAS de lire un artefact privé). Graphe de
-provenance §17.2 (Source pack → PublishedPack → InstalledPack+grants → CompiledPlan → Run
-inputs → Node/Activity receipts → Human decisions → Output artifacts → Eval attestations),
-**8 rôles de signature non interchangeables** (§17.1 : une clé qui publie n'atteste pas un
-résultat). `nexus-trace-core` **À CORRIGER avant réutilisation** (§17.3 : JCS non garanti,
-racines OTel). Gates : **G-ARTIFACT-ACL, G-PROVENANCE**.
+`ArtifactRef` typé (content-addressed), trait `artifact` hôte-neutre, classes
+**public/privé/secret/réseau**, `read_audience`, chiffrement, rétention, suppression —
+**digest ≠ droit de lecture** (connaître le digest ne permet PAS de lire un artefact privé).
+Le **lineage** et les **receipts signés** partent en M1 avec le graphe. Gate :
+**G-ARTIFACT-ACL**.
+
+**L'ACL est STRUCTURELLE, pas une politique de façade.** Mesure du préflight : `/blob-serve`
+est monté dans `public_routes` (« no bearer, no Host check, no Origin check »,
+`crates/nexus-shell-daemon/src/http.rs:272`) et `BlobsProtocol::new(&blobs_store, None)`
+(`crates/nexus-core-rs/src/node.rs:442`) sert tout blob à tout dialeur — une ACL de façade
+serait court-circuitée par le chemin réseau. **Décision PO (voie a)** : le clair d'un
+artefact privé/secret n'entre JAMAIS dans le store servi par `BLOBS_ALPN` ; le chiffrement
+est obligatoire avant `add_bytes`. Conséquence : la décision S16 (« the blob content is
+already public by construction », `http.rs:246-256`) n'est **pas révoquée** — elle reste
+vraie parce que M ne lui soumet aucun contenu privé.
 
 ### M.2 Livrables
-- `crates/sbfb-workflow-engine` : `ArtifactRef` typé + façade blob (réutilise iroh-blobs via
-  le host) + classes/audience/chiffrement/rétention ; ACL (digest ≠ lecture).
-- Graphe de provenance signé (8 rôles domaine-séparés) ; mutation d'un digest rejetée.
-- Correction `nexus-trace-core` (JCS garanti, propagation de parent) OU wrapper conforme.
-- Trait `artifact` hôte-neutre.
+- `crates/sbfb-workflow-engine/src/artifact_acl.rs` (**module de lib**, contrainte du gate :
+  le filtre positionnel de nextest matche les modules de lib, pas les noms de binaires
+  d'intégration) : `ArtifactRef` v1 + trait `artifact` hôte-neutre sur le patron
+  `SecretResolver` (référence opaque, `Debug` rédacteur, fail-closed), relié à
+  `ArtifactOutput.v1`.
+- Classes public/privé/secret/réseau + `read_audience` — **nom distinct de `GrantAudience`**
+  (`capability.rs:543`, classe de menace `T-CAP-GRANT-AUDIENCE-CONFUSION` : ne pas
+  réutiliser le mot dans le même crate avec un autre sens).
+- Classe **réseau** (décision PO 2026-07-28) : diffusable par construction, **sans
+  audience** ; la suppression y est refusée **par le type**, pas seulement documentée —
+  l'API rend une erreur au lieu de promettre un effacement qu'elle ne peut pas produire.
+- Chiffrement **côté hôte** (clé par artefact, patron `vault.rs`) + rétention (`Clock`) +
+  suppression = **crypto-shredding + dé-tag**, jamais effacement d'octets : aucun GC n'est
+  planifié (`crates/nexus-core-rs/src/blobs.rs:130-133`), et trois copies survivent à un
+  delete (blob, cache LRU blob-serve, copies distantes). Bornes at-rest reprises mot pour
+  mot de `vault.rs:22-31` — la couche 2 OS keyring est inerte (carry
+  `KEYSTORE-LAYER2-INERT`), la seule protection réelle est Argon2id(PIN) : ne revendiquer
+  aucune double couche.
 
 ### M.3 Tests plan
-- `artifact::tests::digest_is_not_read_right` — connaître le digest d'un artefact privé ≠
-  droit de lecture (G-ARTIFACT-ACL).
-- `artifact::tests::{audience, encryption, retention}_enforced`.
-- `provenance::tests::mutation_of_each_digest_rejected` — chaque classe de digest muté →
-  rejet (G-PROVENANCE).
-- `provenance::tests::roles_not_interchangeable` — clé publisher n'atteste pas un run.
-- `trace_core::tests::jcs_guaranteed` (correction §17.3).
+- `artifact_acl::tests::digest_is_not_read_right` — connaître le digest d'un artefact privé
+  ≠ droit de lecture, **avec un bras sur `/blob-serve/{digest}`** (sans lui le test ne peut
+  pas rougir sur le chemin qui compte) (G-ARTIFACT-ACL).
+- `artifact_acl::tests::{read_audience, encryption, retention}_enforced`.
+- `artifact_acl::tests::network_class_refuses_deletion` — la suppression d'un artefact de
+  classe réseau est refusée par le type.
 - T1 = `N-A-no-frontend-change`.
 
 ### M.4 Critère d'acceptation
-- `cargo nextest run -p sbfb-workflow-engine --locked` + `-p nexus-trace-core --locked` exit
-  0 ; `bash scripts/check-frontier-contracts.sh` exit 0.
-- **Condition binaire** : ACL prouvée (digest ≠ lecture) + mutation de chaque digest rejetée
-  + 8 rôles non interchangeables + trace-core JCS-conforme.
-- T2 : palier WA-T2.6/WA-T5.6 (ArtifactRef typé consommé par une autre app ; mutation de
-  chaque classe de digest rejetée) — `NOT-RUN` jusqu'à AI2.
+- `cargo nextest run -p sbfb-workflow-engine artifact_acl --locked` sélectionne **≥ 1 test**
+  et sort 0 (le filtre de la row 26 ne matchait rien avant cette phase : mesuré
+  `0 tests run: 0 passed, 160 skipped`, `error: no tests to run`) ;
+  `cargo nextest run -p sbfb-workflow-engine --locked` exit 0 ;
+  `bash scripts/check-frontier-contracts.sh` exit 0.
+- **Condition binaire** : ACL prouvée (digest ≠ lecture, y compris par blob-serve) +
+  chiffrement obligatoire avant `add_bytes` pour privé/secret + rétention appliquée +
+  suppression réseau refusée par le type.
+- T2 : paliers **WA-T2.6** (joindre les sorties dans un `ArtifactRef` typé) et **WA-T5.5**
+  (quotas, backpressure, rétention et suppression) — `NOT-RUN` jusqu'à AI2. WA-T2.7
+  (consommer l'artefact depuis une autre app) est porté par la Phase Y.
 
 ### M.5 Commit cible
-`feat(workflow-engine): Sprint 83 Phase M — artefacts, ACL et provenance`.
-Body 9 sections : Contexte (§17 ; digest ≠ droit ; 8 rôles ; trace-core à corriger §17.3) ·
-Fichiers (ArtifactRef, blob façade, provenance graph, trace-core fix) · Delta tests · Verification
-§7.4 · Scope cuts · G8 traceability · Pre-launch protocol (ArtifactRef v1) · Codex
-verification · Carry closure (ferme G-ARTIFACT-ACL/G-PROVENANCE).
+`feat(workflow-engine): Sprint 83 Phase M — artefacts, ACL et confidentialité`.
+Body 9 sections : Contexte (§17 ; digest ≠ droit ; ACL structurelle, pas de façade ;
+décision S16 non révoquée) · Fichiers (`artifact_acl.rs`, trait hôte, chiffrement
+`nexus-core-rs`) · Delta tests · Verification §7.4 · Scope cuts · G8 traceability
+(préflight PLAN-ADAPT) · Pre-launch protocol (`ArtifactRef` v1 additif AM-12, 0 bump,
+0 famille `DOMAIN` neuve) · Codex verification · Carry closure (ferme **G-ARTIFACT-ACL** ;
+précède M1).
+
+---
+
+## Phase M1 — Canonicalisation signée et graphe de provenance (re-coupe de M)
+
+### M1.1 Scope
+Correction de `nexus-trace-core`, fermeture de l'asymétrie de gardes I-JSON dans l'engine,
+puis le graphe de provenance §17.2 (Source pack → PublishedPack → InstalledPack+grants →
+CompiledPlan → Run inputs → Node/Activity receipts → Human decisions → Output artifacts →
+Eval attestations) et les **8 rôles de signature non interchangeables** (§17.1 : une clé qui
+publie n'atteste pas un résultat). Gate : **G-PROVENANCE**.
+
+**Pourquoi la correction précède le graphe.** `nexus-trace-core` signe un
+`timestamp_unix_ns: u64` (`lib.rs:37`) valant ~1,78e18, soit 198× au-dessus de 2^53. RFC 8785
+fait passer les nombres par un double IEEE-754 : appliquer JCS en l'état transformerait un
+défaut de vérification en **collision de pré-image**, dans la phase dont le livrable est un
+graphe signé. La garde I-JSON seule ne sauve pas ce champ — 2^53 ns = 104 jours après
+l'epoch, donc elle refuserait tout événement réel.
+
+### M1.2 Livrables
+- **Correction de `nexus-trace-core`, jamais un wrapper** : le préflight a mesuré 0 call-site
+  de production, donc la correction est gratuite et sans migration, alors qu'un wrapper
+  laisserait un signeur cassé atteignable sous un vrai tag du census. `serde_jcs` (déjà dep
+  de workspace, `Cargo.toml:67`) + **timestamp en chaîne décimale** (décision PO
+  2026-07-28 : précision nanoseconde conservée, I-JSON-safe, mapping standard protobuf JSON
+  pour les int64/uint64). Redéfinition de la v1 courante de `DOMAIN_TRACE_EVENT_V1` sous la
+  pre-launch policy ; les tests « legacy decode » de l'ancien encodage sont **supprimés**,
+  pas conservés.
+- Propagation de parent : câbler `propagation::inject/extract` (0 call-site aujourd'hui).
+- **Garde I-JSON dans la porte canonique de l'engine** (`hash.rs`) : `reject_nulls` ne
+  refuse aujourd'hui que les `null` (`_ => Ok(())` pour `Number`) alors que le core refuse
+  aussi les entiers hors I-JSON (`pack.rs:142`, `MAX_SAFE_INTEGER`, avec test discriminant
+  `pack.rs:2080-2108`). Fermer l'asymétrie **avant** qu'`ArtifactRef` n'emprunte
+  `canonical_bytes`.
+- Graphe de provenance : types + vérification dans `sbfb-workflow-core` (crate PUR),
+  **signature côté hôte** `nexus-core-rs` — l'engine est keyless par charte
+  (`activity.rs:36-37`, census gelé à 29) et n'a aucune source d'entropie. Même PLAN-ADAPT
+  qu'en L1.
+- **Projection du lineage rédigée par audience** (décision PO 2026-07-28) : le graphe rendu
+  à un lecteur ne contient que les nœuds dont il a l'audience, les autres sont **élidés** et
+  non masqués en place (un masquage en place fuirait leur compte). Sans quoi le lineage est
+  un oracle d'existence sur les artefacts privés.
+- Harmonisation des deux jumeaux de canonicalisation non extraits (`provenance.rs:102` et
+  `gates.rs:631`, corps identiques, non-JCS, dette T-NN+3 ouverte depuis S70) — fermer la
+  classe plutôt que d'en créer un troisième exemplaire.
+
+### M1.3 Tests plan
+- `signed::tests::jcs_guaranteed` — **déterministe** : N événements FRAIS à ≥ 6 attributs →
+  exactement 1 encodage distinct. Un test à 2 attributs serait **flaky à ~43 %** (mesuré par
+  le préflight : 86/200 échecs à n=2, 200/200 à n=8) — un tirage, pas un gate.
+- `signed::tests::neighbouring_timestamps_do_not_collide`.
+- `hash::tests::` miroir de `pack.rs:2080-2108` — prouver l'écrasement **avant** de le
+  refuser (sinon le test est tautologique).
+- `provenance::tests::mutation_of_each_{digest,receipt,lineage}_rejected` — itère un `ALL`
+  compile-time, pour que l'ajout d'une classe de digest sans test fasse rougir.
+- `provenance::tests::roles_not_interchangeable` — clé publisher n'atteste pas un run, sur
+  le patron complet `pack.rs:1767`.
+- `provenance::tests::lineage_projection_elides_unauthorised` — un lecteur sans audience ne
+  voit ni le nœud ni son existence.
+- T1 = `N-A-no-frontend-change`.
+
+### M1.4 Critère d'acceptation
+- `cargo nextest run -p sbfb-workflow-core provenance --locked` sélectionne ≥ 1 test et sort
+  0 ; `cargo nextest run -p nexus-trace-core --locked` exit 0 ;
+  `cargo nextest run -p sbfb-workflow-engine --locked` exit 0 ;
+  `bash scripts/check-frontier-contracts.sh` exit 0.
+- **Condition binaire** : mutation de chaque classe de digest/receipt/lineage rejetée + 8
+  rôles non interchangeables + trace-core JCS-conforme avec un test déterministe + garde
+  I-JSON symétrique entre l'engine et le core + projection de lineage élidée.
+- T2 : palier **WA-T5.6** (muter chaque classe de digest/receipt/lineage et vérifier le
+  rejet) — `NOT-RUN` jusqu'à AI2.
+
+### M1.5 Commit cible
+`feat(workflow-core): Sprint 83 Phase M1 — canonicalisation signée et graphe de provenance`.
+Body 9 sections : Contexte (§17.1-17.3 ; pourquoi la correction précède le graphe ;
+timestamp en chaîne décimale) · Fichiers (trace-core, `hash.rs`, `provenance.rs`, signature
+hôte) · Delta tests · Verification §7.4 · Scope cuts · G8 traceability · Pre-launch protocol
+(v1 courante de `DOMAIN_TRACE_EVENT_V1` redéfinie, census `DOMAIN_*_V1` = 29 inchangé,
+`DOMAIN_PROVENANCE_V1` de la chaîne SLSA **intouché**) · Codex verification · Carry closure
+(ferme **G-PROVENANCE**, ferme la dette T-NN+3 ; débloque N).
 
 ---
 
@@ -2334,7 +2449,7 @@ en baisse** sur les baselines d'entrée (2108/2112/412/201) — un split behavio
 | R | Risque | Likelihood | Impact | Mitigation |
 |---|---|---|---|---|
 | R1 | Dépendances externes du préalable (panel 2 rounds, licences/machines AT 5 OS, provider cloud, 2 workers) | Haute | Haut | AM-10 (réservation=bloquant activation ; consommation=checkpoints B/pré-W1/pré-R/pré-AI1) ; AM-9 ; owner+fallback+exit ; retour PO jamais carry masqué |
-| R2 | Densité de phase sans précédent (41 phases, record S82=24) | Haute | Moyen | AM-4 pré-coupes (AI×3, AJ×2, P, L) + AM-7 (re-coupes nominales) ; process uniforme ; honnêteté de compte |
+| R2 | Densité de phase sans précédent (plancher kickoff 41 ; **45 phases de travail à ce jour** après les re-coupes A1/I1/L1/M1 — recompte : `grep -cE "^## Phase " sprint83_plan.md` = 46, moins Phase 0 ; record S82=24) | Haute | Moyen | AM-4 pré-coupes (AI×3, AJ×2, P, L) + AM-7 (re-coupes nominales) ; process uniforme ; honnêteté de compte — **ce compte est recalculé à chaque re-coupe, jamais recopié** |
 | R3 | UI back-loadée (R..V pos 20+) + dep canvas à re-mesurer (@xyflow/react 12.11.2 ABSENT, faits blueprint SUPERSEDED) | Moyenne | Moyen | contract-first ; compagnon Hub normatif ; re-mesure xyflow à l'activation de T (QPO-5) ; risque ACCEPTÉ |
 | R4 | Événements calendaires mid-sprint (gate C8 01/08 + topologie A-vs-B 25/08 + spec MCP 2026-07-28) | Certaine | Moyen | hors-sprint PO (Q11) ; revalidation PKARR_RELAY_OPS ; MCP veille gate-off |
 | R5 | Surface TCB nouvelle (runtime hôte + routes loopback + companion IPC + coffre) sous R-iroh-audit P0 INCHANGÉ | Moyenne | Haut | inventaire D7 route par route + tiers + auth ; THREAT vNN vs §19 en G8/G9 ; aucune promesse production publique |
@@ -2354,7 +2469,7 @@ en baisse** sur les baselines d'entrée (2108/2112/412/201) — un split behavio
 - [ ] **G-VERTICALS 4/4** (Factory livré Z..AC + Ideas AD + Conception AE + Babel AF) ; **G-SCOPE-FLOOR fermé AJ1** (au sens AM-5).
 - [ ] **Capacité de bascule Factory prouvée** en shadow (AJ : oracle différentiel vert, kill switch/rollback) — dépréciation legacy réelle = décision POST-S83 (cut 14).
 - [ ] **Clôture docs-contrat** : GUIDE + `llms.txt` + `WIRING_SPEC` indexent toutes les frontières neuves ; 3 gates docs exit 0 avec anchors discriminants ; THREAT vNN + PATTERNS §P76+ + note §P commune (C-1) + §P75 pt 6 (C-3).
-- [ ] **~46 commits** (Phase 0 + A..AJ1 avec pré-coupes + re-coupes suffixées éventuelles) + 1 chore kickoff + 1 docs wrap-up ; chacun body 9 sections + trailer Co-Authored-By (dès le 1er, dérive I-1).
+- [ ] **≥ 45 commits de phase** (une par phase de travail ; recompte vivant = `grep -cE "^## Phase " sprint83_plan.md` moins Phase 0, jouée hors sprint) + les chore/docs de planning ; chacun body 9 sections + trailer Co-Authored-By (dès le 1er, dérive I-1). Le nombre monte à chaque re-coupe AM-7 — il n'est pas un budget.
 - [ ] `sprint84_audit_plan.md` écrit (Tracks A..K + **Track J testabilité** + **Track K docs-contrat** + Track CI) + re-routes P3.
 - [ ] Memory `nexus_grid_pivot.md` + `MEMORY.md` à jour ; SPRINT_LOG row 83 ; PATTERNS mis à jour.
 - [ ] **0 barrière a11y P0/P1** ouverte (W1 + AI1) ; **0 P0/P1 en carry de confort** (AI2).
