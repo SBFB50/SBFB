@@ -579,7 +579,14 @@ impl LocalFileKeyStore {
 impl KeyStore for LocalFileKeyStore {
     fn init(&self, pin: &str) -> Result<Identity, KeyStoreError> {
         let blob_path = self.blob_path();
-        if blob_path.exists() {
+        // `try_exists()` and NOT `exists()`, same reason as
+        // `secure_unlink_blob` but with the OPPOSITE failure
+        // direction: `exists()` maps an I/O error to `false`, so a
+        // blob that is PRESENT but unreadable would let `init`
+        // proceed and OVERWRITE a live identity — irreversible loss
+        // of the node_id, its kudos and its publications. Refusing
+        // to initialise on an unreadable path is the safe answer.
+        if blob_path.try_exists()? {
             return Err(KeyStoreError::AlreadyInitialized(blob_path));
         }
 
@@ -849,7 +856,9 @@ impl LocalFileKeyStore {
     /// immediately — it is the persistence on disk that matters.
     pub fn init_duress(&self, duress_pin: &str) -> Result<Identity, KeyStoreError> {
         let blob_path = self.blob_path_duress();
-        if blob_path.exists() {
+        // `try_exists()`: twin of `init` above — an unreadable
+        // duress blob must not be overwritten silently.
+        if blob_path.try_exists()? {
             return Err(KeyStoreError::AlreadyInitialized(blob_path));
         }
 
@@ -949,6 +958,17 @@ impl LocalFileKeyStore {
                 // original normal-slot AeadReject so callers cannot
                 // observe "duress not set up" vs "wrong PIN".
                 let duress_path = self.blob_path_duress();
+                // DELIBERATELY `exists()` and NOT `try_exists()?`,
+                // unlike `init`, `init_duress` and
+                // `secure_unlink_blob`. Propagating an I/O error
+                // here would return a variant distinguishable from
+                // `AeadReject`, handing the caller an ORACLE for
+                // "a duress slot exists" — the exact observation
+                // this branch is written to deny. Collapsing every
+                // error into `AeadReject` is the security-correct
+                // reading, so a future sweep that mechanically
+                // rewrites `exists()` across this file must SKIP
+                // this site.
                 if !duress_path.exists() {
                     return Err(UnlockError::AeadReject);
                 }
@@ -1699,6 +1719,16 @@ mod tests {
 
     /// #B7 init_duress refuses to overwrite an existing duress
     /// blob, mirroring the safety invariant enforced by `init`.
+    ///
+    /// SCOPE, so this test is not cited for more than it proves: it
+    /// exercises a blob that is present AND readable. It says nothing
+    /// about the `try_exists()` hardening, whose whole point is a blob
+    /// present but UNREADABLE — a state that needs ACL manipulation and
+    /// has no portable construction between Windows and Unix. That
+    /// branch is therefore NOT covered by a test, deliberately: a
+    /// non-discriminating control would be worse than none (it would
+    /// read as coverage). The property is held by the type of the call
+    /// (`try_exists()?` propagates, `exists()` swallows), not by a test.
     #[test]
     fn init_duress_twice_rejected() {
         let dir = TempDir::new().unwrap();
