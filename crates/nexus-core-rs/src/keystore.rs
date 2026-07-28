@@ -4,29 +4,73 @@
 //! Sprint 20 Phase A — the big rock that unblocks Gate 2 A-S9
 //! `Checkpoint-seize` risk.
 //!
-//! ## Double-layer defense-in-depth
+//! ## Double-layer defense-in-depth — LAYER 2 IS INERT IN THIS WORKSPACE
 //!
-//! Two secrets are needed to recover the keypair from the disk
-//! blob. An attacker who gets only one of them still faces a
-//! full brute-force wall against the other.
+//! Read this before the table below, which describes the DESIGN and not what
+//! this build does (ex-review r3 F1). The design wants two secrets; layer 2 is
+//! not wired: `keyring 3.6` is declared with NO backend feature, and that crate
+//! has no default features, so `keyring::default` resolves to its **MOCK**
+//! builder — a process-local, empty-on-every-construction store. Cross-checked
+//! three ways: the lock entry for `keyring` depends only on `log` + `zeroize`
+//! (no `security-framework`, no `windows-native`, no `dbus-secret-service`), the
+//! upstream source re-exports `mock as default`, and nothing in this workspace
+//! calls `set_default_credential_builder`.
+//!
+//! So, TODAY: `kek2` is 32 random bytes written to a store that evaporates with
+//! the process, and the at-rest defense that actually exists is Argon2id(PIN)
+//! alone. Claiming OS-keychain protection would be false — the twin statement in
+//! [`crate::vault`] says exactly this for the vault, and the two must not
+//! disagree. Activating a live backend is a separate supply-chain decision (the
+//! Linux path pulls new dependencies), tracked as an honest bound in §19.4 of the
+//! threat model.
+//!
+//! Consequence for the LAUNCHER path, stated because it is a functional defect
+//! and not merely a doc gap: the production constructors set `use_keyring: true`,
+//! `init` writes `kek2` into the mock and sets its flag bit, and `unlock` then
+//! REQUIRES that entry.
+//!
+//! Scope of that failure, stated exactly because the obvious phrasing
+//! ("a fresh process never finds it") understates it and would send a fix in the
+//! wrong direction: the mock builder returns a BLANK credential from EVERY
+//! `Entry::new`, and it declares `CredentialPersistence::EntryOnly`. So `init`
+//! writes `kek2` into the entry it holds and then DROPS it; `unlock` constructs
+//! another one. Calling `unlock` immediately after `init`, in the SAME process,
+//! already fails. Caching the entry would therefore repair the same-process case
+//! and leave the cross-process one broken — the only real exits are a native
+//! backend feature (bound 4, a supply-chain decision) or `use_keyring: false` by
+//! default. This predates this phase (Sprint 20) and is outside its change
+//! surface; it is routed to the next audit plan rather than patched here, but it
+//! must not keep reading as a shipped guarantee.
 //!
 //! 1. **PIN layer (Argon2id)** — the user types a PIN at
 //!    `sbfb unlock`. Argon2id(PIN, salt, m=64 MiB/t=3/p=1)
-//!    derives a 32-byte `kek1`. The memory cost is calibrated
-//!    for ~3 s/attempt on 2026 desktop CPUs (cf. Signal Secure
-//!    Value Recovery blog, RFC 9106 §4) which pushes a 6-digit
-//!    PIN brute force from <2 s on GPU to >10 s even on a RTX
-//!    5080. OWASP's 19 MiB default is calibrated for
+//!    derives a 32-byte `kek1`.
+//!
+//!    TARGET vs MEASUREMENT — do not conflate them. The memory
+//!    cost was chosen against a DESIGN TARGET of ~3 s/attempt on
+//!    2026 desktop CPUs (cf. Signal Secure Value Recovery blog,
+//!    RFC 9106 §4); the GPU figures below ("<2 s at 19 MiB",
+//!    ">10 s at 64 MiB") belong to that same Sprint 20 target and
+//!    were NEVER measured on a GPU in this repo. The MEASUREMENT
+//!    on the calibration host is **~82 ms/attempt**
+//!    (`keystore_prod/derive_kek_64_mib`, `PATTERNS.md`
+//!    §T-keystore-bench-reference), i.e. 36x FASTER than the
+//!    target, which makes the wall `10^6 x 82 ms` = ~82 000 s
+//!    ≈ 23 h single-thread for a 6-digit PIN (~11 h expected).
+//!    Cite the measurement, never the target.
+//!
+//!    OWASP's 19 MiB default is calibrated for
 //!    passphrases (~40 bit entropy) — a 4–6 digit PIN has
 //!    ~13–20 bits, so we bump `m_cost` to raise the wall.
 //!
-//! 2. **OS keyring layer (`keyring-rs`)** — at `sbfb init` we
-//!    generate a 32-byte `kek2` and store it in the platform's
-//!    native credential store (macOS Keychain, Windows
-//!    Credential Manager, Linux Secret Service). The blob on
-//!    disk does NOT contain `kek2`. An attacker who steals the
-//!    blob file offline cannot decrypt anything without first
-//!    recovering `kek2` from the live user's keyring.
+//! 2. **OS keyring layer (`keyring-rs`) — DESIGN ONLY, not active here.** At
+//!    `sbfb init` we generate a 32-byte `kek2` and hand it to
+//!    `keyring`'s default builder, which in this workspace is the MOCK
+//!    (see above), NOT the platform credential store (macOS Keychain,
+//!    Windows Credential Manager, Linux Secret Service). The blob on
+//!    disk does NOT contain `kek2` — that part is true. What is NOT
+//!    true today is the sentence that used to follow: an attacker who
+//!    steals the blob faces Argon2id(PIN), and nothing else.
 //!
 //! The final AEAD key is `final_kek = BLAKE3(DOMAIN || kek1 ||
 //! kek2)`. The daemon never holds `kek1` or `kek2` in plaintext
@@ -34,20 +78,25 @@
 //! `SecretBox<[u8; 32]>` (heap-allocated, zeroed on drop via
 //! the `zeroize` crate).
 //!
-//! ## Threat model covered
+//! ## Threat model — of the DESIGN (layer 2 active), not of this build
 //!
 //! | Adversary reads | Needs | Cost |
 //! |---|---|---|
 //! | Blob file only | PIN + keyring | Argon2id wall + live user |
 //! | OS keyring only | PIN + blob file | Argon2id wall + disk access |
-//! | Blob file + keyring | PIN | Argon2id wall (3 s/attempt) |
+//! | Blob file + keyring | PIN | Argon2id wall (~82 ms/attempt measured) |
 //! | Blob + keyring + PIN | — | decrypt |
 //!
-//! Specifically, this closes the **T3 DPAPI user-scope gap**
-//! (Sygnia 2024 "DPAPI downfall" + SpecterOps 2024-2026): a
-//! same-user malicious process that can dump DPAPI master keys
-//! from LSASS (via Mimikatz `/unprotect`) still cannot unlock
-//! the blob because the PIN never enters `lsass.exe`.
+//! With the mock builder, every row above collapses to "PIN → Argon2id wall":
+//! there is no second secret an attacker must obtain separately.
+//!
+//! The **T3 DPAPI user-scope gap** (Sygnia 2024 "DPAPI downfall" +
+//! SpecterOps 2024-2026) is closed by the PIN layer, which is real and
+//! active: a same-user malicious process that dumps DPAPI master keys
+//! from LSASS (via Mimikatz `/unprotect`) still cannot unlock the blob,
+//! because the PIN never enters `lsass.exe`. That conclusion does NOT
+//! depend on the keyring layer — but it is the PIN, not the "double
+//! layer", that earns it.
 //!
 //! ## Blob format v1
 //!
@@ -87,7 +136,7 @@ use argon2::{Algorithm, Argon2, Params, Version};
 use rand::RngCore;
 use rand::rngs::OsRng;
 use secrecy::{ExposeSecret, SecretBox};
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::crypto::{KeyPair, PUBLIC_KEY_LENGTH, SECRET_KEY_BYTES};
 
@@ -998,6 +1047,25 @@ impl LocalFileKeyStore {
         self.secure_unlink_blob(&self.blob_path())?;
         self.secure_unlink_blob(&self.blob_path_duress())?;
 
+        // And the SCRATCH files of both. Sprint 83 Phase L1 made the scratch
+        // durable (`sync_all` before the rename), which turned a possibly
+        // truncated leftover into a COMPLETE, sealed copy of the identity that
+        // survives a crash between the sync and the rename. Nothing reclaimed
+        // it: `wipe_all` reached "the exact two blob files", and the panic-wipe
+        // service clears a DIFFERENT directory (`blob-cache`, not `keyring`).
+        // A `.tmp` sitting next to two erased blobs also destroys DENIABILITY —
+        // it proves an erasure happened (ex-review r5 L1-R5-D1-02).
+        // BEST-EFFORT, like the `delete_credential` calls below and NOT like the
+        // two blobs above. `wipe_all` is the only HARD-FAIL step of the panic
+        // wipe — the rationale being "if we cannot wipe the private key bytes,
+        // the panic is useless". A leftover scratch is debris, not the private
+        // key bytes: propagating its failure would abort the wipe BEFORE the
+        // state DB and the blob cache are deleted, and the daemon would keep
+        // running. Trading a whole panic wipe for a locked `.tmp` (an AV
+        // scanner, a rotate in flight, inherited ACLs) is the wrong bargain.
+        let _ = self.secure_unlink_blob(&self.blob_path().with_extension("enc.tmp"));
+        let _ = self.secure_unlink_blob(&self.blob_path_duress().with_extension("enc.tmp"));
+
         if self.use_keyring {
             if let Ok(entry) = keyring::Entry::new(&self.keyring_service, &self.keyring_account) {
                 let _ = entry.delete_credential();
@@ -1012,10 +1080,21 @@ impl LocalFileKeyStore {
     }
 
     /// Zero-overwrite then unlink a blob file. No-op if the file
-    /// does not exist. Shared by `wipe` (normal blob) and
-    /// `wipe_all` (both blobs).
+    /// does not exist. Shared by `wipe` (normal blob), `wipe_all`
+    /// (both blobs) and, best-effort, the two write scratches.
+    ///
+    /// `try_exists()` and NOT `exists()`: `Path::exists()` maps an
+    /// I/O error to `false`, so a blob that is PRESENT but
+    /// unreadable (permissions, a locking AV, a broken mount) took
+    /// the no-op branch and this returned `Ok(())` — the caller
+    /// then recorded the wipe as done. On the duress path that is
+    /// the worst possible failure: the daemon exits, the operator
+    /// is told `{"wiped": true}`, and the sealed identity is still
+    /// on disk. `try_exists()` returns `Ok(false)` only for a
+    /// genuine absence and propagates everything else (Codex
+    /// round 3; the defect dates back to Sprint 20).
     fn secure_unlink_blob(&self, blob_path: &Path) -> Result<(), KeyStoreError> {
-        if blob_path.exists() {
+        if blob_path.try_exists()? {
             let len = fs::metadata(blob_path)?.len() as usize;
             let zeros = vec![0u8; len];
             fs::write(blob_path, &zeros)?;
@@ -1034,7 +1113,12 @@ impl LocalFileKeyStore {
 /// Returns the KEK wrapped in `SecretBox` so the caller cannot
 /// accidentally log it, and so the heap allocation is zeroed when
 /// the box drops.
-fn derive_kek1(
+///
+/// `pub(crate)` since Sprint 83 Phase L1: the secret vault
+/// ([`crate::vault`]) reuses the SAME Argon2id KDF (one
+/// implementation, no drift) — the blob layout stays private to this
+/// module.
+pub(crate) fn derive_kek1(
     pin: &[u8],
     salt: &[u8; SALT_LEN],
     params: KdfParams,
@@ -1058,9 +1142,14 @@ fn combine_keks(kek1: &[u8; 32], kek2: &[u8; 32]) -> SecretBox<[u8; 32]> {
     hasher.update(DOMAIN_KEYSTORE_V1);
     hasher.update(kek1);
     hasher.update(kek2);
-    let digest = hasher.finalize();
+    // The finalized digest IS the AEAD key, and the hasher retains the last
+    // block it absorbed: both are copies of key material nothing would otherwise
+    // wipe. Mirror site: `vault::SecretVault::derive_vault_kek` — the class is
+    // closed at BOTH, never at one of the two (Sprint 83 Phase L1 review).
+    let digest = Zeroizing::new(*hasher.finalize().as_bytes());
+    hasher.reset();
     let mut out = Box::new([0u8; 32]);
-    out.copy_from_slice(digest.as_bytes());
+    out.copy_from_slice(digest.as_slice());
     SecretBox::new(out)
 }
 
@@ -1158,20 +1247,101 @@ fn parse_blob(blob: &[u8]) -> Result<ParsedBlob<'_>, String> {
 /// target. On Unix the rename is atomic; on Windows the MoveFileEx
 /// call falls back to a best-effort sequence but preserves the
 /// invariant that a reader never sees a half-written blob.
+///
+/// The vault does NOT go through this wrapper — it calls
+/// [`write_atomic_with_tmp_extension`] directly — so this stays private to the
+/// module: three internal callers, no external one.
 fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    let tmp = path.with_extension("enc.tmp");
+    write_atomic_with_tmp_extension(path, bytes, "enc.tmp")
+}
+
+/// [`write_atomic`] with a caller-chosen temporary extension.
+///
+/// Sprint 83 Phase L1 (ex-review P1-4, corrected by r2 R9): two writers sharing
+/// ONE fixed scratch name can interleave their partial writes and hand the
+/// `rename` a spliced file. The vault passes an extension unique PER WRITE
+/// (`{pid}.{random}`), which removes scratch collisions for one process as well
+/// as for two. An earlier version of this paragraph claimed the intra-process
+/// residual was "caught fail-closed by the vault's monotone epoch": that was
+/// wrong — the epoch is checked BEFORE the write, so two writers that both pass
+/// it can still collide; the fix is the name, not the epoch.
+///
+/// The keystore keeps its historical `enc.tmp` spelling. That is a CONVENTION,
+/// not an invariant: `rotate_pin`, `wipe` and the duress init all write the same
+/// blob under it, and nothing prevents two of them from overlapping.
+///
+/// ## Durability bound (Sprint 83 Phase L1 review r2 P2-2)
+///
+/// The scratch file is `sync_all`ed before the rename — that half is
+/// unconditional and a failure is reported. Otherwise a power cut inside the
+/// writeback window could publish the rename without the bytes, leaving the OLD
+/// blob in place while being perfectly consistent with its own authenticator: no
+/// integrity error, no epoch anomaly, no signal at all, and a rotation silently
+/// undone.
+///
+/// The parent DIRECTORY fsync is a DIFFERENT case and the contract must not
+/// blur them (ex-review r4 R4-REG-2). It is attempted BEST-EFFORT after the
+/// rename, and its failure is deliberately swallowed: the rename has already
+/// committed, so propagating an error there would break `Err ⇒ nothing was
+/// committed` for every caller. Consequence for a caller to reason about: on a
+/// mount where `open(dir)` or `fsync(dirfd)` fails (overlay, 9p, virtiofs), this
+/// returns `Ok` with the directory entry not durable, and NOTHING reports it.
+/// The class is therefore MITIGATED, not closed. Closing it would require
+/// surfacing the failure through a channel distinct from the write `Result`
+/// (a `SecurityEvent`), which is debt, not something to improvise here.
+/// Directory fsync is Unix-only anyway (Windows has no equivalent handle for a
+/// directory); on Windows the rename ordering is what MoveFileEx gives us.
+pub(crate) fn write_atomic_with_tmp_extension(
+    path: &Path,
+    bytes: &[u8],
+    tmp_extension: &str,
+) -> io::Result<()> {
+    let tmp = path.with_extension(tmp_extension);
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    fs::write(&tmp, bytes)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = fs::metadata(&tmp)?.permissions();
-        perms.set_mode(0o600);
-        fs::set_permissions(&tmp, perms)?;
+    let write_then_rename = || -> io::Result<()> {
+        {
+            let mut file = fs::File::create(&tmp)?;
+            io::Write::write_all(&mut file, bytes)?;
+            // Durable BEFORE the rename publishes it.
+            file.sync_all()?;
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = fs::metadata(&tmp)?.permissions();
+            perms.set_mode(0o600);
+            fs::set_permissions(&tmp, perms)?;
+        }
+        fs::rename(&tmp, path)?;
+        // Make the DIRECTORY ENTRY durable too: the rename itself is metadata,
+        // and without this it can be lost while the file contents survive.
+        //
+        // BEST-EFFORT, and deliberately so (ex-review r3 F5). The rename has
+        // already COMMITTED at this point, so a `?` here would return `Err`
+        // after the write became visible — breaking the invariant every caller
+        // relies on, that `Err` means nothing was committed. `init` in
+        // particular would report failure while the blob exists, and then answer
+        // `AlreadyInitialized` forever: the exact bricking shape the vault's
+        // `init` cleanup was added to prevent. A durability upgrade must not
+        // introduce a lying error.
+        #[cfg(unix)]
+        if let Some(parent) = path.parent() {
+            let _ = fs::File::open(parent).and_then(|dir| dir.sync_all());
+        }
+        Ok(())
+    };
+    let outcome = write_then_rename();
+    if outcome.is_err() {
+        // Never leave a scratch copy of the blob next to the real one: with a
+        // per-write name nothing would ever reclaim it, and a full copy of the
+        // vault sitting in its own directory hands an attacker exactly the
+        // material the "whole-file rollback needs a backup" bound assumes is
+        // absent.
+        let _ = fs::remove_file(&tmp);
     }
-    fs::rename(&tmp, path)
+    outcome
 }
 
 // =================================================================
@@ -1553,5 +1723,61 @@ mod tests {
         assert!(!store.blob_path_duress().exists());
         // Idempotent
         store.wipe_all().unwrap();
+    }
+
+    /// A crash between the scratch `sync_all` and the `rename` leaves a
+    /// COMPLETE, sealed copy of the identity next to the real blob. `wipe_all`
+    /// must reclaim it too, or a duress wipe erases the two named blobs and
+    /// leaves the material behind — while the surviving `.tmp` simultaneously
+    /// PROVES an erasure took place, which is what deniability must not do
+    /// (ex-review r5 L1-R5-D1-02).
+    ///
+    /// Discriminant: drop either `secure_unlink_blob` call added to `wipe_all`
+    /// and the matching assertion below fails.
+    #[test]
+    fn wipe_all_reclaims_the_scratch_files_too() {
+        let dir = TempDir::new().unwrap();
+        let store = make_store_no_keyring(&dir);
+        store.init("1111").unwrap();
+        store.init_duress("2222").unwrap();
+
+        // Simulate the crash window: a leftover scratch beside each blob.
+        let scratch = store.blob_path().with_extension("enc.tmp");
+        let scratch_duress = store.blob_path_duress().with_extension("enc.tmp");
+        std::fs::write(&scratch, b"sealed identity leftover").unwrap();
+        std::fs::write(&scratch_duress, b"sealed duress leftover").unwrap();
+        assert!(scratch.exists() && scratch_duress.exists());
+
+        store.wipe_all().unwrap();
+
+        assert!(!scratch.exists(), "the scratch of the normal blob survived");
+        assert!(
+            !scratch_duress.exists(),
+            "the scratch of the duress blob survived"
+        );
+    }
+
+    /// An UNREMOVABLE scratch must not abort the wipe (ex-review r6 P1-1).
+    ///
+    /// `wipe_all` is the only hard-fail step of the panic wipe: whatever it
+    /// returns `Err` on stops the caller BEFORE the state DB and the blob cache
+    /// are deleted, and the daemon keeps running. The first version of the
+    /// scratch reclamation propagated with `?`, which handed that power to a
+    /// leftover `.tmp` — debris, not key material.
+    ///
+    /// A DIRECTORY at the scratch path reproduces it portably: `exists()` is
+    /// true, so the early return is skipped, and the write then fails.
+    #[test]
+    fn an_unremovable_scratch_does_not_abort_the_wipe() {
+        let dir = TempDir::new().unwrap();
+        let store = make_store_no_keyring(&dir);
+        store.init("1111").unwrap();
+        std::fs::create_dir(store.blob_path().with_extension("enc.tmp")).unwrap();
+
+        store
+            .wipe_all()
+            .expect("a locked scratch must not abort the panic wipe");
+        // The thing that actually matters was still wiped.
+        assert!(!store.blob_path().exists(), "the real blob must be gone");
     }
 }

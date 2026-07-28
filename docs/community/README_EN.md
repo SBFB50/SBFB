@@ -240,7 +240,9 @@ The threat model follows STRIDE + LINDDUN methodology. Five defense layers:
 Additional protections: Hashcash 16-bit anti-spam on gossip, Sybil resistance
 via 7-day age witness, GCRA rate limiting per author on feed operations, CPU
 watchdog heartbeat on iframes (1-second liveness ping), key encryption at rest
-(Argon2id + AES-256-GCM + OS keyring double-wrap).
+(Argon2id + AES-256-GCM; the OS-keyring second layer is DESIGNED but not active
+in this build -- see `crates/nexus-core-rs/src/keystore.rs`, and §19.4 of the
+threat model for what that costs).
 
 Full threat model: [`docs/security/THREAT_MODEL.md`](../security/THREAT_MODEL.md)
 

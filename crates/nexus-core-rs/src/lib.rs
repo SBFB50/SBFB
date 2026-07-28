@@ -51,6 +51,7 @@ pub mod doc_sync;
 pub mod docs;
 pub mod error;
 pub mod gossip;
+pub mod hitl_approval;
 pub mod hooks;
 pub mod key_rotation;
 pub mod keystore;
@@ -72,6 +73,7 @@ pub mod task;
 pub mod tls_pinning;
 pub mod toploc;
 pub mod tor_transport;
+pub mod vault;
 pub mod verifiable_draw;
 pub mod verification;
 
@@ -127,6 +129,7 @@ pub use gossip::{
     AgeAdmissionOutcome, AgeAdmissionPolicy, DifficultyTarget, GossipClient, GossipEvent,
     TopicHandle, TopicReceiver, TopicSender, evaluate_age_admission,
 };
+pub use hitl_approval::{HITL_APPROVAL_SIGN_CONTEXT, sign_hitl_approval, verify_hitl_approval};
 pub use key_rotation::{
     DEFAULT_TRANSITION_DAYS, KEY_ROTATION_FORMAT_VERSION, KEY_ROTATION_TOPIC,
     KeyRotationAnnouncement, MAX_TRANSITION_DAYS, REASON_MAX_BYTES, RevocationCache,
@@ -222,6 +225,15 @@ pub use toploc::{
     ToplocComparison, ToplocFingerprint, bf16_bits,
 };
 pub use tor_transport::{TorConfig, TorTransport};
+// Symmetric with the keystore block above: the vault's blob-shape constants are
+// `pub` in their module, so they are re-exported too (an out-of-crate verifier
+// checking a blob header needs the magic, the header length and the reserved
+// check ref, exactly as it needs the keystore's).
+pub use vault::{
+    SECRET_REF_MAX_LEN, SecretVault, UnlockedVault, VAULT_BLOB_MAGIC, VAULT_BLOB_VERSION,
+    VAULT_CHECK_REF, VAULT_FILE_NAME, VAULT_HEADER_LEN, VaultError, VaultInventoryEntry,
+    VaultSecret,
+};
 pub use verifiable_draw::{
     VRF_MAX_TEMP_MILLI, VRF_RATE_DENOMINATOR, VrfDraw, derive_spotcheck_seed,
     derive_spotcheck_temp_milli, vrf_draw, vrf_is_selected, vrf_verify,

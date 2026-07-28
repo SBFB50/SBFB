@@ -38,6 +38,36 @@ describe("bridge authority (Sprint 83 Phase C)", () => {
     expect(ALL_DISPATCH_METHODS.size).toBe(16);
   });
 
+  it("no verb grants HITL/approval/signing authority to an iframe (Sprint 83 Phase L1, G-HITL)", () => {
+    // The structural reason an untrusted iframe cannot approve an effect is that
+    // this allowlist is CLOSED and contains no approval verb. Sprint 83 Phase L1
+    // (review r2 R5) first tried to assert that from the e2e spec, where the
+    // allowlist is not published to the page — the test could only ever `return`.
+    // The assertion belongs HERE, where the symbols exist, and it must name the
+    // property so a future verb is refused for the RIGHT reason: the literal
+    // count above catches any drift, this one catches the drift that matters.
+    //
+    // A `hitl_decide` / `approval_list` verb added in lockstep on both mirrors
+    // keeps `scripts/check-frontier-contracts.sh` GREEN — it checks PARITY, not
+    // membership — so this test, not that gate, is the enforcement.
+    //
+    // HONEST SCOPE of this pattern (ex-review r3 L1-D5-6): it is a NAMING
+    // tripwire, not the closure. What actually closes the allowlist at 16 is the
+    // literal list in the test above, updated by the same edit. The pattern only
+    // pays off for a verb added in lockstep — and the first version missed the
+    // vocabulary this repo actually uses for the concept (`human_decision`,
+    // `effect_authorize`, `ack_effect`: "decision" does not contain "decide",
+    // while `HUMAN_DECISION_CHANNEL` and `ApprovalDecision` are the names in the
+    // engine). Widened accordingly, and kept as a list of FORBIDDEN authority
+    // stems rather than a clever substring heuristic.
+    const AUTHORITY_STEMS =
+      /hitl|approv|decid|decision|sign|consent|authori[sz]|grant|allow|confirm|attest|permit|human|verdict/i;
+    const authorityVerbs = BRIDGE_METHODS.filter((m) =>
+      AUTHORITY_STEMS.test(m),
+    );
+    expect(authorityVerbs).toEqual([]);
+  });
+
   describe("effectiveMethods — monotone attenuation", () => {
     it("declared ∩ grant keeps only what BOTH admit", () => {
       const auth: BridgeAuthority = {

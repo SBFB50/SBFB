@@ -108,7 +108,10 @@
 //! (`depth_enforced`: stacking one more layer can only attenuate). The rich
 //! ref descriptor's port SCHEMAS are the compiler's concern (port typing is
 //! Phase G/H), not re-modeled here. Secret binding and the signed HITL
-//! principal are Phase L1: layer 7 carries only an OPAQUE decision reference.
+//! principal LANDED in Phase L1 ([`crate::secret`], [`crate::hitl`]): layer 7
+//! still carries only an OPAQUE decision reference here, and the PRODUCER of
+//! those references now exists — but nothing wires it yet (0 call-site, the
+//! same DS-1 posture as this module).
 //!
 //! ## Notes for the binding phase (DS-1)
 //!
@@ -134,6 +137,25 @@
 //!   compiler's `capability_closure: BTreeMap<String, Vec<String>>`. Passing
 //!   the values would yield an empty closure and drop everything (fail-closed
 //!   but wrong).
+//! - The PROVENANCE of layer 7's set is a caller obligation too (ex-review r2
+//!   R2). [`HitlValidity`] may only be populated with [`DecidedRef`]s obtained
+//!   from [`crate::hitl::decide_ref`]. Building it from the PENDING queue — the
+//!   shortest path from a queue of requests to a set of strings — would let
+//!   every `Human` capability with an unanswered (or expired, or REFUSED)
+//!   request cross layer 7, consulting neither the signature, nor the expiry,
+//!   nor the verdict, nor the ref binding. `pub(crate)` makes that
+//!   uncompilable from another crate but NOT from this one.
+//!
+//! ## Layer 7 is inert on BOTH sides, not just one
+//!
+//! The DECISION side being empty is disclosed above. The NEED side is just as
+//! empty and easier to miss: no production code constructs a
+//! [`BoundedCapability`] or sets [`ApprovalLevel::Human`] anywhere (the pack
+//! format has no class or approval field at all — every test here builds those
+//! values itself). So the binding phase must ship the approval FLOOR together
+//! with the producer of decisions. Wire only the decisions and layer 7 gates
+//! nothing, forever, silently — a no-op that no test can catch, since the
+//! fail-closed drop it is supposed to perform never has an input.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -577,23 +599,88 @@ pub enum EffectNeed {
     One(String),
 }
 
+/// A capability ref that PASSED the HITL gate: minted only by
+/// [`crate::hitl::decide_ref`], after a host-verified, granted, unexpired
+/// approval bound to that very ref.
+///
+/// Its constructor is `pub(crate)` ON PURPOSE (ex-review r2 R2). Typing
+/// `decide_ref`'s INPUT while leaving its OUTPUT set publicly constructible
+/// would lock a door next to an open wall: an out-of-crate caller could write
+/// `HitlValidity { decided_refs: … }` and grant itself layer-7 clearance
+/// without ever presenting an approval. Now the only way for another crate to
+/// obtain one is to go through the gate.
+///
+/// SCOPE OF THAT GUARANTEE, stated because it is a type property and no test
+/// can fail on it: `pub(crate)` closes the door for other CRATES, not for other
+/// MODULES of this one. The wiring this crate documents (`orchestrator`) could
+/// still write `HitlValidity::from_decided([DecidedRef::new(k)])` and skip the
+/// gate entirely — it would compile, and nothing here would go red. Whoever
+/// wires layer 7 must call [`crate::hitl::decide_ref`]; minting a `DecidedRef`
+/// directly is the same bypass this newtype exists to prevent, spelled from
+/// inside.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct DecidedRef(String);
+
+impl DecidedRef {
+    /// Mint a decided ref. Crate-internal: the ONLY legitimate caller is
+    /// [`crate::hitl::decide_ref`], which mints it after `verify_binding`.
+    pub(crate) fn new(capability_ref: impl Into<String>) -> DecidedRef {
+        DecidedRef(capability_ref.into())
+    }
+
+    /// The capability ref that was decided.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 /// Layer 7 / the set of capability refs that currently hold a VALID host
-/// HITL decision. EMPTY in Phase L (no host chrome produces one yet — Phase
-/// L1). An empty set is NOT the identity: it drops every capability whose
-/// effective approval is [`ApprovalLevel::Human`] (fail-closed). Capabilities
-/// with `Auto`/`Notify` approval are unaffected.
+/// HITL decision. An empty set is NOT the identity: it drops every capability
+/// whose effective approval is [`ApprovalLevel::Human`] (fail-closed).
+/// Capabilities with `Auto`/`Notify` approval are unaffected.
+///
+/// Since Phase L1 the PRODUCER exists — [`crate::hitl::decide_ref`] turns a
+/// host-verified, granted, unexpired approval bound to THAT capability ref into
+/// a member of this set (`hitl::tests::decided_ref_gates_layer_seven` proves the
+/// composition). It stays EMPTY in production until the run surface wires it:
+/// no production code builds a `HitlValidity` yet.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct HitlValidity {
-    /// Refs with a valid, unexpired decision. The DECISION content and its
-    /// host signature are Phase L1; here a ref is present iff it may proceed
-    /// past a `Human`-approval gate.
-    pub decided_refs: BTreeSet<String>,
+    /// Refs with a valid, unexpired decision. PRIVATE: membership is a
+    /// conclusion of the gate, not an input a caller may assert (see
+    /// [`DecidedRef`]).
+    decided_refs: BTreeSet<String>,
 }
 
 impl HitlValidity {
     /// The Phase-L reality: no decisions at all.
     pub fn none() -> HitlValidity {
         HitlValidity::default()
+    }
+
+    /// Build the layer-7 set from refs that WENT THROUGH the gate.
+    pub fn from_decided(decided: impl IntoIterator<Item = DecidedRef>) -> HitlValidity {
+        HitlValidity {
+            decided_refs: decided.into_iter().map(|d| d.0).collect(),
+        }
+    }
+
+    /// Whether `capability_ref` holds a valid decision.
+    pub fn is_decided(&self, capability_ref: &str) -> bool {
+        self.decided_refs.contains(capability_ref)
+    }
+
+    /// Whether no ref is decided (the fail-closed default).
+    pub fn is_empty(&self) -> bool {
+        self.decided_refs.is_empty()
+    }
+
+    /// Test-only shortcut that bypasses the gate, for the property tests and
+    /// mutation controls of THIS crate. Deliberately `pub(crate)` +
+    /// `#[cfg(test)]`: it must never be reachable from a host.
+    #[cfg(test)]
+    pub(crate) fn from_refs_for_test(refs: BTreeSet<String>) -> HitlValidity {
+        HitlValidity { decided_refs: refs }
     }
 }
 
@@ -688,8 +775,7 @@ pub fn effective_capabilities(
 
     // Layer 7 — a still-valid HITL decision (approval-gated filter). Empty in
     // Phase L: any Human-approval capability drops fail-closed.
-    eff = eff
-        .filtered(|k, cap| cap.approval != ApprovalLevel::Human || hitl.decided_refs.contains(k));
+    eff = eff.filtered(|k, cap| cap.approval != ApprovalLevel::Human || hitl.is_decided(k));
 
     eff
 }
@@ -1017,12 +1103,12 @@ mod tests {
                 0 => EffectNeed::Any,
                 _ => EffectNeed::One(format!("r{}", rng.below(8))),
             };
-            let hitl = HitlValidity {
-                decided_refs: all_refs()
+            let hitl = HitlValidity::from_refs_for_test(
+                all_refs()
                     .into_iter()
                     .filter(|_| rng.below(2) == 0)
                     .collect(),
-            };
+            );
             let now = rng.below(2000);
 
             // The domain-bounded base every layer attenuates from.
@@ -1445,9 +1531,7 @@ mod tests {
         assert_eq!(
             run(
                 &mk(ApprovalLevel::Human),
-                &HitlValidity {
-                    decided_refs: s(&["x"])
-                }
+                &HitlValidity::from_refs_for_test(s(&["x"]))
             ),
             1
         );
@@ -1456,9 +1540,7 @@ mod tests {
         assert_eq!(
             run(
                 &mk(ApprovalLevel::Human),
-                &HitlValidity {
-                    decided_refs: s(&["other"])
-                }
+                &HitlValidity::from_refs_for_test(s(&["other"]))
             ),
             0
         );
@@ -1858,9 +1940,7 @@ mod tests {
             &[human_grant(GrantAudience::Pack)],
             &closure,
             &EffectNeed::Any,
-            &HitlValidity {
-                decided_refs: s(&["x"]),
-            },
+            &HitlValidity::from_refs_for_test(s(&["x"])),
             0,
         );
         assert_eq!(eff.get("x").map(|c| c.approval), Some(ApprovalLevel::Human));
@@ -1919,9 +1999,7 @@ mod tests {
                 &pack,
                 &closure,
                 &EffectNeed::Any,
-                &HitlValidity {
-                    decided_refs: s(&["r"]),
-                },
+                &HitlValidity::from_refs_for_test(s(&["r"])),
                 0,
             )
         };
@@ -2129,9 +2207,7 @@ mod tests {
             &[grant(GrantAudience::Pack)],
             &closure,
             &EffectNeed::Any,
-            &HitlValidity {
-                decided_refs: s(&["keep"]),
-            },
+            &HitlValidity::from_refs_for_test(s(&["keep"])),
             0,
         );
         // "drop" is absent from the allow-map → denied.

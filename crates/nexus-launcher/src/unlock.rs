@@ -2,10 +2,20 @@
 //! Sprint 20 Phase A — `sbfb init` / `sbfb unlock` subcommands.
 //!
 //! `sbfb init --pin <pin>` generates a fresh Ed25519 identity,
-//! encrypts it with the supplied PIN (Argon2id + AES-256-GCM +
-//! optional OS keyring wrap), and writes the blob under
+//! encrypts it with the supplied PIN (Argon2id + AES-256-GCM), and
+//! writes the blob under
 //! `<grid_root>/shell-daemon/keyring/identity.enc`. The daemon
 //! is not spawned — init is a one-off bootstrap step.
+//!
+//! NOTE on the OS keyring layer, because THIS is the production path
+//! (`LocalFileKeyStore::new` sets `use_keyring: true`): the wrap is
+//! REQUESTED but INERT in this workspace — the `keyring` crate is
+//! declared with no backend feature, so its default builder is the
+//! MOCK. It is therefore neither "optional" (the flag bit is set at
+//! init and required at unlock) nor protective. The at-rest defense
+//! that actually exists is Argon2id(PIN). Measured and routed in
+//! Sprint 83 Phase L1 — see bound 25 of `docs/security/THREAT_MODEL.md`
+//! §19.4 and the module doc of `nexus_core_rs::keystore`.
 //!
 //! `sbfb unlock --pin <pin>` reads the blob, decrypts it, and
 //! exports the 32-byte secret key as the hex-encoded
@@ -133,8 +143,9 @@ fn parse_pin_flag(args: &[String]) -> Option<String> {
 
 /// Run `sbfb init --pin <pin>`. Creates the keyring directory,
 /// generates a fresh identity, encrypts under the PIN, writes the
-/// blob (+ optional OS keyring wrap). Prints the new node_id to
-/// stdout. Exits with status 1 on any error.
+/// blob. The OS keyring wrap is requested but INERT here (mock
+/// builder — see the module doc and bound 25 of §19.4). Prints the
+/// new node_id to stdout. Exits with status 1 on any error.
 pub fn run_init(pin: &str) -> i32 {
     let dir = keyring_dir();
     let store = LocalFileKeyStore::new(&dir);

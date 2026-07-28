@@ -1175,11 +1175,19 @@ production parameters (m=64 MiB, t=3, p=1). The Sprint 20 kickoff
 §D2 target was ~3 s/attempt ; we beat the target by 36× because
 the Signal SVR calibration that informed §D2 was tuned on ARM
 Android devices, not a 2026 x86_64 desktop. Implication : a
-6-digit PIN brute force on this CPU costs ~83 s single-thread ;
-a dedicated PIN-cracker farm brings it lower. The double layer
-(kek1 from PIN + kek2 from OS keyring) still forces the attacker
-to have live-user access to the keyring, so the scheme holds —
-but the §D2 promise is not strictly honoured.
+6-digit PIN brute force on this CPU costs `10^6 x 82 ms` =
+**~82 000 s ≈ 23 h** exhaustive (~11 h expected) single-thread ;
+a dedicated PIN-cracker farm parallelises that down. Recompute
+this figure from the formula whenever the parameters move — do
+not copy the result forward. This paragraph used
+to conclude that the double layer (kek1 from PIN + kek2 from OS
+keyring) still forces the attacker to have live-user access to
+the keyring, "so the scheme holds". That conclusion is VOID as
+long as layer 2 is inert (S83 L1 measurement: the `keyring` crate
+is declared with no backend feature, so its default builder is
+the MOCK): the only wall an attacker meets is Argon2id(PIN), and
+the §D2 promise is not honoured — by a wider margin than this
+paragraph claimed.
 
 Fix path : bump m_cost to 128 MiB or t_cost to 6 when we have
 deployment telemetry on the slowest supported platform
@@ -1395,6 +1403,15 @@ fail-open vs fail-closed matrix.
 
 ### Sprint 20.1 Encryption at rest — double layer (PIN + OS keyring)
 
+> **LAYER 2 IS INERT IN THIS WORKSPACE (measured S83 Phase L1).** What
+> follows describes the DESIGN. `keyring 3.6` is declared with no
+> backend feature and has no default features, so `keyring::default`
+> resolves to the MOCK builder — a process-local store that returns a
+> blank credential from every `Entry::new`. The at-rest defense that
+> actually exists is Argon2id(PIN) alone. Read the module doc-comment
+> of `keystore.rs` before trusting any table below, and §19.4 of the
+> threat model for the bound and its routing.
+
 Sprint 20 Phase A (`crates/nexus-core-rs/src/keystore.rs`) wraps
 the daemon's Ed25519 identity keypair at rest with two independent
 secrets so an attacker who recovers only one still faces a full
@@ -1420,7 +1437,7 @@ Canonical threat-model coverage :
 |---|---|---|
 | Blob file only | PIN + keyring | Argon2id wall + live user |
 | OS keyring only | PIN + blob file | Argon2id wall + disk access |
-| Blob file + keyring | PIN | Argon2id wall (~80 ms/attempt on modern CPUs) |
+| Blob file + keyring | PIN | Argon2id wall (~82 ms/attempt measured) |
 | Blob + keyring + PIN | — | decrypt |
 
 Closes **T3 DPAPI user-scope gap** (Sygnia 2024 "DPAPI downfall"
@@ -1545,13 +1562,29 @@ because RustCrypto's pure-Rust Argon2 implementation on a 2026
 desktop + fast DDR5 beats the Signal Secure Value Recovery
 reference calibration (which was tuned on ARM Android devices).
 Implication for the threat model : at ~82 ms/attempt a 6-digit
-PIN brute force costs ~83 seconds on a single thread, and a PIN
-cracker farm brings that down further. The calibration is still
-acceptable for Phase A (keyring layer + audit log raise the
-effective cost), but bumping `m_cost` to 128 MiB or `t_cost` to
-6 is a candidate for Sprint F consolidation or a follow-up
-sprint once we have deployment telemetry. Record any such bump
-here AND in the blob `flags` byte so older blobs keep unlocking.
+PIN brute force costs `10^6 x 82 ms` = **~82 000 s ≈ 23 h**
+exhaustive (~11 h expected) on a single thread, and a PIN
+cracker farm parallelises that down. The formula is written next
+to the result on purpose : a future parameter bump must RECOMPUTE
+it, never recopy it (this line read "~83 s" from S20 to S83 L1 —
+a 988x understatement, caught in review round 7). This paragraph used to
+call the calibration "still acceptable for Phase A (keyring
+layer + audit log raise the effective cost)" — that rationale is
+VOID: the keyring layer is inert in this workspace (measured
+S83 L1, bound 25 of the threat model), so the effective cost is
+Argon2id alone and nothing raises it. Note that the corrected
+figure does NOT reverse this: 23 h single-thread is a real wall
+against a casual thief and no wall at all against a parallel
+cracker, and it is now the ONLY wall. Bumping `m_cost` to
+128 MiB or `t_cost` to 6 therefore lost the argument that was
+DECLINING it, and is a candidate for a follow-up sprint once we
+have deployment telemetry. Record any such bump here; older
+blobs keep unlocking on their own, because the KDF params live
+in the blob HEADER (`m_cost`/`t_cost`/`parallelism`, offsets
+24/28/32) and `encode_header` writes them from `KdfParams` — no
+manual step, and nothing to record in the `flags` byte, which
+carries a single bit (`use_keyring_layer`). Same mechanism as
+§Sprint 20.1 above.
 
 Run the numbers yourself on your dev machine :
 

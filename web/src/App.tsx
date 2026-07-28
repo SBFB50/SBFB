@@ -85,6 +85,12 @@ const router = createBrowserRouter([
         path: "/compute",
         lazy: () => import("@/components/ShardSessionPanel"),
       },
+      // Sprint 83 Phase L1 — file d'approbation HITL rendue par le chrome hôte
+      // (l'iframe non fiable ne peut ni afficher ni approuver ; WYSIWYS).
+      {
+        path: "/approvals",
+        lazy: () => import("@/pages/Approvals"),
+      },
     ],
   },
 ]);

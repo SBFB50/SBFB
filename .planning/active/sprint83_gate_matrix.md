@@ -40,9 +40,9 @@ chantier ; `NEUF` = enforcement créé par S83.
 | 6 | `G-UNKNOWN` | effet non idempotent perdu devient `outcome_unknown` | **K** | — | test | NEUF | `cargo nextest run -p sbfb-workflow-engine outcome_unknown` | tests K |
 | 7 | `G-FS-PROCESS-EFFECT` | HEAD/index/worktree préconditions, racine FS et descendants processus vérifiés en K/Q/AA (§23) | **K** (ouvre) | **Q** (companion IPC) + **AA** (ferme, dogfood Factory) | test | NEUF | `cargo nextest run -p sbfb-workflow-engine fs_process` | tests K + AA (Windows inclus) |
 | 8 | `G-CAPABILITY` | atténuation, expiration, audience, profondeur testées par propriétés | **L** | — | test | NEUF | `cargo nextest run -p sbfb-workflow-engine capability` | tests propriété L |
-| 9 | `G-SECRET` | canari absent app KV, DB, logs, blobs, prompts, traces, exports | **L1** | — | test | NEUF | `cargo nextest run -p sbfb-workflow-engine secret_canary` | tests L1 |
-| 10 | `G-SECRET-VAULT` | credentials providers liés/rotés/supprimés dans un coffre hôte, jamais dans le run/app | **L1** | — | test | NEUF | `cargo nextest run -p sbfb-workflow-engine vault` | coffre L1 (rotation/zeroize) |
-| 11 | `G-HITL` | iframe incapable d'approuver ; mutation des paramètres invalide la décision | **L1** | — | test | NEUF | `npm run test:e2e -- hitl` + `cargo nextest run hitl` | HITL chrome hôte signé |
+| 9 | `G-SECRET` | canari absent des surfaces de sérialisation du moteur (step-request, receipt, run-event, Debug) + du blob au repos — **critère resserré** aux surfaces réellement prouvées : app KV / blobs / exports appartiennent aux phases qui les produisent | **L1** | — | test | NEUF | `cargo nextest run -p sbfb-workflow-engine secret::` + `cargo nextest run -p nexus-core-rs vault::` | seam secret engine (bras ROUGE sur surface de prod + **6 encodages**, chacun avec son bras rouge) + pin de type du `Zeroizing` |
+| 10 | `G-SECRET-VAULT` | credentials providers liés/rotés/supprimés dans un coffre hôte, jamais dans le run/app | **L1** | — | test | NEUF | `cargo nextest run -p nexus-core-rs vault::` | coffre L1 crate HÔTE (PLAN-ADAPT preflight : engine PUR/keyless ⇒ crypto vault côté `nexus-core-rs`). **20 tests `vault::`** — la commande couvre les propriétés qui ferment les ex-P1, pas un seul test : PIN prouvé sur coffre VIDE, entrée-vérificateur inatteignable des 4 opérations, rejeu de ct refusé, delete derrière le coffre détecté, handle périmé refusé en LECTURE **et** en ÉCRITURE, downgrade de params refusé, sel par coffre, champ inconnu refusé, KAT de dérivation du KEK, nonce malformé sans panic, init échoué non bloquant. handle périmé refusé aussi par `delete` et `rotate`, au lieu de répondre `Ok(false)`/`UnknownRef` depuis le snapshot (`delete_and_rotate_refuse_a_stale_handle_instead_of_answering_from_the_snapshot`) — refus qui vaut pour un handle dont l'epoch est EN RETARD, et **pas** après la collision lost-update de la **borne 27 du §19.4**, où le handle porte l'epoch du disque sur un BODY périmé : la garde passe et les quatre points d'entrée répondent depuis ce body (`bind` sert une entrée révoquée, `delete` rend `Ok(false)`, `rotate` rend `UnknownRef`, `put` COMMIT le body périmé) — résidu assumé, fermeture = verrou relecture→`rename`. Un filtre sur le seul `vault_bind_rotate_zeroize` (1/20) laissait toute régression de l'entrée-vérificateur ou de l'epoch VERTE. **Critère resserré** (même annotation que la row 9) : les surfaces « run/app » de l'intitulé ne sont PAS parcourues par ces tests — cf. borne 15 du §19.4, propriété des phases qui les produisent (I/K pour le run store, N/O pour l'appel provider et `SBFB_EFFECT_INPUT`, V pour les routes, X pour l'export, AI2 pour l'agrégat) |
+| 11 | `G-HITL` | iframe incapable d'approuver ; mutation des paramètres invalide la décision | **L1** | — | test | NEUF | `npm run test:e2e -- workflow-hub-a11y` + `npm run test:unit -- authority` + `npm run test:unit -- Approvals` + `cargo nextest run -p sbfb-workflow-engine hitl` + `cargo nextest run -p sbfb-workflow-engine human_approval_requires_valid_decision` + `cargo nextest run -p nexus-core-rs hitl_approval` | binding keyless (mutation invalide ; exhaustivité par DEUX contrôles — compilateur pour un champ AJOUTÉ, compte pour un mutateur RETIRÉ — avec le résidu ASSUMÉ `champ: _,` qu'aucun des deux n'attrape) + signature hôte (small-order refusée nommément, préimage épinglée par un vecteur doré côté hôte) + affordance host-chrome. La moitié « iframe incapable d'approuver » est tenue par la **LISTE LITTÉRALE** de 16 verbes + `ALL_DISPATCH_METHODS.size === 16` de `authority.test.ts` — l'assertion nommée voisine est un **fil-piège de nommage**, pas la fermeture (un verbe hors radicaux la laisserait verte, la liste littérale non) — la spec e2e prouve « le rendu est hôte », pas « l'allowlist est fermée » ; et `human_approval_requires_valid_decision` est le test qui tue la mutation `contains(k)` → `!is_empty()`, invisible au filtre `hitl` |
 | 12 | `G-STORE` | fault injection journal/outbox sans perte ni double émission | **E** (ouvre) / **I** | — | test | NEUF | `cargo nextest run -p sbfb-workflow-engine store` | run store SQLite I |
 | 13 | `G-UPGRADE-REPLAY` | ancien run rejoué après upgrade ; events/upcasters, runtime, adapters pinning prouvés | **I** | — | test | NEUF | `cargo nextest run -p sbfb-workflow-engine upgrade_replay` | upcasters + snapshots I |
 | 14 | `G-SINGLE-WRITER` | lease/fencing empêche deux runtimes d'émettre la même outbox | **I** | — | test | NEUF | `cargo nextest run -p sbfb-workflow-engine single_writer` | fencing I |
@@ -75,7 +75,7 @@ chantier ; `NEUF` = enforcement créé par S83.
 | 41 | `G-A11Y-AT` | matrice Windows/macOS/iOS/Android/Linux, lecteurs d'écran, braille, voice, switch archivée | **B** (réserve matrice) | **AI1** (ferme, multi-AT) | artefact + humain | NEUF | revue matrice AT (5 OS) | matrice multi-AT |
 | 42 | `G-A11Y-COGA` | compréhension, mémoire, attention, erreurs, reprise testées avec utilisateurs concernés | **B** (harness) + surfaces | AI1 | test + humain | NEUF | harness COGA + panel | matrice COGA |
 | 43 | `G-A11Y-PREFS` | axes fonctionnels empilables preboot ; aucun diagnostic/need dans DOM, app, trace, réseau | **B** (ouvre) | AI1 (consolidation, G-A11Y-* ferment) | test | NEUF | `npm run test:e2e -- prefs-preboot` | préférences privées B |
-| 44 | `G-A11Y-HOST` | grants, secrets, HITL, publication, erreurs du chrome hôte au même niveau | **L1** / **Q** (chrome hôte) | AI1 | test | NEUF | `npm run test:e2e -- host-a11y` | chrome hôte L1/Q |
+| 44 | `G-A11Y-HOST` | grants, secrets, HITL, publication, erreurs du chrome hôte au même niveau | **L1** / **Q** (chrome hôte) | AI1 | test | NEUF | `npm run test:e2e -- workflow-hub-a11y` + `npm run test:unit -- Approvals` | chrome hôte L1/Q (la jambe L1 est la spec `workflow-hub-a11y` : aucun fichier `host-a11y` n'existe, le filtre ne matchait rien). Le scan axe de `/approvals` est **scopé** à `[data-testid="hitl-host-chrome"]` : page-wide, `color-contrast` remonte 123 violations appartenant toutes au chrome PARTAGÉ (déclencheur de palette à 3,82:1), dette pré-existante de toute route et propriété d'AI1 ; le scope est mutation-testé (contraste cassé dans la carte ⇒ ROUGE). `Approvals.test.tsx` est la seule jambe qui falsifie *host-owned* (démontage/remontage) et le repli d'expiration |
 | 45 | `G-A11Y-USERS` | deux rounds / panel rémunéré ; zéro barrière P0/P1 sur parcours critiques | **W1** (round 1, ouvre) | **AI1** (round 2, ferme) | artefact + humain | NEUF | panel rémunéré (checkpoints AM-10) | rapports panel round 1/2 |
 | 46 | `G-I18N` | nouveaux messages extraits et parité locale gatée | **B** (ouvre) + phases UI | — | script | ÉTENDU (3 scripts Lingui existants) | `npm run lint` + gates Lingui (`web/scripts/scan-en-strings.sh`) | catalogues locale |
 | 47 | `G-PERF` | budgets chiffrés graphe/timeline/Babel et size-limit verrouillés | **AI** | — | script | ÉTENDU (`size-limit` existant) | `npm run size` + budgets chiffrés | budgets AI |
@@ -90,6 +90,29 @@ G-SUPPLY-CHAIN, G-I18N, G-PERF) ; 0 EXISTANT pur (toutes touchent au chantier).
 > Les rows 9 `G-SECRET`, 10 `G-SECRET-VAULT`, 11 `G-HITL` et 44 `G-A11Y-HOST`
 > ont donc migré leur phase propriétaire **`L → L1`** (plan §Phase L1 l.1009-1015).
 > Phase L ne ferme que **row 8 `G-CAPABILITY`**. 0 orphelin conservé.
+
+> **Réconciliation Phase L1 (2026-07-25)** : quatre rows ont été éditées PAR L1,
+> et la nature de chaque édition est consignée ici pour qu'un audit puisse
+> l'attribuer sans relire les rounds de review.
+> - **Row 9 `G-SECRET`** — critère RESSERRÉ et annoté : le canari couvre les 5
+>   rendus du moteur + le blob au repos, pas les surfaces `app KV` / blobs /
+>   exports, qui appartiennent aux phases qui les PRODUISENT (I/K run store,
+>   N/O appel provider et `SBFB_EFFECT_INPUT`, V routes, X export, AI2 agrégat).
+> - **Row 10 `G-SECRET-VAULT`** — commande re-pointée sur la famille `vault::`
+>   entière (**20 tests**, pas le seul `vault_bind_rotate_zeroize`), énumération
+>   des propriétés complétée par le refus du handle périmé dans `delete`/`rotate`,
+>   et même annotation « critère resserré » que la row 9 (la moitié « run/app »
+>   de l'intitulé n'a jamais eu de preuve — borne 15 du §19.4).
+> - **Row 11 `G-HITL`** — commande étendue à `npm run test:unit -- Approvals`
+>   (seul falsificateur du « host-owned », critère BINAIRE de L1.4) et
+>   requalification honnête du pouvoir des deux contrôles d'exhaustivité.
+> - **Row 44 `G-A11Y-HOST`** — commande étendue de même ; portée du scan axe
+>   divulguée (scope `include` sur la région HITL, 123 `color-contrast`
+>   page-wide qui sont une dette PARTAGÉE de toute route, propriété d'AI1).
+>
+> Contributrices d'acceptance : **WA-T1** gagne **L1** (items WA-T1.8 /
+> WA-T1.11 — approbation chrome hôte accessible, canari `secret_ref`), et L1
+> est l'une des « phases UI » de **WA-T4**.
 
 ### Gates process repo (hors 47, EXISTANT — rappel de complétude)
 `G1` Design Review Board (`sprint83_design_review.md`, hook Check 5) et `G9`

@@ -17,9 +17,13 @@ signés — sans serveur central, dans le respect des invariants du réseau
    **jamais** de credential provider, de clé privée, de base autoritaire des
    runs, d'exécution privilégiée ni de scheduler distribué. Elle ne fabrique
    jamais un succès local.
-2. **Shell hôte de confiance** — accorde les grants par app/release/pack, rend
-   et signe le **HITL** dans le chrome hôte (lié au digest exact), détient les
-   secrets et les quotas.
+2. **Shell hôte de confiance** — accorde les grants par app/release/pack, REND
+   le **HITL** dans le chrome hôte (le tuple exact, WYSIWYS) et tient les
+   quotas. Il ne détient **ni clé ni secret** : c'est la couche 3 (le daemon,
+   seul détenteur de l'identité déverrouillée) qui SIGNE le digest du tuple et
+   qui détient le coffre de secrets. La phrase inverse a figuré ici et c'était
+   l'attribution la plus dangereuse du chantier : placer le signeur ou un cache
+   de credentials dans le shell navigateur défait A14 et A15 d'un coup.
 3. **Workflow Runtime Rust (hôte)** — **seule autorité** : compilateur,
    reducer, scheduler local, event store, inbox/outbox, checkpoints, reprise,
    annulation honnête, provenance, évaluation. Hébergé par le daemon hôte
@@ -41,7 +45,7 @@ topologie/outils/destinations/grants/classification/HITL/budgets.
 | Crate | Rôle | Contraintes |
 |---|---|---|
 | `sbfb-workflow-core` | **pur** : schémas, canonicalisation + digests, validation statique, compilation du plan immuable, fixtures golden | sans Tokio / réseau / DB — déterministe, testable en isolation |
-| `sbfb-workflow-engine` | hôte-neutre : reducer + machine d'état, scheduler local, retries/timers/joins/boucles bornées, inbox/outbox + idempotence, checkpoints + replay, **surface permissions** (`effective_capabilities` = intersection monotone des 7 couches sur 17 classes typées, Phase L — computation autoritaire ; reliure per-effet différée à la phase run-surface) | traits `store/clock/activity/artifact/signal/secret/policy` (`policy` = `CapabilityPolicy`, réalisé L), aucun couplage UI |
+| `sbfb-workflow-engine` | hôte-neutre : reducer + machine d'état, scheduler local, retries/timers/joins/boucles bornées, inbox/outbox + idempotence, checkpoints + replay, **surface permissions** (`effective_capabilities` = intersection monotone des 7 couches sur 17 classes typées, Phase L — computation autoritaire ; reliure per-effet différée à la phase run-surface) | traits `store/clock/activity/artifact/signal/secret/policy` (`policy` = `CapabilityPolicy`, réalisé L ; `secret` = `SecretResolver`, trait DÉFINI en L1 mais NON réalisé : aucune implémentation hôte, 0 call-site, et `EffectContext` n'a pas de champ résolveur — cf. THREAT §19.4 DS-1. Le moteur ne connaîtra que la référence OPAQUE, l'hôte la résoudra juste-avant-l'appel ; le coffre lui-même vit hôte-side dans `nexus-core-rs::vault`), aucun couplage UI |
 
 Le moteur durable est de la famille **mémoïsation-de-steps + journal append-only**
 (pas de replay-total, pas de WASM). Le journal (`RunEvent.v1`, PK

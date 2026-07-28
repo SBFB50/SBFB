@@ -28,6 +28,11 @@ blake3 = { workspace = true }
 rusqlite = { workspace = true }
 rusqlite_migration = { workspace = true }
 thiserror = { workspace = true }
+# Sprint 83 Phase L1: `BoundSecret` zeroes its material on drop so a resolved
+# credential does not linger in freed heap after the effect call. Already a
+# workspace dependency (the keystore, and transitively), so this crate adds no
+# new lock node — the `rusqlite`/`libc` precedent above.
+zeroize = { workspace = true }
 
 # Sprint 83 Phase K (Unix): std has `process_group(0)` but NO `killpg` —
 # killing the descendant tree of a cancelled/timed-out effect needs

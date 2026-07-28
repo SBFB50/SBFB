@@ -185,10 +185,12 @@ pub mod event;
 pub mod fault;
 pub mod fs_effect;
 pub mod hash;
+pub mod hitl;
 pub mod orchestrator;
 pub mod process;
 pub mod reducer;
 pub mod runtime_id;
+pub mod secret;
 pub mod signal;
 pub mod store;
 
@@ -199,7 +201,7 @@ pub use activity::{
 };
 pub use capability::{
     ApprovalLevel, BoundedCapability, CapabilityClass, CapabilityGrant, CapabilityPolicy, Ceiling,
-    ClassConstraint, DataPolicy, DestinationBound, EffectNeed, EffectiveCapabilities,
+    ClassConstraint, DataPolicy, DecidedRef, DestinationBound, EffectNeed, EffectiveCapabilities,
     GrantAudience, HitlValidity, OpenPolicy, RefConstraint, effective_capabilities,
 };
 pub use clock::{Clock, ManualClock};
@@ -211,9 +213,14 @@ pub use event::{
 pub use fs_effect::{
     FixedWorktreeState, WorktreeFsWriteActivity, WorktreeState, WorktreeStateProvider,
 };
+pub use hitl::{
+    ApprovalDecision, HITL_BINDING_CONTEXT, HitlBinding, HitlError, HostVerifiedApproval,
+    decide_ref, hitl_binding_digest, verify_binding,
+};
 pub use orchestrator::{Orchestrator, OrchestratorConfig, OrchestratorError, RunProgress};
 pub use process::{EFFECT_INPUT_ENV, KillableChild, ProcessActivity, kill_process_group};
 pub use reducer::{NodeState, ReduceError, RunState, RunView, reduce};
+pub use secret::{BoundSecret, NoSecrets, ScriptedSecrets, SecretError, SecretRef, SecretResolver};
 pub use signal::{NoSignals, ScriptedSignals, SignalDeposit, SignalSource};
 // The falsifiability surface is harness-only since Phase I: no production
 // entry point takes a hook or knobs, so the types are only re-exported at

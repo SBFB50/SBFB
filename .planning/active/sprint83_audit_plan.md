@@ -117,6 +117,55 @@ Question centrale : le push groupé a-t-il RÉELLEMENT eu lieu sur 3 verts ?
 
 ### P2 (nommés, évidence session T)
 
+- **KEYSTORE-LAYER2-INERT — routé par S83 Phase L1 (P1 F1 du round r3)** :
+  la couche 2 « OS keyring » du keystore n'existe pas à l'exécution. `keyring 3.6`
+  est déclaré **sans feature de backend** et la crate n'a pas de default features,
+  donc `keyring::default` résout vers le builder **MOCK** (recoupé 3 fois : lock
+  = `log` + `zeroize` seuls, amont `pub use mock as default`, 0
+  `set_default_credential_builder` dans le workspace). Le mock rend un credential
+  **vierge à chaque `Entry::new`** et se déclare `EntryOnly`.
+  **Conséquence fonctionnelle** (pas un simple écart de doc) : les constructeurs
+  de production posent `use_keyring: true`, `init` écrit `kek2` dans son entry
+  puis la droppe, `unlock` EXIGE cette entry ⇒ **`unlock` échoue dès le même
+  process**, et `kek2` étant 32 octets aléatoires, une identité créée par ce
+  chemin serait irrécupérable. Le seul chemin de production est
+  `nexus-launcher/src/unlock.rs`.
+  **Pourquoi ce n'est pas corrigé en L1** : défaut **pré-existant Sprint 20**,
+  hors surface de changement (le diff L1 ne touche aucune des lignes en cause), et
+  les deux seules sorties réelles sont (a) activer une feature backend native —
+  décision **supply-chain** (le chemin Linux tire des deps neuves), ou (b)
+  `use_keyring: false` par défaut, qui fait rougir `keystore_integration.rs`
+  (un test vérifie explicitement qu'un store keyring-enabled ouvre un blob écrit
+  sans la couche). Les deux sont des arbitrages, pas des correctifs de review.
+  **Ce que L1 a livré à la place** : la mesure, et la requalification de la
+  promesse **sur les sites énumérés ci-dessous** — même ordre que la borne 25 du
+  §19.4, pour que les deux textes se relisent l'un contre l'autre. L'énumération
+  EST le contrat ; ce n'est pas une preuve d'exhaustivité (une formulation de
+  complétude a été falsifiée deux fois, review r5 P1 puis r7 P1-2). **TRAITÉS** :
+  (1) doc-module de `keystore.rs` ; (2) `docs/rust/PATTERNS.md` §Sprint 20.1
+  (bannière) ; (3) **§T26** (rationale de bench déclaré VOIDE) ;
+  (4) `docs/community/README_EN.md` (claim publique) ;
+  (5) **`docs/security/DURESS.md`** (table §2.1 « Couvert », §wipe **et §1 Vue
+  d'ensemble** — le runbook lu sous contrainte ; la promesse « tous les secrets
+  daemon » du panic wipe est devenue une énumération exacte, qui nomme aussi le
+  coffre NON réclamé) ; (6) **§T-keystore-bench-reference** (qui
+  s'appuyait dessus pour DÉCLINER un durcissement `m_cost`) ; (7) les
+  commentaires mal-imputés de `tests/keystore_integration.rs` (en-tête de
+  module, doc du probe **et** le commentaire in-corps du cross-handle read) ;
+  (8) **`crates/nexus-launcher/src/unlock.rs`** (module + `run_init` — le SEUL
+  chemin de production, celui qui construit `LocalFileKeyStore::new` avec
+  `use_keyring: true`) ; (9) **`crates/nexus-core-rs/Cargo.toml`** (rationale de
+  dep) ; (10) **`crates/nexus-shell-daemon/src/panic.rs`** (doc-module du panic
+  wipe : effacement des entrées keyring annoncé sans dire qu'il est
+  security-neutral, scratchs et coffre non réclamé tus) ; (11) le **`Cargo.toml`
+  RACINE** (rationale canonique de la dep `keyring`, vers lequel le crate
+  renvoie) ; (12) borne 25 du §19.4.
+  **Reste dû à l'audit** : trancher (a) ou (b) — c'est le seul vrai reste ; plus
+  deux sites de doc ouverts et nommés : les doc-items de `LocalFileKeyStore`
+  (`keystore.rs:466`, `:470-474`, qui écrivent la promesse au présent) et le
+  CODE lui-même. Ne pas rouvrir `DURESS.md:165` ni l'en-tête de
+  `keystore_integration.rs` : traités, respectivement en L1 et au round 7.
+
 - **Classe watcher macos-14** : **10 tests uniques** fs-watcher/hot-reload
   TRY-2-FAIL (20 lignes, récap nextest dupliqué — rectif Codex T round 1)
   sur 2 runs Rust CI master observés (28661119376 head `c899d54` +
@@ -149,6 +198,24 @@ Question centrale : le push groupé a-t-il RÉELLEMENT eu lieu sur 3 verts ?
 - **Volet Mac différé** : observation on-disk store + hygiène rule 4 +
   redescente consent L4 — à jouer à la prochaine session Mac chaude
   (artefact store-migration).
+
+- **Lot « gates du domaine d'identité » (routé Phase L1, review r8)** — quatre
+  chantiers structurants explicitement HORS de la passe de correctifs r8, parce
+  que ce sont des gestes de gate et non de round. Routés NOMMÉMENT ici pour que
+  l'audit gate S84 ne les re-découvre pas comme dette inventée :
+  (a) **`IDENTITY-DOMAIN-PARITY`** — le prédicat `is_forbidden_in_identity`
+  existe en DEUX exemplaires (`sbfb-workflow-engine/src/hash.rs` et
+  `nexus-core-rs/src/vault.rs`, ce dernier ne pouvant pas dépendre du moteur) ;
+  leur jumelage est revendiqué par trois textes mais tenu par AUCUN contrôle
+  mécanique — une jambe de `check-frontier-contracts.sh` comparant les deux
+  listes de plages fermerait la classe ;
+  (b) **`const IDENTITY_FORBIDDEN_RANGES`** — une table nommée partagée
+  fermerait l'effondrement de plage à la source (aujourd'hui : neuf `matches!`
+  arms dupliqués, protégés seulement par des témoins de bornes) ;
+  (c) **factorisation des deux extracteurs non self-testés** du gate frontière
+  (`_bp_extract_rs` et `_hp_extract_ts` n'ont ni fonction nommée ni fixture
+  piégée, contrairement à leurs jumeaux) ;
+  (d) **ancrage colonne-1 de l'extracteur HITL** avec son piège de fixture.
 
 ### P3
 

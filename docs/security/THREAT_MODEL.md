@@ -69,6 +69,8 @@ pattern OWASP Threat Dragon.
 | A11 | Etat d'execution durable (run store) | Moyenne (identifiants caller-chosen, cf. T-RUN-ID-PII) | **Critique** (journal + outbox = verite du replay) | **Haute** (un run doit survivre au crash) | Fichier SQLite local injecte par l'hote (journal `run_events` + `outbox` + `inbox` + `snapshots` + `lease` + `waits`/`signals`/`timers` + `attempts` v26) ; jamais signe ni gossipe. Cf. §19. |
 | A12 | Effets externes d'un run (side outputs, arbres de processus, mutations worktree, receipts d'activite) | Moyenne (receipts locaux : digests + facts fermes, jamais de prompt) | **Critique** (un double effet ou un faux succes falsifie le run) | Moyenne | HORS transaction store par nature (backend de la cible, FS du worktree, table de processus OS) ; receipt materiel en `outbox.receipt`, digest seul au journal. Cf. §19.2. |
 | A13 | Grants et autorite effective (`effective_capabilities` = intersection 7 couches, 17 classes typees) | Faible (structures host in-memory, jamais serialisees ni signees ; 0 `DOMAIN_*`) | **Critique** (un grant elargi/forge ou une couche contournee = EoP directe sur les effets sensibles) | Moyenne (fail-closed la ou l'AUTORITE est requise : une audience de GRANT absente/vide/expiree ⇒ REFUS de la ref ; les couches ATTENUATRICES absentes sont l'IDENTITE — la couche 7 HITL vide ne refuse que les classes `Human`, pas tout ; jamais un deni d'un run deja clos) | Algebre PURE host-neutre (`crates/sbfb-workflow-engine/src/capability.rs`) ; chaque couche ne peut qu'ATTENUER (meet monotone) ; grants audience-scopes, expiry fail-closed a la borne, revocation per-call. Cf. §19.3. |
+| A14 | Coffre de secrets hote (materiel de credential scelle au repos, lie a la `secret_ref` opaque juste-avant-l'appel) | **Critique** (materiel de credential ; le TYPE ferme la route SERIALISATION vers les 16 surfaces §14.3 — la route COPIE reste une discipline de la reliure, cf. §19.4 borne 15 ; seule la ref opaque circule) | Moyenne (AAD lie header+ref, downgrade KDF/migration de slot fail l'open) | Moyenne | Blob chiffre LOCAL (Argon2id(PIN)→KEK, AES-256-GCM, `DOMAIN_KEYSTORE_V1` reutilise, `SecretBox`/`zeroize`) ; `BoundSecret`/`VaultSecret` non-`Serialize` + `Debug` redacteur. Cf. §19.4. |
+| A15 | Approbation HITL signee chrome hote (decision humaine liee au digest exact du tuple d'effet) | **Moyenne** (artefact LOCAL jamais gossipe, mais le tuple porte principal/destination/digest — metadonnees d'exploitation ; residuel `T-RUN-ID-PII`) | **Critique** (une approbation forgee/mutee = EoP sur un effet sensible) | Moyenne | Digest injectif du tuple 15-champs (`hitl.rs`) + signature Ed25519 hote context-locale (`hitl_approval.rs`) ; rendu EXCLUSIVEMENT chrome hote (allowlist bridge FERMEE de 16 verbes, aucun de HITL) ; toute mutation invalide. **PRIMITIVE non reliee : 0 call-site en production.** Cf. §19.4 (lire son DS-1 d'abord). |
 
 ---
 
@@ -1774,7 +1776,7 @@ d'environnement (byte-reproducible, goldens committes).
 | **T-RUN-GC-EVIDENCE-LOSS** | *Repudiation* — la purge de retention efface la preuve d'audit d'un incident | **bornee par politique** | GC = perte d'evidence ACCEPTEE et BORNEE, dite par la signature (`RetentionPolicy` sans defaut implicite : l'appelant DOIT dire ce qu'il accepte). Jamais purges, mutation-testes : un run EN VOL (jamais candidat), une outbox PENDING (completed porteur = skip compte ; terminal les conserve), le DIAGNOSTIC terminal (la row `runs` + l'entree `run_terminal` survivent a chaque passe — le post-mortem `outcome_unknown` reste possible pour toujours). `closed_at_ms` NULL = jamais purge (fail-safe : pas de date, pas de purge). Purge PER-RUN atomique (`FaultPoint::InsideGcTransaction` : crash au milieu → run entierement intact) ; statut + eligibilite + fenetre `keep_last` RE-CLASSEE + pending RELUS DANS la transaction de purge (le scan candidats n'est qu'un pre-filtre ; un run re-date devenu le plus recent est epargne — Codex r2 P2) — un diagnostic terminal pose ENTRE le scan et la purge est re-dispatche sur la row courante et survit (Codex r1 P1, teste par interleaving `BeforeGcPurgeOfRun` via connexion separee) ; et les etats clos sont ABSORBANTS (`InvalidTransition` : un terminal ne peut plus etre re-etiquete completed, la voie de purge du diagnostic par re-labelling est fermee — Codex r2 P1, mutation M9). |
 | **T-RUN-SNAPSHOT-POISON** | *Tampering* — un snapshot empoisonne devient l'etat du run | **fermee** | Un snapshot n'est JAMAIS une source de verite : cache invalide par version de FORMAT (`Stale`) et par digest BLAKE3 sur le **RUN PROPRIETAIRE + TUPLE SERVI ENTIER** (`run_id`, version, `upto_sequence`, `state` — pas le state seul, sinon une borne mensongere sous state intact passerait [review D4-1], et pas sans run_id, sinon le tuple intact d'un AUTRE run se substituerait [Codex r1 L5]) (`Poisoned` — DETECTE, jamais servi ; porte degradee `read_snapshot_unverified` derriere `spike-faults` = le controle rouge qui prouve la garde load-bearing, mutation M3). Supprimer le snapshot ne change RIEN d'observable (teste) : le journal re-derive le meme etat. Etat donnees-pures JSON, `null` refuse par la porte de digest (meme regle que tous les digests du crate). |
 | **T-RUN-SQLI-DESERIAL** | *Tampering/EoP* — la chaine CVE checkpointer LangGraph 2026 (CVE-2025-67644 SQLi + CVE-2026-28277 msgpack→RCE) transposee au run store | **fermee** | Doctrine D3.6 appliquee : requetes parametrees PARTOUT (`params!`, 0 concatenation SQL — verifie mecaniquement ; les seuls `format!` du module produisent des messages d'erreur ou des noms de fichiers freres `-wal`/`-shm`/`.tmp`, aucun n'atteint le SQL) ; etat serialise DONNEES-PURES JSON (jamais pickle/msgpack, enveloppe typee `deny_unknown_fields`) ; upcasters = transforms `Value`→`Value` COMPILES dans ce binaire — le store ne porte jamais de code. |
-| **T-RUN-ID-PII** | *Information disclosure* (LINDDUN) — `run_id`/`node_instance_id` sont des `String` caller-chosen persistees : un identifiant portant un token/email survit au process dans le journal | **M (residuel documente)** | Le journal est payload-free PAR TYPE (`RunEventKind` sans champ de contenu, receipts en DIGEST seul) — la garantie porte sur les CHAMPS, pas sur ce que l'appelant nomme. Validation longueur + caracteres de controle seulement (`validate_identity_component`, y compris `message_id` d'inbox et `lease_owner`). Cote ROUTE (I1, v24) : `run_id` serveur-valide au choke point `workflow_api.rs` — charset borne `[A-Za-z0-9._-]{1,128}` → 400 sinon (plus strict que la garde engine ; un `run_id` ne forme JAMAIS un path, il ne voyage qu'en binding `params!`). Le residuel M reste : l'identifiant demeure caller-chosen au niveau engine. |
+| **T-RUN-ID-PII** | *Information disclosure* (LINDDUN) — `run_id`/`node_instance_id` sont des `String` caller-chosen persistees : un identifiant portant un token/email survit au process dans le journal | **M (residuel documente)** | Le journal est payload-free PAR TYPE (`RunEventKind` sans champ de contenu, receipts en DIGEST seul) — la garantie porte sur les CHAMPS, pas sur ce que l'appelant nomme. Validation longueur + caracteres de controle **ET** caracteres invisibles / bidi format (`validate_identity_component` → `is_forbidden_in_identity`, domaine elargi en S83 L1 — cf. borne 24 du §19.4 et le jumeau `echo.rs:26-28`), sur `run_id`, `node_instance_id`, `message_id` d'inbox, `lease_owner`, `nonce` (`store.rs:1899`) et `timer_id` (`:2225`). Ce que la validation ne fait PAS : elle ne borne pas le charset a l'ASCII, donc un spoof d'affichage purement ASCII (homoglyphes, userinfo) passe — borne 24. Cote ROUTE (I1, v24) : `run_id` serveur-valide au choke point `workflow_api.rs` — charset borne `[A-Za-z0-9._-]{1,128}` → 400 sinon (plus strict que la garde engine ; un `run_id` ne forme JAMAIS un path, il ne voyage qu'en binding `params!`). Le residuel M reste : l'identifiant demeure caller-chosen au niveau engine. |
 
 **Bornes honnetes (ce que I ne ferme PAS)** : exposition loopback des
 operations du store = **Phase I1 LIVREE en LECTURE SEULE** (v24 : 2 GET
@@ -1808,7 +1810,7 @@ vivent sous UN writer lease-fence.
 
 | # | Menace (STRIDE) | Sev | Mitigation cablee |
 |---|---|---|---|
-| **T-RUN-SIGNAL-FORGE-REPLAY** | *Spoofing* — un signal `wait.signal` (ou une decision `human.review`) forge, rejoue ou perime resume un run parque, ou re-declenche une reprise deja consommee | **fermee** | Mono-usage §12.6 cable en QUATRE gardes, chacune LOUD : (1) nonce ENGINE-DERIVE (`derive_wait_nonce`, length-prefixed, jamais caller-chosen) journalise a l'ouverture du wait (`INSERT OR IGNORE` : UN nonce spendable par interruption, un replay de la passe n'en re-mint pas) ; (2) depot REFUSE si aucun wait OPEN ne nomme le nonce (`SignalRefused` — un nonce forge est observable A LA PORTE, zero row ecrite) ; re-livraison du meme nonce = dup collapse (`INSERT OR IGNORE`, precedent inbox S76-D) ; (3) consommation ATOMIQUE : CAS du wait (open→consumed) + flag depot + entree `signal_consumed`/`human_decision_recorded` dans UNE transaction (mutation M2' : sans le CAS, la suite rougit) — le flag depot est defense-en-profondeur documentee ; (4) expiration du DEPOSANT verifiee a la consommation contre `now_ms` injecte, label `human.review` valide contre le SET FERME du plan AVANT toute ecriture. Tests adversariaux : `signal_replay_consumed_exactly_once`, `signal_forged_nonce_rejected`, `signal_expired_rejected`, bras out-of-set de `human_review_parking_and_closed_set`. **Bornes honnetes** : (1) le nonce est MONO-USAGE, pas une AUTHENTIFICATION — derive de valeurs deductibles (run_id, node, canal), il ne prouve pas QUI depose ; l'authentification du principal (signature HITL) = L1, l'authz de la porte exposee en route = la phase qui SHIPPE la route (re-routee **V**, v26 — K est engine-only, 0 route, cf. inventaire D7) ; aujourd'hui `deposit_signal` reste intra-frontiere OS mono-utilisateur (aucune route) et le payload est borne a la porte (`MAX_SIGNAL_PAYLOAD_BYTES` 256 KiB, review r1 SD-3). (2) Un depot EXPIRE (ou refuse au label) occupe son nonce — le dedup INSERT OR IGNORE empeche de le remplacer, donc le run reste parque LOUD (chaque consommation re-echoue) sans recuperation in-protocol : probleme OPERATEUR surfacé bruyamment, jamais un remplacement silencieux ; la re-ouverture d'un wait (nouveau nonce, geste operateur) = re-routee **V** avec la surface operateur (v26 — le PRECEDENT mecanique existe desormais : la primitive park/reconcile de §19.2 est le patron a repliquer cote waits). Tests (noms exacts) : `orchestrator_signal_replay_consumed_exactly_once`, `orchestrator_signal_forged_nonce_rejected`, `orchestrator_signal_expired_rejected`, `orchestrator_human_review_parking_and_closed_set`, `orchestrator_human_review_routes_decided_port`. |
+| **T-RUN-SIGNAL-FORGE-REPLAY** | *Spoofing* — un signal `wait.signal` (ou une decision `human.review`) forge, rejoue ou perime resume un run parque, ou re-declenche une reprise deja consommee | **fermee** | Mono-usage §12.6 cable en QUATRE gardes, chacune LOUD : (1) nonce ENGINE-DERIVE (`derive_wait_nonce`, length-prefixed, jamais caller-chosen) journalise a l'ouverture du wait (`INSERT OR IGNORE` : UN nonce spendable par interruption, un replay de la passe n'en re-mint pas) ; (2) depot REFUSE si aucun wait OPEN ne nomme le nonce (`SignalRefused` — un nonce forge est observable A LA PORTE, zero row ecrite) ; re-livraison du meme nonce = dup collapse (`INSERT OR IGNORE`, precedent inbox S76-D) ; (3) consommation ATOMIQUE : CAS du wait (open→consumed) + flag depot + entree `signal_consumed`/`human_decision_recorded` dans UNE transaction (mutation M2' : sans le CAS, la suite rougit) — le flag depot est defense-en-profondeur documentee ; (4) expiration du DEPOSANT verifiee a la consommation contre `now_ms` injecte, label `human.review` valide contre le SET FERME du plan AVANT toute ecriture. Tests adversariaux : `signal_replay_consumed_exactly_once`, `signal_forged_nonce_rejected`, `signal_expired_rejected`, bras out-of-set de `human_review_parking_and_closed_set`. **Bornes honnetes** : (1) le nonce est MONO-USAGE, pas une AUTHENTIFICATION — derive de valeurs deductibles (run_id, node, canal), il ne prouve pas QUI depose ; l'authentification du principal (signature HITL) a ete LIVREE en L1 — mais **A COTE de ce chemin, pas dedans** : `SignalDeposit` porte toujours 4 champs, sans principal ni signature, et c'est ce chemin que l'orchestrateur emprunte pour `human.review`. La reliure doit le **REMPLACER, jamais l'ETENDRE** (§19.4 borne 13) —, l'authz de la porte exposee en route = la phase qui SHIPPE la route (re-routee **V**, v26 — K est engine-only, 0 route, cf. inventaire D7) ; aujourd'hui `deposit_signal` reste intra-frontiere OS mono-utilisateur (aucune route) et le payload est borne a la porte (`MAX_SIGNAL_PAYLOAD_BYTES` 256 KiB, review r1 SD-3). (2) Un depot EXPIRE (ou refuse au label) occupe son nonce — le dedup INSERT OR IGNORE empeche de le remplacer, donc le run reste parque LOUD (chaque consommation re-echoue) sans recuperation in-protocol : probleme OPERATEUR surfacé bruyamment, jamais un remplacement silencieux ; la re-ouverture d'un wait (nouveau nonce, geste operateur) = re-routee **V** avec la surface operateur (v26 — le PRECEDENT mecanique existe desormais : la primitive park/reconcile de §19.2 est le patron a repliquer cote waits). Tests (noms exacts) : `orchestrator_signal_replay_consumed_exactly_once`, `orchestrator_signal_forged_nonce_rejected`, `orchestrator_signal_expired_rejected`, `orchestrator_human_review_parking_and_closed_set`, `orchestrator_human_review_routes_decided_port`. |
 | **T-RUN-CANCEL-DOS** | *DoS/Tampering* — le cancel comme vecteur d'arret arbitraire, ou un resultat tardif re-etiquete un run annule en succes | **bornee (autorite hote)** | Le cancel est une ECRITURE SOUS LEASE (`record_cancel_requested` idempotent : un run clos ou deja annule ne re-journalise pas) d'origine FERMEE (`CancelOrigin` : `host_operator` | `workflow_timeout` — aucun variant modele, aucun texte libre ; un pack ne peut PAS opt-out de l'autorite operateur, la porte ne consulte aucune policy). §12.7 cable : des l'entree `cancel_requested` le scheduler n'emet PLUS — le stop d'emission est ABSOLU : la fermeture n'appelle JAMAIS `target.apply`, meme pour un intent pendant idempotent (sa premiere emission pourrait sinon suivre l'annulation — Codex r1 P1) ; le pendant reste PENDANT, honnetement journalise ; un resultat OBSERVE Ready au poll du drain est ROUTE vers sa porte `record_late_completion` **par le drain du cancel (K, v26)** : les attempts ouverts sont STOPPES (arbre de processus tue ; un orphelin d'incarnation precedente est REAPE par son handle journalise, ex-K-CANCEL-01), un resultat qui a fini juste avant le stop est CONSERVE (receipt journalise en digest, frontier JAMAIS avance, zero propagation, aval jamais dispatche — test `late_result_after_cancel_kept_without_propagation`). **Borne honnete** : « conserve » vaut pour un resultat OBSERVE Ready a ce poll — un resultat qui finit APRES le poll mais avant le stop n'a pas de second poll et est jete (course inherente, jamais une promesse de conservation universelle). Le run ferme `cancelled` ABSORBANT — jamais re-etiquete completed (`record_terminal` + `InvalidTransition` I) ; un cancel deja journalise bloque le firing timer (pas de double entree operateur+timer). Le wire Task n'a pas de cancel fort : la limite est AFFICHEE, jamais promise. Tests : `honest_cancel_keeps_late_result_without_propagation` (store-level, J) + `late_result_after_cancel_kept_without_propagation` (drain du cancel, K). |
 | **T-RUN-TIMER-SKEW** | *Tampering* — une horloge hote manipulee/regressive re-arme un timer, de-expire un depot, ou re-declenche un cancel | **bornee (watermark + CAS)** | Deadlines ABSOLUES en table d'etat (`timers.deadline_ms`, JAMAIS une duree — le drift delay-as-remainder est structurellement impossible : `INSERT OR IGNORE`, la PREMIERE deadline gagne pour toujours ; garde composite prouvee par mutation M5) ; firing CAS `fired=0→1` gate sur run RUNNING : un timer tire AU PLUS une fois, jamais dans un journal clos ; decisions d'horloge JOURNALISEES (`cancel_requested{workflow_timeout}` — le replay lit le journal, jamais l'horloge live) ; REGRESSION LOUD a DEUX niveaux : **watermark durable par-store** (`clock_watermark.max_now_ms`, avance a CHAQUE passe AVANT tout jugement d'expiry — une passe entiere a lecture regressive est refusee `ClockRegression`, ce qui ferme la fenetre de de-expiration ENTRE passes [review r1 SD-2]) + garde par-depot (`deposited_at_ms` futur refuse). La porte cancel OPERATEUR reste HORS watermark : l'autorite operateur n'est pas blocable par une horloge cassee. Le timer run-wide est (re)propose a CHAQUE appel d'execute, APRES le jugement watermark de la lecture (une deadline derivee d'une lecture que le watermark refuserait ne peut pas devenir la premiere ecriture irreversible — Codex r2 ; un crash entre creation du run et premiere ecriture ne perd plus le timer — Codex r1 ; residu honnete : dans cette fenetre la deadline se derive de l'horloge du RESUME, plus tardive que l'originale ; et une premiere lecture aberrante HAUTE fixe watermark et deadline — la protection est contre la REGRESSION, pas contre une horloge initialement fausse). Tests : `orchestrator_restart_mid_timer_fires_once_at_original_deadline`, `orchestrator_clock_regression_loud`. |
 | **T-RUN-REPLAY-DIVERGENCE** | *Repudiation/Tampering* — un scheduler non-deterministe derive un frontier different au recovery et re-emet un effet deja fait | **fermee (determinisme) / bornee (integrite causale)** | Le reducer est une fonction PURE de `(plan, journal)` : toute decision NON deductible de la topologie est JOURNALISEE AVANT d'etre agie (`branch_taken`, `map_fanout`, consommations, cancel — le reducer ne parse JAMAIS un payload materiel) ; ready-set en ordre CANONIQUE d'ids (BTreeMap partout, 0 HashMap sur le chemin de decision) sous cap borne — l'ordre d'admission journalise est IDENTIQUE quel que soit le cap (test `backpressure_deterministic_admission`) ; divergence per-node FAIL-CLOSED sous le graphe (hash memoise vs rejoue → `StepHashMismatch` terminal, mutation M4) ; identites d'iteration DISJOINTES par construction (`~2N` inatteignable dans un id structurel RFC 6901-echappe — deux iterations ne partagent jamais une cle d'effet, §12.2). Filet store : index unique `outbox_one_effect_per_node`. **Borne honnete (Codex r1)** : les refus structurels de la reduction couvrent `UnknownNode` et `FanoutBeyondBound` ; la COHERENCE CAUSALE du journal est desormais PARTIELLEMENT re-validee a la reduction (**K, v26** : `ReduceError::CausalOrder` refuse une completion sans intent, un attempt-failure sans intent, et une completion sur un node PARQUE sans reconciliation prealable — la forme du blanchiment ; tests `completion_without_intent_refused_by_reducer`, `completion_on_parked_without_reconciliation_refused`) ; residu honnete : une decision sur un node aux inputs non satisfaits reste garantie par l'ECRIVAIN unique lease-fence, pas re-derivee a la lecture. Tests : `orchestrator_deterministic_replay_*`, `orchestrator_iframe_death_does_not_kill_run` (mort reelle du writer, reprise du MEME frontier, 0 effet double), goldens 4/4 rejouables. |
@@ -1895,6 +1897,420 @@ SENSITIVE_ACTIONS substring (§ residuel operateur) N'est PAS ferme ici : L ne
 l'importe pas, capacites TYPEES != gate lexical. Palier T2 WA-T5.2 (refus
 grant expire / capacite non declaree) : evidence = property tests
 (`expiry_enforced`, `undeclared_capability_refused`), `NOT-RUN` jusqu'a AI2.
+
+**Note L1 (ajoutee par la phase suivante, promise au preflight L1).** La couche
+7 a desormais un PRODUCTEUR : `hitl::decide_ref` (§19.4) transforme une
+approbation hote-verifiee, ACCORDEE, non expiree et liee A CETTE `capability_ref`
+en membre de `HitlValidity::decided_refs` ; la composition est prouvee par
+`decided_ref_gates_layer_seven` (ref decidee franchit / absente tombe / tuple
+MUTE tombe). Ce que cela ne change PAS : la reliure au dispatch reste DS-1, donc
+en production `HitlValidity` reste VIDE et une capacite `Human` reste refusee —
+la formulation de A13 (« la couche 7 HITL vide ne refuse que les classes
+`Human` ») demeure exacte.
+
+### 19.4 Surface coffre de secrets et HITL hote signe (Sprint 83 Phase L1)
+
+L1 livre le PRODUCTEUR de la couche 7 (HITL) laissee VIDE en L — la couche reste
+VIDE en production (cf. DS-1) — et ajoute le coffre de secrets hote. Deux
+surfaces, chacune SPLIT en « ce qui rend / ce qui fait autorite » pour tenir la
+charte engine-keyless + la Day-0 census 29 :
+
+- **Coffre** (`crates/nexus-core-rs/src/vault.rs`) : secrets nommes scelles au
+  REPOS, lies a leur reference opaque JUSTE-AVANT-l'appel. REUTILISE la crypto
+  keystore (Sprint 20) — Argon2id(PIN) → KEK, AES-256-GCM, `DOMAIN_KEYSTORE_V1`
+  comme domaine partage (sous-contexte `secret-vault`, pas un `DOMAIN_*_V1`
+  neuf), `SecretBox`/`zeroize`, ecriture atomique 0600. La defense PRIMAIRE au
+  repos est Argon2id(PIN) ; l'OS-keyring n'est PAS cable (backend MOCK dans ce
+  workspace — le revendiquer serait faux). C'est un artefact LOCAL, jamais
+  gossipe : 0 famille de signature, 0 bump wire.
+- **Seam secret engine** (`crates/sbfb-workflow-engine/src/secret.rs`) : le
+  moteur ne connait QUE la `SecretRef` opaque ; `BoundSecret` n'a AUCUN
+  `Serialize` (compile-time), un `Debug` redacteur, et se zeroize au drop.
+- **Liaison HITL engine** (`crates/sbfb-workflow-engine/src/hitl.rs`) :
+  `hitl_binding_digest` sur le tuple EXACT (15 champs) ; `verify_binding`
+  refuse toute mutation (digest != ) et l'expiration ; PUR, keyless.
+- **Signature HITL hote** (`crates/nexus-core-rs/src/hitl_approval.rs`) : le
+  daemon (detenteur de l'identite) signe le digest du binding avec un
+  context LOCAL (`sbfb-hitl-approval-v1`, pas un `DOMAIN_*_V1`) ; l'iframe non
+  fiable ne detient pas de cle et ne peut forger une approbation.
+- **Affordance host-chrome** (`web/src/pages/Approvals.tsx`, route
+  `/approvals`) : le tuple exact est RENDU par le shell hote (WYSIWYS), file
+  host-owned, approbation accessible (focus gere, pas de keyboard-trap, pas de
+  type-to-confirm, pas de delai). Portee L1 : affordance minimale ; le Centre
+  des Runs plein = Phase V.
+
+**DS-1 — ce que L1 NE RELIE PAS (lire avant de croire cette section).** L1 livre
+les DEUX primitives (coffre, binding+signature) et leurs tests ; la RELIURE
+n'existe pas encore : **0 call-site de production** pour `SecretVault`,
+`SecretResolver`, `verify_binding`, `decide_ref`, `sign_hitl_approval` et
+`verify_hitl_approval` (hors re-exports), aucune `HitlValidity` construite en
+production, aucun champ resolveur dans `EffectContext`, et aucune route daemon.
+Le daemon qui VERIFIE la signature, l'adaptateur d'effet qui resout le
+`secret_ref` juste-avant-l'appel, la couche 7 alimentee et le refus
+d'autorite journalise sont la phase qui shippe la surface run — **meme posture
+DS-1 que la Phase L** (§19.3). Les statuts ci-dessous se lisent donc comme des
+proprietes de la PRIMITIVE, pas d'un chemin cable : partout ou l'enforcement
+depend de la reliure, le statut est **bornee**, jamais fermee.
+
+**Asset A14 — coffre de secrets hote.** Trust boundary : blob chiffre au repos
+sur le noeud, jamais cross-noeud. Confidentialite **Critique** (materiel de
+credential), disponibilite Moyenne. Invariant : le materiel ne franchit AUCUNE
+des surfaces interdites §14.3 (iframe/**app-KV**/pack/lock/layout/event-log/
+snapshot/prompt/contexte/Task/trace/metrique/erreur/ArtifactRef/export/dataset —
+16 items ; l'enumeration precedente en omettait un, `app KV`, et non le compte) ; seule
+la reference OPAQUE y circule legitimement — y compris DANS le pack, ou elle est
+un nom de slot par conception (`pack.rs`), ce qui est la lecture correcte de
+research §14.3 : c'est le materiel qui est banni partout, pas la reference.
+
+**Asset A15 — approbation HITL signee chrome hote.** Trust boundary : decision
+LOCALE consommee avant UN effet, jamais serialisee cross-noeud ni gossipee (0
+`DOMAIN_*`, census 29 tenu). Integrite **Critique** (une approbation forgee ou
+mutee = EoP sur un effet sensible), confidentialite **Moyenne** (le tuple porte
+un principal, une destination et un digest — des metadonnees d'exploitation, pas
+du materiel), disponibilite Moyenne.
+
+| # | Menace (STRIDE) | Sev | Mitigation cablee |
+|---|---|---|---|
+| **T-SECRET-REF-EXFIL** | *Information disclosure* — le materiel d'un credential fuit via une surface durable (journal/receipt/snapshot/trace/export) au lieu de rester derriere la reference opaque | **fermee par TYPE (serialisation) / bornee (reliure)** | Ce que le TYPE ferme, definitivement : `BoundSecret`/`VaultSecret` n'ont AUCUN `Serialize`, donc le materiel ne PEUT PAS etre un champ d'un `RunEvent`/`ActivityReceipt`/snapshot (erreur de compilation, pas de revue) — et cette absence est GARDEE par **DEUX doctests `compile_fail,E0277`**, un par type — `BoundSecret` cote moteur (`secret.rs`) et `VaultSecret` cote hote (`vault.rs`) —, chacun porte par le type lui-meme et chacun mesure DISCRIMINANT (injecter un `impl Serialize` qui expose le materiel fait ECHOUER le doctest correspondant). Le code d'erreur est epingle pour qu'un doctest ne puisse pas verdir sur une erreur de compilation sans rapport. Le canari, lui, n'a jamais garde cette classe : aucune de ses surfaces ne serialise l'un ou l'autre type ; `Debug` redacteur epingle en EGALITE EXACTE (un `!contains(canari)` etait aveugle a un `{:?}` du slice, qui deverse tout en decimal) ; zeroize au drop. Seule la `SecretRef` (un NOM) circule. Precedent : projection needs-free PAR CONSTRUCTION (A9, `T-A11Y-NEEDS-LEAK`). Ce que le type NE ferme PAS : rien n'empeche un appelant d'`expose()` puis de recopier les octets dans un `String` qui, lui, se serialise — c'est la reliure (adaptateur d'effet) qui doit ne jamais le faire, et il n'existe pas encore (DS-1). Canari WA-T1 `secret::tests::canary_absent_everywhere` : **bras ROUGE sur la surface de PROD** (une `ActivityReceipt` dont les `facts` portent le materiel expose DOIT etre detectee) puis bras vert sur les 5 surfaces reelles, recherche sous SIX encodages — texte, tableau decimal `serde_json`, tableau decimal `Debug`, **texte JSON-echappe** (derive du serialiseur lui-meme, pas devine), **hex**, **base64 standard et url-safe** (l'encodage d'un `Authorization: Basic`, le plus plausible d'un credential cloud) — soit SEPT bras de recherche pour six familles d'encodage (base64 standard et url-safe partagent la famille), **chacun avec son controle positif** : cinq dans `the_canary_oracle_detects_base64_hex_and_json_escaping`, les deux premiers (texte brut, tableau decimal `serde_json`) dans les bras ROUGES de `canary_absent_everywhere` lui-meme — et les encodeurs sont ecrits a la main pour ne pas depenser la Day-0 0-dep sur un helper de test ; jumeau at-rest `vault_bind_rotate_zeroize` avec ses deux controles positifs, RECOPIE et non partage (les deux crates ne dependent pas l'un de l'autre) et volontairement moins riche : il fouille un blob scelle, pas un document rendu. Sans le bras rouge, le canari passait vert meme en derivant `Serialize` sur `BoundSecret` — il ne prouvait que « je n'ai rien mis dedans ». |
+| **T-SECRET-VAULT-LIFECYCLE** | *Tampering/Information disclosure* — rotation qui laisse l'ancien materiel recuperable, suppression incomplete, KEK persistant en memoire, ou downgrade des parametres KDF du blob | **fermee (falsification PARTIELLE au repos) / bornee (rollback du fichier entier)** | Chaque entree scellee AES-256-GCM sous KEK avec nonce FRAIS ; AAD = `DOMAIN_KEYSTORE_V1` + sous-contexte + header (salt+params KDF — `param_downgrade_in_header_is_refused`) + NOM de la ref length-prefixe (`tampered_ref_binding_fails`). **ENTREE-VERIFICATEUR** (`VAULT_CHECK_REF`, inatteignable car `validate_ref` refuse les caracteres de controle — `check_entry_is_unreachable_from_user_operations`) : ouverte INCONDITIONNELLEMENT a l'unlock, elle prouve le PIN meme sur un coffre VIDE (`wrong_pin_on_empty_vault_is_refused` — avant, tout coffre neuf ouvrait sous n'importe quel PIN et un `put` perdait le secret sous un KEK errone), authentifie le header meme a vide, et ne dechiffre AUCUN credential reel (avant, la sonde ouvrait l'entree lexicographiquement premiere dans un `Vec<u8>` non zeroise). Son plaintext porte `epoch ‖ blake3(set trie)` : rejeu d'une ancienne `(nonce,ct)` (`replaying_an_old_ciphertext_is_refused`) et delete silencieux (`deleting_an_entry_behind_the_vault_is_detected`) sont DETECTES — donc **la rotation est durable dans les DEUX sens**, sous les bornes ci-dessous. **Lecture ET ecriture** : `bind` relit l'epoch on-disk et fail-close en `ConcurrentModification` si le handle est perime (`stale_handle_bind_serves_nothing_after_a_revocation` — sans cette moitie, un daemon a handle long-lived continuait de SERVIR un credential qu'un autre process avait supprime ou rote, l'AAD d'une entree ne liant pas l'epoch) — **sauf apres la collision lost-update de la borne (3) ci-dessous**, ou le handle porte l'epoch du disque avec un BODY perime et ou `bind` sert donc une entree revoquee, recovery par `reload()` sans re-saisie de PIN ni Argon2 ; chaque commit relit et compare l'epoch monotone (`stale_handle_write_is_refused_not_silently_applied`). `create_new` a l'init (et suppression du fichier reserve si l'ecriture echoue — sinon `AlreadyInitialised` a vie), scratch unique par ECRITURE (`{pid}.{alea}`), `sync_all` du scratch avant le `rename` (inconditionnel) + fsync du repertoire best-effort (Unix, echec avale — cf. borne 11). KEK dans un `SecretBox` zeroize au drop ; tout plaintext ouvert l'est dans un `Zeroizing` ; le digest de derivation du KEK et le bloc retenu par le hasher sont essuyes AUX DEUX sites miroirs (`derive_vault_kek` et `combine_keks`). Vecteur dore hex sur la formule de derivation (`vault_kek_is_domain_separated_from_keystore`) : sans lui, un `blake3(kek1)` nu — sans domaine ni sous-contexte — laissait toute la suite verte. **Bornes honnetes** : (1) rembobiner le FICHIER ENTIER vers une version anterieure coherente (blob + son entree-verificateur, via backup/snapshot FS, coupure secteur incluse) reste indetectable de l'interieur — il faut un compteur hors-artefact, et le precedent maison le moins cher est un SIDECAR (`anchors.json` persiste la `revision` comme plancher anti-rollback, `iroh_runtime.rs`, test committe) : **TPM/keyring n'est PAS un prealable** ; (2) un `delete` retire du set scelle, ce n'est pas un wipe-secteur (les blocs de l'ancien inode subsistent) ; (3) le scratch etant unique par ECRITURE, il n'y a plus de collision de scratch ni pour un process ni pour deux — mais la fenetre relecture→`rename` n'est verrouillee dans aucun des deux cas : deux writers concurrents peuvent encore perdre une mise a jour (dernier `rename` gagnant, les deux blobs portant le MEME epoch, donc rollback indetectable entre eux). L'epoch est un compteur de version, pas un jeton propre au writer. **Et la consequence depasse « une mise a jour perdue »** : une fois la collision survenue, les DEUX handles portent l'epoch du disque, donc `refuse_if_stale` passe pour chacun alors que l'un detient un BODY perime. Chacun dispose alors d'UNE ecriture non gardee, et une ecriture ulterieure de l'un annule silencieusement la revocation de l'autre — la classe ex-P1-4, sans adversaire. C'est un des etats — PAS le seul — ou la moitie LECTURE ci-dessus tombe : `bind` sert alors une entree revoquee. Les deux autres, sans aucune collision (Codex round 3, borne 27) : (i) la garde d'epoch et la lecture du body ne sont pas atomiques, donc un `bind` ADMIS a l'epoch `n` peut se terminer APRES un `delete` commis a `n+1` ; (ii) meme termine AVANT la revocation, le `VaultSecret` deja rendu est consomme par le fournisseur APRES elle. Les deux sont LINEARISABLES (le bind est admis a la garde) et relevent donc de la SEMANTIQUE a enoncer, pas du defaut : un bind admis avant une revocation peut se terminer — et etre utilise — apres elle. Seule une revocation dure (bail tenu jusqu'au point d'usage du fournisseur) les fermerait. Fermeture = un verrou couvrant relecture→`rename` (verrou consultatif de repertoire, ou sentinelle `create_new`) ; c'est de la dette, comme le fsync de repertoire de la borne 11. |
+| **T-HITL-APPROVAL-TAMPER** | *Tampering* — un champ du tuple (destination, digest sortant, cout max, verdict, capacite...) est mute APRES l'approbation humaine pour rediriger/amplifier l'effet | **bornee (primitive gravee, reliure DS-1)** | Ce que la primitive ferme : l'approbation est liee au `hitl_binding_digest` du tuple COMPLET — **15 champs**, dont `capability_ref` (une approbation obtenue pour une capacite ne peut en decider une autre, `approval_is_bound_to_one_capability`) et `decision` (un refus et une autorisation n'ont JAMAIS le meme digest, `a_refusal_never_decides_a_ref`) ; a l'emission le moteur recalcule le digest depuis le tuple REEL et exige l'egalite. `mutation_invalidates_approval` : un mutateur par champ, exhaustivite tenue par DEUX controles aux portees DISTINCTES — la destructuration sans `..` attrape un champ AJOUTE a la struct (ne compile plus), le `assert_eq!(mutators.len(), 15)` attrape un mutateur RETIRE. Ni l'un ni l'autre n'attrape le troisieme cas : un champ ajoute puis silencie par `champ: _,`. Ce residu est ASSUME et borne — un champ ordinaire rougit deux fois ailleurs (vecteur dore du digest, jambe `HITL-PARITY`), seul un champ `#[serde(skip)]` passerait, c'est-a-dire precisement celui pour lequel « toute mutation invalide » serait faux. Plus un controle positif de non-vacuite, et un test qui valide `HitlBinding::new` POSITION PAR POSITION (11 champs chaines, chacun avec l'assertion du `kind` rapporte — sans quoi une boucle validant onze fois le meme champ passait). Composition prouvee jusqu'a la couche 7 : `decided_ref_gates_layer_seven` (ref decidee franchit / absente tombe / tuple mute tombe). Ce qui reste borne : le moteur est KEYLESS, il ne verifie aucune signature ; il exige un temoin `HostVerifiedApproval` dont le seul constructeur est nomme d'apres sa precondition (`attest_verified_signature`), ce qui ferme l'accident de l'AUTO-VALIDATION (l'ancienne signature `signed_digest: &str` acceptait un digest que l'appelant calculait lui-meme) mais PAS le mensonge d'un hote qui attesterait sans verifier. L'ensemble d'autorite est desormais TYPE : `HitlValidity::decided_refs` est PRIVE et ne se peuple que de `DecidedRef`, dont `decide_ref` est le SEUL producteur — le contournement « je fabrique moi-meme mes refs decidees » (plus court que l'auto-validation, puisqu'il suffisait de construire l'ensemble depuis la file PENDANTE) ne compile plus depuis un autre crate. Portee exacte : `pub(crate)` ferme la porte aux autres CRATES, pas aux autres MODULES de celui-ci — c'est une propriete de TYPE qu'aucun test ne peut faire rougir, et la reliure vivant dans ce meme crate doit passer par `decide_ref`. Et **0 call-site** : aucun code de production ne franchit encore cette porte. |
+| **T-HITL-FORGE-REPLAY** | *Spoofing/Repudiation* — une approbation est forgee (sans la cle hote) ou une approbation ancienne est rejouee | **fermee (forgerie de signature) / bornee (replay + reliure) / NON MITIGEE (repudiation, cf. borne 21)** | La signature hote (`sign_hitl_approval`/`verify_hitl_approval`) est une Ed25519 sur `context-local ‖ digest`, verifiable seulement contre la cle identite du noeud — un forgeur sans cle echoue (`a_different_key_is_rejected`), et une signature emise pour un autre usage ne verifie pas comme approbation (`context_separation_binds_the_signature`). La classe SMALL-ORDER est refusee NOMMEMENT (`is_weak()` + `verify_strict`, `a_small_order_key_cannot_forge_an_approval`, patron `pack.rs` de la Phase F) : sans elle, un `approver_pubkey` = point identite avec `(R = identite, S = 0)` satisfait l'equation permissive pour N'IMPORTE QUEL digest, sans cle privee — « le detenteur de la cle a signe » devient une phrase FAUSSE. Durcissement LOCAL : `crypto::verify` reste non-strict pour ses appelants historiques (canari, FROST), qui documentent en dependre. Le test porte l'assertion de sanite du patron (la forgerie satisfait bien l'equation permissive), sans laquelle il ne distinguerait pas une forgerie refusee d'une entree malformee. Replay : nonce mono-usage + seq + expiration sont DANS le tuple (donc dans le digest) et `verify_binding` refuse a la borne (`expiry_is_enforced`). Bornes : la CONSOMMATION mono-usage reste celle de `wait.signal` (`T-RUN-SIGNAL-FORGE-REPLAY` v26 : `INSERT OR IGNORE`, CAS atomique) et **rien ne relie encore les deux** — aucun code ne consomme un nonce a l'occasion d'une approbation ; c'est la reliure. |
+| **T-HITL-QUEUE-CONFUSED-DEPUTY** | *Elevation of privilege/Spoofing* — l'iframe non fiable rend ou approuve une demande HITL (confused deputy), ou la file d'approbation disparait avec l'iframe | **bornee (incapacite structurelle prouvee ; file non persistante ; 0 reliure)** | L'iframe ne peut pas ATTEINDRE la file : les verbes du bridge sont une **allowlist FERMEE** de 16 methodes, epinglee par une **liste LITTERALE** de 16 + `ALL_DISPATCH_METHODS.size === 16` dans `web/src/bridge/__tests__/authority.test.ts` : c'est CE controle qui ferme l'allowlist, et il rougit sur tout verbe ajoute. L'assertion NOMMEE voisine (aucun verbe ne matche un radical d'autorite) est un **fil-piege de nommage**, pas la fermeture — portee a enoncer honnetement : elle n'ajoute quelque chose que pour un verbe ajoute EN LOCKSTEP sur les deux miroirs, et sa premiere redaction ratait le vocabulaire du depot lui-meme (`human_decision`, `effect_authorize` : « decision » ne contient pas « decide »), motif elargi depuis en liste de radicaux interdits. La jambe bridge de `check-frontier-contracts.sh` ne teste qu'une PARITE TS↔Rust et resterait VERTE sur un ajout en lockstep : la citer comme autorite de cet invariant etait une erreur (elle est l'autorite de la non-derive du miroir, pas de la fermeture de l'allowlist). L'iframe n'a par ailleurs ni `allow-same-origin` ni CSP ouverte (`csp.rs`) — mais c'est l'allowlist, non la CSP, qui lui retire l'autorite d'approuver. Le rendu est hote (`/approvals`, document top-level : l'e2e compte **tous** les `iframe` a 0, pas seulement le test-id du shell) et la file est un etat du module HOTE. Une app PEUT en revanche IMITER cet ecran dans son iframe — le libelle de la page le dit desormais, car aucune garantie technique ne l'empeche ; ce qu'elle ne peut pas, c'est lire la file ou transmettre une decision. **Bornes** : la file survit a la mort d'une iframe (elle vit dans le document hote) mais PAS a un rechargement du shell — il n'y a AUCUNE persistance, la file durable est celle du daemon (non cablee, Phase V) ; et la file de production est **VIDE** — les fixtures sont injectees par les tests, apres qu'une premiere version ait servi une approbation de demonstration dans un build reel (donnee d'autorite fabriquee, classe interdite par le projet). |
+| **T-HITL-COERCION-A11Y** | *Tampering (dark-pattern)* — une approbation par coercition (keyboard-trap, type-to-confirm, delai impose) piege l'operateur ou une AT | **bornee (spec e2e BLOQUANTE)** | Affordance sans dark-pattern : focus gere au montage ET apres chaque decision (le focus ne retombe pas a la racine quand la carte est detruite), pas de keyboard-trap (tabulation reelle prouvee dans les DEUX sens : le focus atteint les boutons puis peut QUITTER la carte), AUCUN type-to-confirm (aucun champ de saisie dans la carte), AUCUN delai (`isEnabled()` — qui ne re-essaie PAS, contrairement a `toBeEnabled()` qui aurait attendu un delai impose et l'aurait appele un succes). Les **14 champs de la DEMANDE** sont affiches avec leurs VALEURS (le 15e, `decision`, est PRODUIT par le bouton : afficher « Verdict : granted » a cote d'un bouton « Refuser » faisait lire a l'humain une decision qu'il n'avait pas prise — et l'ecran enonce desormais que **Approuver et Refuser produisent DEUX digests differents**, le fait le plus important de la surface). Libelles par un `Record<keyof HitlRequest, string>` (un champ ajoute sans libelle casse le build) et ordre de rendu DERIVE des cles de ce meme `Record` (une liste tenue a la main pouvait taire un champ tout en gardant son libelle : les 15 champs etaient comptes, 14 rendus) ; la parite des NOMS de champs Rust↔TS est tenue par la jambe **`HITL-PARITY`** de `check-frontier-contracts.sh` (extraction des deux declarations, self-test de l'EXTRACTEUR sur fixture piegee — une extraction non vide mais FAUSSE rougit ; le garde `-z` couvre le cas vide et IMPRIME son diagnostic (`HITL-PARITY: could not extract fields (RS=0 TS=15)`), ce qui n'etait vrai que depuis le round 7 : sans `|| true` sur les quatre assignations d'extraction, errexit avortait le script AVANT le garde, exit 1 SANS aucune ligne — mesure faite dans les deux sens —, mutation-testee : 16e champ Rust seul → ROUGE ; ancre `pub struct HitlBinding` detruite → ROUGE NOMME ; **portee des NOMS** bornee a `[a-z0-9_]` cote Rust et `[a-zA-Z][a-zA-Z0-9]*` cote TS, donc un `pub r#type:` ou un `champ_snake:` reste invisible aux deux extractions et une derive REELLE resterait VERTE, comme cote BRIDGE), seule autorite possible puisque les controles front comparent le miroir a sa propre definition TS. **Portee exacte** : des NOMS, pas le tuple. La jambe est aveugle aux TYPES (les trois champs numeriques `max_cost`/`seq`/`expires_at_ms` sont DELIBEREMENT `string` cote TS), aux champs `pub(crate)` et a l'optionalite TS ; une derive de TYPE est attrapee par `binding_digest_matches_its_golden_vector`, pas ici. Digests en `break-all` et non tronques (un digest tronque n'est pas verifiable par l'humain) ; expiration en `<time dateTime>` avec REPLI sur la valeur brute — qui EST la preimage signee — pour une valeur HORS PLAGE (`i64::MAX` ; aucune semantique sentinelle n'existe cote Rust, cf. borne 22), dont le rendu jetait auparavant un `RangeError` et emportait toute la route via la frontiere d'erreur. Une decision ne vide pas la file : seule la carte decidee part (fixtures a 2 entrees des deux cotes). Focus porte par un element `role="status"` focalisable, car deplacer le focus dans le meme tour qu'une mise a jour de region `polite` fait couramment abandonner l'annonce — l'operateur AT n'entendait jamais le seul retour sur son acte d'autorite. Spec e2e `workflow-hub-a11y.spec.ts` (T1 BLOQUANT) + unit `Approvals.test.tsx` + axe-core sur la region HITL de `/approvals` (scan `include`-scope) avec un jeu de regles SENSIBLE AU CONTENU (contraste, `button-name`, `definition-list`/`dlitem`/`listitem`, `aria-allowed-role`, `aria-valid-attr-value`, `heading-order`) ; page-wide le scan remonte 123 violations `color-contrast` du chrome PARTAGE, dette pre-existante de toute route et propriete d'AI1 — le scope est mutation-teste (contraste casse DANS la carte => ROUGE) : le sous-ensemble FONDATION seul est document-level (lang, title, viewport) et resterait vert si tout le corps de la page etait remplace par un div vide. Borne : conformite WCAG 2.2 AA complete et panel AT reel = AI1. |
+
+**Bornes honnetes (ce que L1 ne ferme PAS)** — la liste est longue A DESSEIN :
+une primitive d'autorite non reliee doit dire ce qu'elle ne garantit pas.
+
+1. **0 call-site de production** pour la totalite des primitives livrees (cf.
+   DS-1 ci-dessus). L'enforcement HITL n'est PAS vivant ; A13 (§2) a raison de
+   dire que la couche 7 vide ne refuse que les classes `Human`.
+2. **Le temoin `HostVerifiedApproval` n'est pas une preuve crypto** : il ferme
+   l'oubli, pas la fabrication d'evidence par l'hote lui-meme.
+3. **Rollback du fichier entier du coffre** non detectable de l'interieur : il
+   faut un compteur HORS-ARTEFACT. Le precedent maison le moins cher est un
+   SIDECAR (`anchors.json` persiste la `revision` comme plancher anti-rollback,
+   `iroh_runtime.rs`, test committe) — **0 dep, et TPM/keyring n'est PAS un
+   prealable** : router cette borne vers du materiel fermait prematurement la
+   conception. `delete` != wipe-secteur.
+4. **OS-keychain LIVE** = decision supply-chain SEPAREE (le chemin Linux tire
+   des deps neuves) ; la defense at-rest reelle est Argon2id(PIN).
+5. **File d'approbation non persistante** (survit a la mort d'une iframe, pas a
+   un rechargement du shell) ; la file durable du daemon (route loopback,
+   inventaire D7) et le Centre des Runs plein = Phase V.
+6. **Aucun point d'entree de navigation** vers `/approvals` n'est ajoute au
+   shell en L1 : la page est atteignable par URL et par les tests. La rendre
+   decouvrable appartient a la surface operateur (Phase V). Pire, et distinct :
+   le chrome est ENTIEREMENT MASQUE pendant l'affichage d'une app
+   (`AppShell.tsx`, plein ecran sur `/browse/:projectId`) — donc pendant le
+   scenario meme que L1 modelise (une app qui demande un effet sensible), une
+   approbation en attente n'a ni chemin ni notification.
+7. **Le `0600` du blob est `#[cfg(unix)]`** : sur Windows le fichier herite de
+   l'ACL du parent. La claim « atomique 0600 » vaut pour Unix.
+8. **La consommation mono-usage du nonce n'est pas reliee** a l'approbation
+   (cf. T-HITL-FORGE-REPLAY).
+9. **Un type deserialise ne repasse pas par son constructeur validant** (serde
+   reconstruit le champ). `SecretRef` a perdu son derive `Deserialize` en L1 (il
+   n'avait aucun consommateur, donc il n'achetait qu'un contournement), mais
+   `SealedEntry` en garde un — impact borne, c'est un ciphertext deja
+   AEAD-authentifie. **Et la reliure ajoutera `Deserialize` a `HitlBinding`**,
+   geste d'une ligne exige par le design : serde reconstruira alors ses 15 champs
+   `pub` SANS les 11 `validate_identity_component` — le seul type ou cette classe
+   touche l'AUTORITE, non plus un simple nom.
+10. **Les 64 MiB de `Vec<Block>` d'argon2 0.5.3** ne sont essuyes par AUCUNE
+   feature du crate (upstream n'invoque jamais `Block::zeroize` sur la memoire de
+   travail) ; en params production (`p = 1`) le dernier bloc du Vec EST le
+   `blockhash` final dont `blake2b_long` derive kek1 — un scrape de heap
+   liberee / swap / crash-dump recalcule le KEK **en un blake2b, sans le PIN et
+   sans payer le mur Argon2**. La feature `zeroize` activee en L1 essuie
+   `initial_hash` et le `blockhash` final, ce qui est un vrai progres (ce code
+   tourne deux fois par session), pas la fermeture du residu dominant.
+11. **Le commit n'est pas entierement `fsync`e**, et les deux moities n'ont pas
+   le meme statut. Le scratch l'est INCONDITIONNELLEMENT (`sync_all` avant le
+   `rename`, echec propage). Le fsync du REPERTOIRE est TENTE en best-effort sur
+   Unix et son echec est volontairement avale : le `rename` a deja commite, donc
+   un `?` a cet endroit rendrait `Err` apres que l'ecriture est devenue visible
+   et casserait l'invariant `Err ⇒ rien n'a ete commite` dont dependent les
+   quatre appelants (`init` repondrait `AlreadyInitialized` a vie — la forme de
+   brickage exacte que le nettoyage d'`init` existe pour empecher). Consequence
+   mesurable : sur un montage ou `open(dir)`/`fsync(dirfd)` echoue (overlay, 9p,
+   virtiofs), l'ecriture rend `Ok` sans entree de repertoire durable, **sans
+   trace et sans test rouge**. La classe est donc **ATTENUEE, pas fermee** sur
+   Unix (la redaction precedente disait « fermee ») ; sur Windows il n'y a pas
+   d'equivalent portable pour un handle de repertoire et l'ordonnancement repose
+   sur `MoveFileEx`. Fermer reellement exigerait de remonter l'echec par un
+   canal DISTINCT du `Result` d'ecriture (`SecurityEvent`) — dette, pas L1.
+12. **Le blob est lie aux params KDF COMPILES**, pas a ceux de son header : un
+   bump de `KdfParams::production()` rend tous les coffres illisibles avec un
+   `CryptoReject` qui dit « wrong PIN or tampered blob » et **accuse donc
+   l'operateur**. Pre-launch, un bump = re-mint. Et **0 API de re-key, 0 `wipe`,
+   0 journal d'usage** : `inventory()` est un INVENTAIRE `(ref, sealed_len)`,
+   deliberement PAS nomme `audit` — « quel run a binde `stripe_live_key`, et
+   quand ? » n'a aucune reponse en L1. C'est cette absence de remediation qui
+   transforme les bornes 3, 11 et (3) de la row lifecycle en pertes
+   IRREVERSIBLES plutot qu'en defauts de robustesse.
+13. **Le chemin de decision humaine ACTUELLEMENT cable** (`orchestrator.rs` →
+   `HUMAN_DECISION_CHANNEL` → `SignalDeposit`, 4 champs) ne porte **ni principal
+   ni signature**. L1 livre la primitive signee A COTE de lui, pas dedans : la
+   reliure doit le **REMPLACER, jamais l'ETENDRE**. Etendre est la route la plus
+   courte et elle ressemble a un succes — le run reprend, et rien ne rougit,
+   puisque les primitives signees gardent leur 0 call-site, etat que ce document
+   decrit comme normal.
+14. **La couche 7 est inerte des DEUX cotes.** Le cote DECISION est divulgue
+   (borne 1) ; le cote BESOIN ne l'etait pas : aucun code de production ne
+   construit une `BoundedCapability` ni ne pose `ApprovalLevel::Human` (le format
+   de pack n'a aucun champ de classe ni d'approbation). La reliure doit livrer le
+   **PLANCHER** d'approbation EN MEME TEMPS que le producteur de decisions,
+   sinon la couche 7 ne gate jamais rien — un no-op silencieux qu'aucun test ne
+   peut attraper, le drop fail-closed n'ayant jamais d'entree.
+15. **Le canari couvre 5 rendus du moteur + le blob au repos.** Il ne parcourt
+   PAS `runs.input_payload`, `snapshots.state`, `signals.payload`, l'env
+   `SBFB_EFFECT_INPUT` ni la ligne side-output — vacueusement propres tant qu'il
+   y a 0 call-site, mais EXISTANTS. Et l'invariant de A14 vaut pour la route
+   SERIALISATION : la route COPIE (`expose()` puis recopie dans un `String`)
+   reste une discipline de la reliure.
+16. **`Debug` et `inventory()` divulguent la LONGUEUR** du materiel — oracle de
+   format (51 o ⇒ `sk-…` OpenAI, 40 ⇒ secret AWS, 64 hex ⇒ cle HMAC) — et les
+   NOMS des slots ainsi que leur NOMBRE sont en clair dans le blob.
+17. **Le plafond `max_cost` est enregistre et lie, jamais APPLIQUE**
+   (`decide_ref` ne recoit pas la `BoundedCapability`), et l'approbation est
+   REJOUABLE N fois dans sa fenetre de fraicheur. `CapabilityClass` n'a par
+   ailleurs ni `as_str`, ni `Display`, ni `Serialize` : son contrat de fait est
+   la sortie de `derive(Debug)`, miroitee a la main en Rust et en TS, donc
+   renommer une variante changerait tous les digests sans qu'un test rougisse.
+18. **Le shell ne peut pas verifier que le tuple affiche est la preimage du
+   digest signe** (aucun BLAKE3/JCS en TS, l'ajouter serait une dep interdite).
+   D'ou le flux prescrit, et l'ordre compte : le chrome soumet le TUPLE + le
+   verdict, le daemon RECALCULE le digest et signe CELUI-LA. La file ne porte
+   d'ailleurs plus de digest pre-calcule, precisement pour rendre l'autre flux
+   impossible a cabler par inadvertance.
+19. **Les deux moities du seam portent des versions de contexte divergentes**
+   (`…hitl-binding.v0` avec des points cote engine, `sbfb-hitl-approval-v1` avec
+   des tirets cote hote) : deux chaines independantes, gelees separement. Un
+   geste de maintenance « aligner en v1 » invaliderait silencieusement toute
+   approbation stockee, avec un `BindingMismatch` indiagnosticable. Chaque cote
+   porte desormais son vecteur dore : `binding_digest_matches_its_golden_vector`
+   cote MOTEUR (le digest du tuple) et
+   `approval_preimage_matches_its_golden_vector` cote HOTE, qui epingle le
+   contexte, le separateur `0x1f` ET l'ordre des champs. Sans eux, mettre le
+   contexte a `"x"`, changer le separateur ou retirer le `push(SEP)` laissait
+   toutes les suites vertes, les deux fonctions du cote hote recalculant leur
+   preimage avec le meme code. (Le KAT hex du coffre,
+   `vault_kek_is_domain_separated_from_keystore`, epingle la derivation du KEK —
+   il n'est PAS un cote de ce seam ; l'enumeration precedente le citait a tort.)
+20. **Le seed de test de la file est un global `window` lu par le build de
+   PRODUCTION** — borne ASSUMEE, pas fermee, et l'arbitrage merite d'etre ecrit
+   exactement parce qu'une premiere version de cette borne l'a mal justifie.
+   Fermer le seed derriere `import.meta.env.DEV` rend la fixture inerte dans le
+   build que l'e2e sert (`--web-root dist`) : **mesure faite**, QUATRE des cinq
+   controles HITL passent alors au ROUGE — les deux `toBeVisible()` sur une carte
+   absente, la traversee clavier qui ne trouve plus le bouton, ET le scan axe,
+   dont le garde `toHaveCount(2)` precede l'analyse depuis le meme lot de
+   correctifs. Seule la verification « file vide » reste verte. (Une redaction
+   precedente disait TROIS et comptait le scan axe parmi les verts : elle a ete
+   falsifiee par son propre correctif frere. Le fait STABLE, a preferer au
+   compte : tout controle qui depend du seed rougit.) Un gate rouge est donc le
+   bon signal, PAS un gate aveugle : la toute premiere redaction de cette borne
+   pretendait l'inverse et posait un faux dilemme.
+   Le vrai arbitrage est « borne assumee CONTRE perte de la couverture e2e
+   seedee », et il existe une troisieme option non retenue ici : un flag de build
+   positionne pour le seul `dist` e2e (`vite build --mode e2e` + `define`),
+   absent des releases — ecarte parce que l'e2e cesserait alors de tester
+   l'artefact de production, propriete que ce depot tient explicitement (« un
+   VRAI daemon, jamais un mock »).
+   Ce que la borne coute, mesure : rien de plus que l'acces console dont elle
+   depend. Qui peut ecrire ce global peut deja peindre la meme fausse carte dans
+   le DOM ; le seed n'ajoute aucune CAPACITE, il raccourcit un geste deja
+   disponible. Deux verrous voisins tiennent : un DOM-clobbering produit un
+   `HTMLElement` que le `Array.isArray` du lecteur rejette, et l'iframe est en
+   origine opaque (`sandbox="allow-scripts"` sans `allow-same-origin`, epingle en
+   egalite EXACTE), donc ne peut pas ecrire dans le `window` de l'hote. Meme
+   precedent assume que `__SBFB_AUTH_TOKEN`.
+   Ce qui change a la reliure : la file viendra du daemon et une decision
+   quittera le navigateur — le hook devient alors une porte d'entree d'AUTORITE
+   et doit disparaitre DANS le commit qui cable la route.
+
+21. **AUCUNE approbation ni aucun refus n'est PERSISTE** en L1 : `decide()` retire
+   la demande de la file et affiche un message, sans store, sans journal, sans
+   POST. L'axe **Repudiation** d'A15 — le label STRIDE de `T-HITL-FORGE-REPLAY`
+   — n'a donc AUCUNE mitigation aujourd'hui : « qui a refuse quoi, et quand ? »
+   est sans reponse. Le journal des decisions appartient a la reliure (le DS-1
+   nomme deja « le refus d'autorite journalise » comme son livrable).
+22. **La fenetre de fraicheur n'est pas BORNEE** : `HitlBinding::new` valide les
+   11 composantes chaines et ignore les 3 numeriques, donc `expires_at_ms` peut
+   valoir la borne du type. Compose avec la borne 17 (approbation REJOUABLE dans
+   sa fenetre) : une fenetre non bornee et un rejeu illimite font une
+   autorisation PERMANENTE. Fermer demande soit un plafond nomme verifie dans
+   `new` (contre un `issued_at_ms` qui n'existe pas encore au tuple), soit la
+   consommation mono-usage que la borne 8 declare non reliee.
+23. **Rien n'autorise QUEL slot un run peut lier.** `SecretResolver::resolve` et
+   `UnlockedVault::bind` ne recoivent ni principal, ni run, ni capacite, ni
+   digest de pack : nommer un slot, c'est l'obtenir. L'asymetrie est visible
+   dans le format de pack lui-meme, ou `requested_capabilities` porte « demander
+   n'est pas obtenir : une autorite les intersecte ailleurs » tandis que
+   `secret_refs` n'a pour garde qu'une heuristique anti-copier-coller. La
+   reliure doit livrer l'autorisation en meme temps que le binding — et
+   l'emplacement naturel existe : le seam est un OBJET par contexte
+   (`&dyn SecretResolver`), donc scoper l'instance aux slots autorises du run
+   est la forme object-capability de la reponse.
+   **ARBITRAGE ECRIT (L1, pour que la reliure n'en herite pas un implicite)** :
+   `capability_ref` et `secret_ref` sont **DEUX namespaces distincts**, et
+   l'autorisation d'un slot passe par le **SCOPE DE L'INSTANCE** de resolveur,
+   pas par un parametre d'autorite ajoute a `resolve`/`bind`. Trois raisons.
+   (i) `CapabilityClass::SecretUse` gate le DROIT D'UTILISER des secrets — une
+   classe — et non « quel slot » : confondre les deux namespaces ferait d'un nom
+   de capacite un nom de slot, donc d'une intersection reussie un droit de
+   lecture arbitraire. (ii) Le seam est deja un objet par contexte, et
+   `ScriptedSecrets` en est litteralement la forme scopee : la reponse ne
+   demande aucun changement de signature, donc aucun risque sur une preimage
+   gelee. (iii) Un parametre d'autorite serait verifie PAR l'appelant qu'il est
+   cense contraindre — le contournement le plus court, exactement la classe que
+   `HostVerifiedApproval` a fermee cote HITL. Ce qui reste du a la reliure :
+   construire le resolveur AVEC l'ensemble des slots autorises du run, et
+   journaliser le refus.
+24. **Le spoof d'AFFICHAGE purement ASCII reste ouvert.** Les caracteres de
+   controle ET les caracteres invisibles/bidi sont refuses au domaine (predicat
+   nomme, miroite aux deux jumeaux, teste des deux cotes) ET au RENDU des
+   diagnostics (`sanitise_untrusted` partage le meme predicat — il gardait
+   auparavant sur `char::is_control` seul, donc `U+202E`, qui est `Cf` et non
+   `Cc`, traversait la moitie SORTIE de la classe que la moitie ENTREE fermait).
+   Portee exacte du predicat : il est un **surensemble strict** de
+   `nexus_coordinator_rs::output_filter::is_invisible_char` (PUA, bloc TAG
+   `U+E0020..E007F`, `U+2060` — qui tombait dans le trou entre deux plages —,
+   plus `U+00AD` et `U+2028/2029` que `is_control()` ne couvre pas), avec un
+   temoin par plage des deux cotes. Ce module voisin traite les memes familles
+   pour un but DIFFERENT (assainir une sortie LLM) et PRESERVE volontairement
+   les bidi : les deux ensembles ne doivent PAS etre alignes, seul le
+   confinement compte. Restent ouverts —
+   `https://api.cloud-provider.example@evil.example/`, un homoglyphe de domaine
+   ou un chemin trompeur passent toutes les validations et s'affichent tels
+   quels. Aucune validation atteignable en L1 ne ferme cette classe : elle
+   demande une normalisation d'URL et une politique de destinations, qui vivent
+   avec la reliure.
+   **Et le RENDU HTML n'est pas traite non plus** : le predicat ferme le
+   DOMAINE (entree) et les DIAGNOSTICS (`sanitise_untrusted`), pas le troisieme
+   lecteur — le `<dd>` du chrome hote, qui rend la valeur telle quelle. Deux
+   consequences a nommer plutot qu'a laisser deviner. (i) Le garde TS
+   (`isValidRequest`) ne verifie que `typeof === "string"` : `U+202E` et ses
+   freres traversent la file seedee. Ce chemin est borne par la borne 20 (acces
+   console = capacite deja disponible), et a la reliure les 11 composantes
+   chaines passent par `HitlBinding::new`. (ii) Le sous-cas qui SURVIT a la
+   porte d'entree est l'ESPACE ASCII : `U+0020` n'est ni un controle ni un
+   format invisible, donc `principal: "admin "` et `principal: "admin"` donnent
+   deux digests DIFFERENTS et s'affichent IDENTIQUEMENT (HTML replie les blancs).
+   Fermer cela demande une neutralisation qui REVELE au rendu (echappement
+   visible + marqueur de bord), pas un portage du predicat — lequel laisserait
+   justement l'espace passer.
+25. **La couche 2 du keystore (OS-keyring) est INERTE, et ce n'est pas qu'un
+   trou de doc.** Mesure L1, recoupee trois fois : le lock de `keyring` ne
+   depend que de `log` + `zeroize` (aucun backend natif), l'amont re-exporte
+   `mock as default`, et rien dans le workspace n'appelle
+   `set_default_credential_builder`. Le builder mock rend un credential VIERGE a
+   chaque `Entry::new` et se declare `EntryOnly`. Consequence FONCTIONNELLE, pas
+   seulement declarative : les constructeurs de production posent
+   `use_keyring: true`, `init` ecrit `kek2` dans son entree puis la droppe, et
+   `unlock` EXIGE cette entree — donc `unlock` echoue **des le meme process**,
+   pas seulement apres un redemarrage. `kek2` etant 32 octets aleatoires, une
+   identite creee par ce chemin serait irrecuperable. Le defaut est
+   **PRE-EXISTANT (Sprint 20)** et **hors surface de changement de L1** (le diff
+   ne touche aucune des lignes concernees) : L1 le MESURE et le declare **sur
+   les sites enumeres ci-dessous**. L'enumeration EST le contrat ; elle n'est
+   pas une preuve d'exhaustivite, et le round 7 a precisement montre qu'une
+   formulation de completude (« partout ou la promesse etait ecrite ») se
+   falsifie des qu'un site echappe au balayage. Un site trouve plus tard
+   s'ajoute a la liste, il ne dement pas la borne. **TRAITES** : le doc-module
+   de `keystore.rs`, `PATTERNS.md`
+   §Sprint 20.1 (banniere) et §T26 (le rationale de bench, dont la conclusion
+   « le scheme tient » est declaree VOIDE), `README_EN.md` (claim publique),
+   `DURESS.md` (table §2.1, §wipe **et §1 Vue d'ensemble** — la promesse
+   « tous les secrets daemon » du panic wipe, reduite a une enumeration exacte
+   au round 7, qui nomme aussi le coffre NON reclame), `PATTERNS.md`
+   §T-keystore-bench-reference, les commentaires mal-imputes de
+   `tests/keystore_integration.rs` (en-tete de module, doc du probe ET le
+   commentaire in-corps du cross-handle read — les TROIS ; le round 7 a montre
+   que l'en-tete contredisait la correction portee 33 lignes plus bas dans le
+   MEME commit), **`crates/nexus-launcher/src/unlock.rs`**
+   (module + `run_init` — c'est le SEUL chemin de production, celui qui
+   construit `LocalFileKeyStore::new` avec `use_keyring: true`, et il annoncait
+   un wrap « optional » doublement faux : ni optionnel, ni protecteur),
+   **`crates/nexus-core-rs/Cargo.toml`** (le rationale de dep),
+   **`crates/nexus-shell-daemon/src/panic.rs`** (doc-module du panic wipe : il
+   annoncait l'effacement des entrees keyring sans dire qu'il est
+   security-neutral, et taisait les deux scratchs et le coffre non reclame)
+   et le **`Cargo.toml` RACINE** (le rationale canonique de la dep `keyring`,
+   vers lequel le crate renvoie explicitement — requalifie « DESIGN ONLY /
+   INERT AT RUNTIME » en L1 round 7). **NON TRAITES et routes** : le CODE lui-meme,
+   plus les doc-items de `LocalFileKeyStore` (`keystore.rs:466`, `:470-474`,
+   qui ecrivent la promesse au present). Le ROUTAGE va vers `sprint83_audit_plan.md` — il n'est pas
+   corrige ici, parce que les deux seules sorties reelles sont une feature
+   backend native (borne 4, decision supply-chain) ou `use_keyring: false` par
+   defaut, qui fait rougir `keystore_integration.rs` et demande donc un
+   arbitrage, pas un correctif de round.
+
+26. **Le scratch d'ecriture du keystore est desormais DURABLE avant le
+   `rename`** (`sync_all`, ajoute par L1 pour fermer la fenetre « rename publie
+   sans les octets »). Contrepartie a assumer : une mort de process dans cette
+   fenetre laisse a cote du blob une copie COMPLETE et scellee de l'identite, la
+   ou l'ecriture pre-L1 laissait au pire un fichier tronque. L1 ferme la moitie
+   la plus grave — `wipe_all` reclame desormais les deux scratchs (reclamation
+   **BEST-EFFORT a echec avale** : les deux unlinks sont en `let _ =`, un scratch
+   verrouille par un antivirus ou une rotation en vol n'avorte donc PAS la purge,
+   mais n'est pas non plus efface, et rien ne le signale), sans quoi une
+   purge de duresse effacait les deux blobs nommes et laissait le materiel
+   derriere elle, tout en PROUVANT par ce `.tmp` survivant qu'un effacement avait
+   eu lieu (perte de deniabilite). Reste ouvert et route : le coffre nomme son
+   scratch par ECRITURE (`{pid}.{alea}`), donc les orphelins s'y accumulent sans
+   borne et rien ne les balaie — un balayage des freres a l'`unlock` risquerait
+   d'unlink le scratch VIVANT d'un autre process, c'est un arbitrage de
+   LIVENESS, pas un correctif de review.
+27. **La fenetre relecture→`rename` du coffre n'est verrouillee pour PERSONNE, et
+   sa collision degrade les QUATRE points d'entree.** C'est la borne 2 du doc-module
+   de `crates/nexus-core-rs/src/vault.rs` et l'item (3) de la row
+   `T-SECRET-VAULT-LIFECYCLE` ci-dessus ; elle recoit ici un ORDINAL parce que trois
+   artefacts rank-1 la citaient par un numero qui designait autre chose (review r8
+   P1-1 : « bound 2 of §19.4 » resolvait vers le temoin `HostVerifiedApproval`).
+   Mecanisme : deux writers concurrents passent tous deux la garde d'epoch, calculent
+   le MEME `next` et le dernier `rename` gagne. Apres la collision, les DEUX handles
+   portent l'epoch DU DISQUE — donc `refuse_if_stale` PASSE pour chacun alors que l'un
+   tient un BODY perime. Consequence par point d'entree, toutes mesurees en lisant la
+   trace : `bind` sert une entree que l'autre handle a revoquee ; `delete` rend
+   **`Ok(false)`**, qui signifie alors seulement « ma copie ne l'avait pas » et non
+   « le set commis ne la contient pas » — un fail-OPEN qui rapporte un SUCCES a un
+   geste de revocation ; `rotate` rend `UnknownRef` pour la meme raison ; `put`
+   COMMIT le body perime, ce qui defait silencieusement l'ecriture de l'autre. La
+   cecite dure jusqu'au prochain commit par l'un ou l'autre handle — ou jusqu'a un
+   `reload()`, qui realigne le handle IMMEDIATEMENT et sans commit (correction
+   Codex round 2 : la phrase precedente ne nommait que le commit). Ce n'est PAS une
+   classe adversariale : deux process legitimes du meme utilisateur suffisent (daemon
+   + CLI). Fermeture : un verrou couvrant relecture→`rename` (verrou de repertoire
+   consultatif, ou sentinelle `create_new`) — de la DETTE, comme le fsync de
+   repertoire de la borne 11, pas un correctif de round. Les textes qui decrivent la
+   garde de fraicheur doivent la qualifier par CETTE borne. Enumeration NORMATIVE des
+   sites qui la portent : `vault.rs` rustdocs de `bind`, `rotate`, `delete`, **de
+   `persist`** (c'est la que la fenetre NAIT) et **du test
+   `delete_and_rotate_refuse_a_stale_handle_instead_of_answering_from_the_snapshot`**
+   (qui prouve le refus pour un handle EN RETARD, pas apres la collision),
+   `docs/workflow/llms.txt` et `.planning/active/sprint83_gate_matrix.md` row 10.
+   Un site qui decrit la garde sans citer cette borne est un defaut, pas un oubli
+   benin : c'est ainsi qu'une promesse absolue a survecu deux rounds.
+   **Ce n'est PAS le seul etat ou un handle sert une entree revoquee** (Codex
+   round 2) : la garde d'epoch et la lecture du body ne sont pas atomiques, donc un
+   `bind` ADMIS a l'epoch `n` peut se terminer APRES qu'un autre handle a commis un
+   `delete` a `n+1`, sans aucune collision. Cette execution reste LINEARISABLE — le
+   bind est admis au controle d'epoch, avant la revocation — c'est donc une
+   SEMANTIQUE a enoncer, pas un defaut a corriger : **un bind admis avant une
+   revocation peut se terminer apres elle.** Et une TROISIEME, au niveau
+   SYSTEME : meme termine AVANT la revocation, le `VaultSecret` deja rendu est
+   consomme par le fournisseur APRES elle — meme classe, une couche plus haut.
+   C'est pourquoi une revocation dure demande un BAIL tenu jusqu'au point
+   d'usage du fournisseur, et pas seulement un verrou interne au coffre ; une
+   seconde relecture retrecirait la premiere fenetre sans fermer aucune des
+   deux autres.
+
+
+Palier T2 WA-T1.8/WA-T1.11/WA-T4 (approuver dans le chrome hote ; secret canari
+absent partout) : evidence = tests canari + a11y ; `NOT-RUN` jusqu'a AI2. Le plan
+gele cite « WA-T1.6 », qui est en realite « atteindre `waiting_human` » (Phase K)
+— l'item L1 est WA-T1.8, et le canari WA-T1.11.
 
 ## 20. Revue et evolution
 
@@ -2239,6 +2655,115 @@ Historique versions :
   INCHANGE, 0 bump wire, 0 dep runtime neuve (dep intra-workspace
   engine→core seule). Re-coupe B6 : routes daemon + D7 + golden_http +
   clôture docs-contrat = Phase I1.
+- **v28 (Sprint 83 Phase L1, 2026-07-24)** : ajout **§19.4 Surface coffre
+  de secrets et HITL hote signe** (livre le PRODUCTEUR de la couche 7 laissee
+  vide en L ; elle reste VIDE en production, cf. DS-1)
+  + assets **A14** (coffre) et **A15** (approbation HITL signee). 6 rows
+  neuves — statuts recopies VERBATIM de la table, ce changelog etant ce qu'un
+  auditeur grep en premier : T-SECRET-REF-EXFIL **fermee par TYPE (serialisation) / bornee (reliure)** (`BoundSecret`/
+  `VaultSecret` non-`Serialize` + `Debug` redacteur + zeroize ; canari
+  `canary_absent_everywhere` + `vault_bind_rotate_zeroize` avec controles
+  positifs de non-vacuite, recherche sous 6 encodages dont base64/hex/
+  JSON-echappe), T-SECRET-VAULT-LIFECYCLE **fermee (falsification PARTIELLE au
+  repos) / bornee (rollback du fichier entier)**
+  (AES-256-GCM par entree, nonce frais, AAD lie header+ref, downgrade/
+  migration de slot fail l'open ; **entree-verificateur `VAULT_CHECK_REF` +
+  epoch monotone** — PIN prouve sur coffre VIDE, rejeu de ct et delete
+  silencieux DETECTES, handle perime refuse en LECTURE comme en ECRITURE,
+  scratch unique par ECRITURE, `sync_all` avant `rename` ; KEK `SecretBox`
+  zeroize ; bornes : delete = retrait du set scelle et non wipe-secteur,
+  rollback du FICHIER ENTIER non detectable de l'interieur — SIDECAR
+  `anchors.json` suffirait, TPM non requis —, fenetre relecture→`rename` non
+  verrouillee), T-HITL-APPROVAL-TAMPER **bornee (primitive gravee, reliure DS-1)**
+  (digest injectif du tuple 15-champs — `capability_ref` et `decision` inclus —,
+  `mutation_invalidates_approval` un mutateur par champ, exhaustivite tenue par
+  DEUX controles de portees distinctes — le COMPILATEUR (destructuration sans
+  `..` ⇒ champ AJOUTE) et un compte explicite (⇒ mutateur RETIRE) — avec un
+  **residu ASSUME** qu'aucun des deux n'attrape : un champ ajoute puis silencie
+  par `champ: _,` ; ensemble d'autorite TYPE :
+  `decided_refs` prive, peuplable seulement de `DecidedRef` issus de
+  `decide_ref`), T-HITL-FORGE-REPLAY **fermee (forgerie de signature) / bornee
+  (replay + reliure) / non mitigee (repudiation, cf. borne 21)** (Ed25519 hote
+  context-locale, forgeur sans cle rejete, **classe small-order refusee
+  nommement** [`is_weak()` + `verify_strict`, durcissement LOCAL],
+  nonce+seq+expiry dans le digest ; le mono-usage reste celui de
+  `T-RUN-SIGNAL-FORGE-REPLAY` v26 et **rien ne relie encore les deux**),
+  T-HITL-QUEUE-CONFUSED-DEPUTY **bornee (incapacite structurelle prouvee ; file
+  non persistante ; 0 reliure)** (rendu+signature EXCLUSIVEMENT hote,
+  iframe incapable : **allowlist bridge FERMEE de 16 verbes** epinglee par une
+  **LISTE LITTERALE** de 16 + `ALL_DISPATCH_METHODS.size === 16` dans `authority.test.ts` (l'assertion NOMMEE voisine est un fil-piege de NOMMAGE, pas la fermeture) + absence d'`allow-same-origin` —
+  pas la CSP, qui scelle l'origine/le reseau/les frames et non l'autorite ;
+  file host-owned ; borne : cablage a la
+  vraie file daemon = V), T-HITL-COERCION-A11Y **bornee (spec e2e BLOQUANTE)**
+  (focus gere sur le PORTEUR du message, pas
+  de keyboard-trap/type-to-confirm/delai ; **14 champs de la DEMANDE** rendus,
+  ordre DERIVE des libelles, parite Rust↔TS gatee par la jambe `HITL-PARITY` ;
+  e2e T1 BLOQUANT + unit + axe SENSIBLE AU CONTENU, SCOPÉ à la région HITL — page-wide, 123 violations `color-contrast` du chrome partagé, dette pré-existante de toute route).
+  Le coffre REUTILISE `DOMAIN_KEYSTORE_V1` (sous-contexte `secret-vault`, pas
+  un `DOMAIN_*_V1` neuf) ; la signature HITL est un context LOCAL
+  (`sbfb-hitl-approval-v1`, jamais gossipe) : **census DOMAIN 29 INCHANGE,
+  0 bump wire, 0 dep runtime neuve, 0 noeud de lock ajoute** — mais **DEUX
+  aretes** : `sbfb-workflow-engine → zeroize` et `argon2 → zeroize`, cette
+  seconde etant un **flip de feature** du KDF partage keystore+coffre (il essuie
+  desormais `initial_hash` et le `blockhash` final, PAS les 64 MiB de
+  `Vec<Block>`), `zeroize` etant deja declare au workspace.
+  Split « ce qui rend / ce qui fait autorite » : shell (0 cle) rend, daemon
+  (cle identite) signe, engine keyless calcule le binding. **45 tests Rust
+  neufs** (secret 6, hitl 11, vault 20, hitl_approval 6, keystore 2 — `wipe_all_reclaims_the_scratch_files_too` et `an_unremovable_scratch_does_not_abort_the_wipe`) + front. Recompte a la source a chaque round, jamais recopie. Palier T2
+  **WA-T1.8/WA-T1.11**/WA-T4 (le plan gele cite WA-T1.6, qui est « atteindre
+  `waiting_human` », Phase K)
+  `NOT-RUN` jusqu'a AI2. Ouvre+ferme G-SECRET-VAULT/G-SECRET/G-HITL, precede N.
+  **Review r1 = FAIL (8 P1) : les 8 sont fermes AVANT le commit**, et ce qu'ils
+  disent du process vaut d'etre grave. (a) Coffre — l'entree-verificateur +
+  l'epoch monotone ferment d'un coup « n'importe quel PIN ouvre un coffre vide »
+  (perte de secret sur une simple typo), « la sonde de PIN dechiffre un vrai
+  credential dans un `Vec<u8>` non zeroise », « rejeu d'une ancienne ct ⇒ la
+  rotation n'est pas durable » et « un handle perime ressuscite un credential
+  revoque » ; les 4 tests correspondants etaient ROUGES avant le correctif.
+  (b) Evidence — le canari ne pouvait PAS rougir (il construisait ses propres
+  surfaces sans jamais y router le materiel, et son « controle positif » ne
+  testait que `str::contains`) : il a desormais un bras ROUGE sur la surface de
+  prod et cherche sous 6 encodages. (c) Phrase — cette section AFFIRMAIT « le
+  daemon signe » et « fermee » sur **0 call-site** ; les statuts sont
+  retrogrades en **bornee (primitive gravee, reliure DS-1)**, vocabulaire deja
+  forge par la Phase L dans ce meme fichier. (d) Tuple — le verdict
+  accorde/refuse manquait (research §14.4) et `assert_eq!(len, 13)` GELAIT
+  l'ecart : le tuple porte 15 champs (+`capability_ref`, +`decision`) et
+  l'exhaustivite est desormais tenue par le COMPILATEUR. (e) Front — une
+  approbation de demonstration etait servie en PRODUCTION avec deux libelles
+  affirmant un acte inexistant ; file vide par defaut, fixtures injectees par
+  les tests, libelles rendus verifiables.
+  **Review r2 = FAIL (9 P1) : fermes AVANT le commit**, et leur classe commune
+  merite d'etre nommee — un correctif qui s'arrete au bord de sa propre section.
+  (f) Le coffre etait ferme en ECRITURE, ouvert en LECTURE : `bind` servait le
+  snapshot de l'unlock, donc un credential revoque par un AUTRE handle partait
+  encore vers le fournisseur, sans aucun adversaire (garde de fraicheur +
+  `reload()` + test rouge-avant-vert). (g) Le temoin d'autorite verrouillait
+  l'ENTREE de `decide_ref` alors que la SORTIE — `HitlValidity{decided_refs}` —
+  etait publiquement constructible : peupler l'ensemble depuis la file PENDANTE
+  etait plus court que l'auto-validation deja fermee (newtype `DecidedRef`,
+  champ prive). (h) `verify_hitl_approval` routait sur un `verify` NON-STRICT,
+  sous le seul statut « fermee (forgerie) » restant, alors que le depot prouvait
+  la classe dans le meme sprint (durcissement local + test point-identite avec
+  l'assertion de sanite du patron). (i) La retrogradation r1 n'avait ete
+  appliquee qu'au TABLEAU : le registre d'assets et ce changelog portaient encore
+  « 13 champs », « fermee », « CSP scellee », et ce bullet **s'auto-contredisait**
+  (il annoncait la retrogradation tout en gardant les anciens statuts). (j) Le
+  correctif du gate bridge avait produit un test e2e qui ne pouvait JAMAIS
+  rougir — 0 assertion executee — et attribue l'enforcement a un gate de PARITE,
+  vert sur un ajout en lockstep. (k) Le verdict `granted` etait pre-affiche sur
+  une demande PENDANTE offrant « Refuser », avec deux semantiques de refus
+  mutuellement exclusives dans un seul commit (front vs moteur) : la demande
+  pendante porte desormais 14 champs et le refus est signe des deux cotes.
+  Le reste : borne d'epoch materiellement fausse apres son propre correctif
+  (le scratch est unique par ECRITURE, l'epoch n'arbitre rien), 2 rustdoc de
+  primitive affirmant « by construction » ce que le bras rouge du meme fichier
+  refute, et une claim `Cargo.toml` nommant precisement le buffer qu'upstream
+  n'essuie sous aucune feature. **Verification croisee** : les 4 mesures d'etat
+  post-correctifs ont trouve 6 divergences de statut ABSENTES de r2, toutes
+  CREEES par les correctifs eux-memes — dont une rustdoc « volee » (`DecidedRef`
+  insere entre `HitlValidity` et son bloc de doc, laissant le type porteur de la
+  couche 7 sans documentation).
 - **v27 (Sprint 83 Phase L, 2026-07-24)** : ajout **§19.3 Surface
   permissions et attenuation** (`effective_capabilities` LIVRE comme
   computation autoritaire — G-CAPABILITY ferme : intersection monotone

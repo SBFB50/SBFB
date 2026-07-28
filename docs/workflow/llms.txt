@@ -13,9 +13,12 @@
 > run store loopback READ surface (I1), deterministic orchestrator (J),
 > effect layer — activities, retries, idempotence, outcome_unknown (K),
 > effective-capability COMPUTATION — 7-layer monotone intersection, 17 typed
-> classes (L). The per-effect BINDING of L into dispatch, the secret vault +
-> signed HITL (L1), adapters (N/O) and the Workflow Hub app are later phases —
-> a fact about them absent from a rank-1 repo file is **`Not evidenced`**.
+> classes (L), host secret vault + HITL binding/signature PRIMITIVES and the
+> host-chrome approval affordance (L1). The per-effect BINDING of L/L1 into
+> dispatch (**0 call-site today** for the vault, the secret seam, the binding
+> and the host signer), adapters (N/O) and the Workflow Hub app are later
+> phases — a fact about them absent from a rank-1 repo file is
+> **`Not evidenced`**.
 >
 > **Truth Stack** (trust the higher rank on conflict):
 > `repo files > .planning/active/ > commits > prompts > chat`.
@@ -57,7 +60,10 @@
 - [THREAT_MODEL.md](../security/THREAT_MODEL.md): §19 asset A11 + the
   T-RUN-* rows, plus §19.2 (asset A12) — the effect layer's own threats
   (v26 = the Phase K effect surface), plus §19.3 (asset A13) — the
-  permissions surface (v27 = the Phase L capability computation).
+  permissions surface (v27 = the Phase L capability computation), plus **§19.4
+  (assets A14 + A15)** — the secret vault and the signed host HITL approval
+  (v28 = Phase L1). Read its DS-1 paragraph first: every row whose enforcement
+  depends on the un-built wiring is **`bornee`**, never `fermee`.
 
 ## Permissions surface (rank-1 source, S83 Phase L)
 
@@ -77,6 +83,65 @@
   per-effect BINDING into dispatch and the authority-refusal journal are the
   run-surface phase (DS-1); the secret vault and signed HITL are L1 (the
   layer-7 decision here is an OPAQUE ref, empty in L, fail-closed on `Human`).
+  L1 narrowed this API: `HitlValidity::decided_refs` is now PRIVATE and
+  `DecidedRef` — minted only by `decide_ref` — is its sole producer, so the
+  "build the authority set from the PENDING queue" bypass no longer compiles
+  from another crate.
+
+## Secret vault + host HITL surface (rank-1 source, S83 Phase L1)
+
+**0 call-site of production** for everything in this section (DS-1): these are
+PRIMITIVES plus a host-chrome affordance, not a wired path. Nothing crosses the
+boundary yet, which is why §4/§5/§6 of the threat model are deliberately
+unchanged — drawing a shell→daemon data flow today would be a PROMISE, and this
+repo does not write promises into rank-1 files. The honest bounds (numbered)
+are §19.4 of [THREAT_MODEL.md](../security/THREAT_MODEL.md). No count is given
+here on purpose: the list grows, and a count no gate recounts is exactly the
+class of claim this repo keeps getting wrong.
+
+- [vault.rs](../../crates/nexus-core-rs/src/vault.rs): the HOST secret vault.
+  Named secrets sealed AT REST, bound to their opaque ref JUST-BEFORE the call.
+  Reuses the Sprint 20 keystore crypto — Argon2id(PIN) → KEK, AES-256-GCM,
+  `DOMAIN_KEYSTORE_V1` as the shared domain (sub-context `secret-vault`, NOT a
+  new `DOMAIN_*_V1`) — so the census stays at 29 and no wire format moves. The
+  at-rest defense that actually exists is Argon2id(PIN): the OS keyring layer is
+  INERT in this workspace (mock builder), stated in the module rather than
+  claimed. The FOUR writing/binding entry points — `bind`, `put`, `rotate`,
+  `delete` — re-read the on-disk epoch and fail closed
+  (`ConcurrentModification`) rather than answering from a stale snapshot —
+  EXCEPT after the lost-update collision of **bound 27 of §19.4** — ONE of the
+  states, not the only one — where a handle holds the DISK's epoch over a
+  stale BODY. There the
+  re-read passes and all FOUR answer from that stale body: `bind` serves a
+  revoked entry, `delete` returns `Ok(false)` and `rotate` returns
+  `UnknownRef` — both meaning only "my copy did not have it" — and `put`
+  COMMITS the stale body, silently undoing the other handle's write. Read the
+  guarantee as "re-reads the epoch", never as "never answers from a stale
+  snapshot". A SECOND, ordinary window needs no collision at all: the epoch
+  check and the body read are not atomic, so a bind admitted at epoch `n` can
+  complete after another handle commits a `delete` at `n+1`. That execution is
+  linearisable — the bind is admitted at the check — so state it as semantics,
+  not as a bug: **a bind admitted before a revocation may complete, and be
+  USED, after it** (even a bind that finishes first hands a `VaultSecret` the
+  provider consumes later);
+  `refs()`, `inventory()` and `epoch()` answer from THIS HANDLE'S snapshot and
+  are never a proof of what is committed.
+- [secret.rs](../../crates/sbfb-workflow-engine/src/secret.rs): the ENGINE side
+  of the seam. The engine only ever knows the opaque `SecretRef`; `BoundSecret`
+  has NO `Serialize` (a compile-time fact, not a review rule), a redacting
+  `Debug`, and zeroises on drop.
+- [hitl.rs](../../crates/sbfb-workflow-engine/src/hitl.rs): the KEYLESS binding.
+  `hitl_binding_digest` over the EXACT 15-field tuple; `verify_binding` refuses
+  any mutation and any expired approval. Pure — the engine holds no key.
+- [hitl_approval.rs](../../crates/nexus-core-rs/src/hitl_approval.rs): the HOST
+  AUTHORITY. The daemon — sole holder of the unlocked node identity — signs the
+  binding digest under a LOCAL context (`sbfb-hitl-approval-v1`, not a
+  `DOMAIN_*_V1` family: consumed on ONE node, before ONE effect, never gossiped).
+- [Approvals.tsx](../../web/src/pages/Approvals.tsx) + [approvalsQueue.ts](../../web/src/pages/approvalsQueue.ts):
+  the host-chrome affordance at `/approvals`. Renders the exact tuple (WYSIWYS),
+  holds NO key and does NO crypto, and owns the queue in the HOST document so it
+  survives an iframe dying. Who renders and who signs are different layers: the
+  browser shell renders (0 key), the daemon signs.
 
 ## Contract tests (drift gates)
 

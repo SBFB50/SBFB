@@ -66,6 +66,17 @@ pub enum HashError {
 
 /// Longest accepted identity component. Bounded so a pathological id cannot
 /// bloat every journal row and every side-output line.
+///
+/// TWIN of `nexus_core_rs::vault::SECRET_REF_MAX_LEN`, which enforces the SAME
+/// domain (non-empty, `<= 512` bytes, no control or invisible/bidi format
+/// character) on the other half of
+/// the secret seam. The two crates do not depend on one another, so any change
+/// MUST be mirrored: the seam's domain is a single contract, split across two
+/// files by the dependency graph, not two independent policies. Raise this alone
+/// and a pack can name a slot the vault refuses to store — fail-closed, but with
+/// no single source of truth to diagnose it. Both sides pin the domain in a test
+/// (`hitl::tests::identity_component_domain_is_the_twin_of_the_vaults` here,
+/// `vault::tests::validate_ref_pins_the_shared_seam_domain` there).
 pub const IDENTITY_MAX_LEN: usize = 512;
 
 /// Validate one identity component (`run_id`, `node_instance_id`).
@@ -88,8 +99,9 @@ pub const IDENTITY_MAX_LEN: usize = 512;
 /// - a `0x1f` moves the boundary between components, so
 ///   `("a\u{1f}b", "c")` and `("a", "b\u{1f}c")` collapse to the same key.
 ///
-/// The component domain is therefore CHECKED, not assumed. Control characters
-/// are the only thing refused: ids stay free-form paths otherwise.
+/// The component domain is therefore CHECKED, not assumed: control characters
+/// AND invisible/bidi format characters are refused (see
+/// [`is_forbidden_in_identity`]); ids stay free-form paths otherwise.
 pub fn validate_identity_component(kind: &str, value: &str) -> Result<(), HashError> {
     if value.is_empty() {
         return Err(HashError::InvalidIdentity {
@@ -103,13 +115,75 @@ pub fn validate_identity_component(kind: &str, value: &str) -> Result<(), HashEr
             reason: format!("longer than {IDENTITY_MAX_LEN} bytes"),
         });
     }
-    if let Some(offending) = value.chars().find(|c| c.is_control()) {
+    if let Some(offending) = value.chars().find(|&c| is_forbidden_in_identity(c)) {
         return Err(HashError::InvalidIdentity {
             kind: kind.to_string(),
-            reason: format!("contains control character U+{:04X}", offending as u32),
+            reason: format!(
+                "contains a control or invisible/bidi format character U+{:04X}",
+                offending as u32
+            ),
         });
     }
     Ok(())
+}
+
+/// Characters an identity component may never contain.
+///
+/// Two families, refused for two different reasons.
+///
+/// **Control characters** break the flat ENCODINGS: a `\n` forges a line in the
+/// `key\treceipt` side-output, a `\t` splits a key, a `0x1f` moves a component
+/// boundary in a digest preimage.
+///
+/// **Invisible and bidi FORMAT characters** break the HUMAN READING, which is
+/// just as load-bearing here: these components are rendered field by field to an
+/// operator who approves what they see (WYSIWYS). A `U+202E` inside a
+/// `destination` leaves the tuple UNMUTATED — so the signature verifies, the
+/// digest binding verifies, the capability gate passes, every control is green —
+/// while the operator read a different destination than the one the effect will
+/// reach (ex-review r3 L1-R3-01). Refusing at the domain boundary is the only
+/// place this can be closed once for the whole tuple.
+///
+/// TWIN of `nexus_core_rs::vault::is_forbidden_in_ref` — that jumelage is exact
+/// and both sides pin it in a test. The relation to
+/// `nexus_coordinator_rs::output_filter` is DIFFERENT and must not be read as a
+/// third twin: that module sanitises an LLM's OUTPUT and deliberately PRESERVES
+/// bidi characters (`strip_invisible_preserves_bidi`), because stripping them
+/// there would corrupt legitimate right-to-left text. Here the tuple is an
+/// AUTHORITY preimage, so bidi is refused outright. What this predicate does
+/// guarantee is containment: it is a strict SUPERSET of that module's
+/// `is_invisible_char`, so nothing the repository already classifies as
+/// invisible can enter an identity component (ex-review r4 L1-R4-E2, R4-REG-4 —
+/// `U+2060` previously fell in the gap between two of the ranges below).
+///
+/// The strictly ASCII spoof (`https://api.example@evil.example/`, homoglyph
+/// domains) is NOT closed by this and cannot be closed here — it is a bound
+/// declared in §19.4, not a gap this predicate hides.
+pub fn is_forbidden_in_identity(c: char) -> bool {
+    c.is_control()
+        || matches!(c,
+            // Soft hyphen — invisible, and NOT a control character.
+            '\u{00AD}'
+            // Zero-width and directional MARKS (ZWSP, ZWNJ, ZWJ, LRM, RLM).
+            | '\u{200B}'..='\u{200F}'
+            // Bidi EMBEDDING and OVERRIDE (LRE, RLE, PDF, LRO, RLO).
+            | '\u{202A}'..='\u{202E}'
+            // Line/paragraph separators (Zl/Zp): `is_control()` does NOT cover
+            // them, yet they break a line just like `\n` in several renderers.
+            | '\u{2028}'..='\u{2029}'
+            // Word joiner and the invisible math operators.
+            | '\u{2060}'..='\u{2064}'
+            // Bidi ISOLATES (LRI, RLI, FSI, PDI).
+            | '\u{2066}'..='\u{2069}'
+            // Byte-order mark / zero-width no-break space.
+            | '\u{FEFF}'
+            // Private Use Areas — render as whatever the reader's font decides.
+            | '\u{E000}'..='\u{F8FF}'
+            | '\u{F0000}'..='\u{FFFFD}'
+            | '\u{100000}'..='\u{10FFFD}'
+            // TAG block: the canonical smuggling vector (invisible ASCII).
+            | '\u{E0020}'..='\u{E007F}'
+        )
 }
 
 /// The deterministic input of one step.

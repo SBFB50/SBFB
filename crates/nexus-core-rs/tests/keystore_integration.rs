@@ -4,13 +4,23 @@
 //! watcher + concurrent unlocks) that do not belong in the
 //! in-module primitive suite.
 //!
-//! Tests that require a live OS credential store (macOS Keychain,
-//! Windows Credential Manager, Linux Secret Service) are gated on
-//! `keyring::Entry::new` returning `Ok` at the start of each test.
-//! Headless CI runners without a Secret Service daemon simply skip
-//! the affected cases with a tracing warn — the primitive suite
-//! already covers the Argon2id + AEAD path without the keyring
-//! layer.
+//! Tests that would require a live OS credential store (macOS
+//! Keychain, Windows Credential Manager, Linux Secret Service) are
+//! gated on `keyring::Entry::new` returning `Ok` at the start of
+//! each test.
+//!
+//! MIS-ATTRIBUTION CORRECTED (S83 L1, bound 25 of the threat
+//! model). That gate does NOT discriminate anything in this
+//! workspace: no backend feature is enabled on `keyring`, so the
+//! MOCK store is built, `Entry::new` returns `Ok` on EVERY
+//! platform, and nothing is ever skipped. The affected cases run
+//! and degenerate into VACUOUS passes — they exercise a blank
+//! in-memory credential, not an OS keyring. The earlier reading
+//! ("headless CI runners simply skip the affected cases with a
+//! tracing warn") was wrong twice over: nothing skips, and the
+//! probe reports through `eprintln!`, not `tracing`. The
+//! primitive suite covers the Argon2id + AEAD path, which is the
+//! only layer actually in force.
 
 use std::sync::Arc;
 use std::sync::mpsc;
@@ -36,13 +46,25 @@ fn unique_slot(dir: &TempDir, tag: &str) -> (String, String) {
 /// Check whether the OS keyring is usable on this host AND that a
 /// cross-handle round-trip (set via one `Entry`, read via a freshly
 /// constructed `Entry`) works reliably. Returns `false` on:
-/// - Headless Linux CI runners without a Secret Service daemon.
-/// - Windows Credential Manager instances where the backend does
-///   not persist credentials across `Entry` handles under the
-///   current process user context (observed with
-///   `keyring = 3.6.3` under certain Windows user profile
-///   configurations). The `#[test] init_creates_blob_and_keyring_
-///   entry` case skips gracefully rather than spuriously failing.
+/// - THIS workspace, on EVERY platform, because `keyring` links its
+///   MOCK builder (see the correction below). This is the only
+///   branch that actually fires today.
+/// - (design intent, unreachable here) Headless Linux CI runners
+///   without a Secret Service daemon.
+/// - (design intent, unreachable here) Windows Credential Manager
+///   instances where the backend does not persist credentials
+///   across `Entry` handles under the current process user context.
+///
+/// MIS-ATTRIBUTION CORRECTED (S83 Phase L1, ex-review r3 F1). This probe
+/// returns `false` on EVERY platform of this workspace, and the reason is not
+/// "certain Windows user profile configurations": `keyring 3.6` is declared
+/// with NO backend feature and the crate has no default features, so
+/// `keyring::default` is the MOCK builder, which hands out a blank credential
+/// from every `Entry::new`. The cross-handle round-trip below therefore cannot
+/// succeed anywhere. Consequence to keep in mind when reading the suite:
+/// `init_creates_blob_and_keyring_entry` does not "skip gracefully on some
+/// machines" — it degenerates into a VACUOUS pass everywhere. Bound 25 of §19.4
+/// carries the measurement and the routing.
 fn os_keyring_available() -> bool {
     let Ok(entry1) = keyring::Entry::new("sbfb-daemon-probe", "availability") else {
         return false;
@@ -52,10 +74,12 @@ fn os_keyring_available() -> bool {
         return false;
     }
     // Cross-handle read: construct a brand new Entry and attempt a
-    // get_secret. If the backend binds credentials to the handle
-    // that created them (rare but observed on some Windows configs
-    // with keyring-rs 3.6), the round-trip fails and we skip the
-    // keyring-bound tests.
+    // get_secret. In THIS workspace it always fails, because the
+    // mock builder hands out a blank credential per `Entry` — the
+    // "rare Windows configs with keyring-rs 3.6" reading was the
+    // mis-attribution corrected on the doc above. The branch is
+    // kept because it is the right shape once a real backend is
+    // linked, not because it discriminates a platform today.
     let cross_ok = match keyring::Entry::new("sbfb-daemon-probe", "availability") {
         Ok(entry2) => entry2.get_secret().is_ok(),
         Err(_) => false,

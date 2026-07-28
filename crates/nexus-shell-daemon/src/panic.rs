@@ -8,9 +8,27 @@
 //!
 //! 1. `LocalFileKeyStore::wipe_all` — zero-overwrite + unlink the
 //!    normal blob (`identity.enc`) + the duress blob
-//!    (`identity_duress.enc`) + delete both OS keyring entries.
-//! 2. Best-effort `fs::remove_file` on `state.sqlite` — the Sprint
-//!    11 subscriptions persistence file.
+//!    (`identity_duress.enc`) + **their two write scratches**
+//!    (`identity.enc.tmp`, `identity_duress.enc.tmp`), reclaimed
+//!    since S83 L1: a crash between `sync_all` and `rename` used
+//!    to leave a COMPLETE copy sealed under the OLD PIN next to
+//!    an absent blob — bound 26 of the threat model §19.4. That
+//!    reclamation is BEST-EFFORT with a swallowed error: a locked
+//!    scratch (AV scanner, rotate in flight) does not abort the
+//!    wipe — deliberate, a full purge beats giving up on debris —
+//!    but it then SURVIVES, with no signal. Step 1 also deletes
+//!    both OS keyring entries. That last gesture is
+//!    security-NEUTRAL in this workspace: `keyring` links its
+//!    MOCK builder, so nothing ever persisted there and nothing
+//!    survives to erase (bound 25). What this step does NOT
+//!    touch: the secret VAULT (`SecretVault`) — no blob, no
+//!    scratch, no destruction API at all (bound 12).
+//! 2. Best-effort `fs::remove_file` on the path the runtime hands
+//!    in, which is `subscriptions_json` — the Sprint 11 persistence
+//!    file. The field is named `state_db_path` for historical
+//!    reasons; it is NOT `state.sqlite`, and the workflow run store
+//!    `workflow_runs.sqlite3` (S83 Phase I) is not reclaimed by this
+//!    service at all.
 //! 3. Best-effort `fs::remove_dir_all` on the blob cache
 //!    directory (decompressed zip archives the daemon streams to
 //!    the iframe).
@@ -21,7 +39,10 @@
 //! Steps 2 and 3 are best-effort : a panic wipe must never block
 //! on "nothing to delete" because the user likely has seconds
 //! before the adversary reaches them. [`PanicWipeReport`] records
-//! what actually happened.
+//! their two outcomes — and ONLY those. It cannot express a
+//! partial step 1: `wipe_all` swallows a scratch failure and then
+//! `keystore_wiped` is set to `true` regardless, so the report is
+//! not an inventory of what actually disappeared (Codex round 3).
 //!
 //! ## RAM zeroization
 //!
@@ -171,10 +192,12 @@ impl PanicWipeService {
         self.keystore.wipe_all()?;
         report.keystore_wiped = true;
 
-        // 2. state.sqlite — the Sprint 11 subscriptions persistence
-        //    file. Best-effort secure unlink : overwrite with zeros
-        //    if we can, then remove. Swallow any error — the panic
-        //    path must not block.
+        // 2. The path the runtime hands in: `subscriptions_json`,
+        //    the Sprint 11 persistence file (the field name is
+        //    historical — it is NOT `state.sqlite`; twin of the
+        //    module doc above, kept in step). Best-effort secure
+        //    unlink : overwrite with zeros if we can, then remove.
+        //    Swallow any error — the panic path must not block.
         report.state_db_deleted = secure_unlink_best_effort(&self.state_db_path);
 
         // 3. blob cache dir — recursively delete. Best-effort.

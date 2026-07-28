@@ -269,15 +269,24 @@ base64 = "0.22"
 #      recommends Argon2id for password / PIN input because it is
 #      side-channel resistant (unlike Argon2d). Params calibrated
 #      at 64 MiB / t=3 / p=1 in `crates/nexus-core-rs/src/keystore.rs`
-#      to match a ~3 s/attempt target on modern desktop CPUs
-#      (Signal Secure Value Recovery calibration pattern). OWASP
-#      Password Storage Cheat Sheet default (19 MiB / t=2) is
-#      tuned for passphrase entropy ~40 bits — PIN entropy is
+#      to match a ~3 s/attempt DESIGN TARGET on modern desktop
+#      CPUs (Signal Secure Value Recovery calibration pattern).
+#      TARGET, not measurement: the measured cost on the
+#      calibration host is ~82 ms/attempt — 36x faster than the
+#      target (see `PATTERNS.md` §T-keystore-bench-reference).
+#      OWASP Password Storage Cheat Sheet default (19 MiB / t=2)
+#      is tuned for passphrase entropy ~40 bits — PIN entropy is
 #      <20 bits, so we bump m_cost to raise the GPU-brute-force
-#      wall (RTX 5080 crack 6-digit PIN @ 19 MiB <2 s → @ 64 MiB
-#      >10 s, asymmetric memory-bandwidth advantage). The crate
+#      wall (the "@ 19 MiB <2 s → @ 64 MiB >10 s" figures are part
+#      of the same Sprint 20 TARGET and were never measured on a
+#      GPU here; asymmetric memory-bandwidth advantage). The crate
 #      is the canonical RustCrypto impl, unchanged API since 0.5.0.
-argon2 = "0.5"
+# Sprint 83 Phase L1 (ex-review D11, corrected by r2 R6): the `zeroize` feature
+# of argon2 0.5.3 wipes `initial_hash` and the final `blockhash` — NOT the
+# 64 MiB `Vec<Block>` working memory, which no feature of that version wipes.
+# Verifiable claim, not a blanket one. `zeroize` is already a workspace
+# dependency, so enabling the feature adds NO lock node (an edge, not a node).
+argon2 = { version = "0.5", features = ["zeroize"] }
 
 # Sprint 20 Phase A: AEAD AES-256-GCM wrap of the Ed25519 private
 # key. RustCrypto `aes-gcm` (pure Rust, zero system deps) rather
@@ -308,13 +317,24 @@ secrecy = "0.10"
 
 # Sprint 20 Phase A: cross-platform OS credential store (Keychain
 # on macOS/iOS, Credential Manager on Windows, Secret Service on
-# Linux/FreeBSD/OpenBSD). Used as the *second* layer of the double
-# -wrap defense: the OS keyring holds an independent wrap of the
-# KEK so an attacker who steals only the encrypted blob file
-# still faces the Argon2id PIN barrier, and an attacker who reads
-# the OS keyring (same-user DPAPI Mimikatz bypass, Sygnia 2024 +
-# SpecterOps 2026) still faces the PIN barrier because the blob
-# ciphertext is bound to Argon2id(PIN+salt) — not the keyring wrap.
+# Linux/FreeBSD/OpenBSD).
+#
+# DESIGN ONLY — INERT AT RUNTIME (measured S83 L1, bound 25 of
+# docs/security/THREAT_MODEL.md §19.4). No backend feature is
+# enabled on this dependency, so `keyring` builds its MOCK
+# credential store: `Entry::new` succeeds and returns a blank
+# credential every time, and `kek2` is never recovered. The
+# paragraph below describes the INTENDED second layer of the
+# double-wrap defense; it is not what this workspace executes.
+# The only defense at rest today is Argon2id(PIN).
+#
+# INTENDED (not in force): the OS keyring holds an independent
+# wrap of the KEK so an attacker who steals only the encrypted
+# blob file still faces the Argon2id PIN barrier, and an attacker
+# who reads the OS keyring (same-user DPAPI Mimikatz bypass,
+# Sygnia 2024 + SpecterOps 2026) still faces the PIN barrier
+# because the blob ciphertext is bound to Argon2id(PIN+salt) —
+# not the keyring wrap.
 # 3.6 is the stable line as of 2026-04; the 3.0 → 3.x API is
 # settled (Entry::new / set_secret / get_secret / delete_credential).
 keyring = "3.6"

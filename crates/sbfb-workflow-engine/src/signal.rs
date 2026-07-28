@@ -17,8 +17,24 @@
 //! What the ENGINE validates: the nonce (mono-usage), the expiry (against
 //! the injected clock), the decision label (closed set of the plan). What
 //! it does NOT validate: WHO the human principal is and whether the
-//! approval is signed — that binding is the Phase L1 host chrome, and this
-//! trait deliberately has no field for it.
+//! approval is signed — this trait deliberately has no field for it.
+//!
+//! ## Phase L1 built that binding BESIDE this path, not inside it
+//!
+//! The signed-approval primitive now exists ([`crate::hitl`] for the tuple
+//! binding, `nexus_core_rs::hitl_approval` for the host signature) — but it is
+//! NOT reachable from here. [`SignalDeposit`] still carries four fields, none of
+//! which is a principal or a signature, and the human-decision path that the
+//! orchestrator actually walks today (`human.review` → `HUMAN_DECISION_CHANNEL`
+//! → `deposit_signal` → `consume_signal_atomic`) runs entirely through it.
+//!
+//! So the wiring phase must REPLACE this path for human decisions, never EXTEND
+//! it. Extending is the shortest route and it looks like success: a route that
+//! deposits a decision here resumes the run, and nothing goes red — the signed
+//! primitive keeps its 0 call-site, which §19.4 describes as the normal state.
+//! The result would be a human decision accepted with no principal, no signature
+//! and no binding to the effect tuple, while the threat model rates that asset's
+//! integrity CRITICAL.
 //!
 //! ## Why a trait and not just store calls
 //!

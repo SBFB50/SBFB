@@ -25,7 +25,9 @@ use crate::hash::{HashError, IdempotencyKey};
 /// Neither field can contain it: the receipt is JCS, which escapes control
 /// characters, and the key components are checked by
 /// [`crate::hash::validate_identity_component`], which refuses EVERY control
-/// character. Note what this does NOT say — the ids are not "ASCII by
+/// character (and, since ex-review r3 L1-R3-01, every invisible or bidi format
+/// character too — a wider domain, so this separator argument still holds).
+/// Note what this does NOT say — the ids are not "ASCII by
 /// construction"; they are free-form paths whose control characters are
 /// REFUSED at a gate. That distinction is the whole point: the earlier
 /// "by construction" wording described an invariant nothing enforced.
