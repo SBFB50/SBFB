@@ -397,7 +397,12 @@ if [ -n "$SPRINT" ] && [ -n "$PHASE" ]; then
         echo "" >&2
         ERRORS=$((ERRORS + 1))
       fi
-      if ! grep -qiE 'CONFIRME|CONFIRM[EÉ]|GAP|PARTIEL|PARTIAL|CONFIRMED' "$CODEX_REVIEW"; then
+      # PASS/FAIL comptent comme verdicts par livrable : un rapport Codex PROPRE
+      # (0 GAP) n'emploie aucun des mots de defaut, et le check le refusait —
+      # faux positif mesure en S83 Phase M, round Codex 4 (12 verdicts PASS par
+      # livrable, 0 occurrence de GAP/PARTIEL/CONFIRME). Un gate qui ne peut pas
+      # accepter un succes n'est pas un gate.
+      if ! grep -qiE 'CONFIRME|CONFIRM[EÉ]|GAP|PARTIEL|PARTIAL|CONFIRMED|\*\*PASS|\*\*FAIL' "$CODEX_REVIEW"; then
         echo "" >&2
         echo "[lightcheck] BLOCK: Codex review sans verdict par livrable (§4.5)" >&2
         echo "  Fichier: ${CODEX_REVIEW}" >&2
