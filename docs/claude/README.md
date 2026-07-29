@@ -1328,6 +1328,66 @@ apprendre des erreurs corrigees.
 `active/` → `archive/v{X}/rounds/`), sinon `lint-planning` les signale
 `ORPHAN_FILE`.
 
+### 4.5.9 Convergence de la boucle — on boucle jusqu'à propre, pas jusqu'à fatigue
+
+**Arbitrage PO du 2026-07-29 : la boucle n'est PAS bornée.** On itère jusqu'à
+ce que ce soit propre. Cette section n'ajoute donc aucun plafond de rounds —
+elle attaque la raison pour laquelle la boucle, aujourd'hui, ne converge pas
+d'elle-même.
+
+**Le fait mesuré.** Trajectoire des P1 par round sur la Phase L1 : **8, 9, 3,
+0, 1, 5, 6, 4, 2, 0**. Elle atteint zéro au round 4 puis **remonte à 6 au
+round 7**. Cause nommée dans `prompts/agent/phase-review-workflow.md` : **21
+défauts de L1 avaient été écrits par des correctifs**. Une boucle où chaque
+round crée une partie des défauts que le suivant trouve n'a pas de point
+fixe : la faire tourner plus longtemps ne produit pas « parfait », elle
+produit « oscillant », et le round d'arrêt est décidé par la fatigue.
+
+**Sur quoi elle tourne.** Décompte de L1 : 19 P1 = **14 affirmations fausses
+dans des documents**, 3 défauts du gate bash, 1 propriété non gardée, **1 vrai
+bug de code**. Round 2 de la Phase M : 6 P1, dont « aucun défaut de LOGIQUE
+n'a été trouvé dans le chemin de données ». **18 P1 sur 19 portaient sur des
+artefacts que le process avait lui-même produits.** La boucle perfectionne
+surtout sa propre prose.
+
+Trois règles taries la source, sans retirer un seul round.
+
+**R1 — un doc-comment ne porte JAMAIS un compte, une mesure datée, ni une
+exclusivité non gardée par un test.** C'est la classe qui produit les P1, et
+elle est éliminable par construction :
+
+| Forme interdite | Pourquoi elle deviendra fausse |
+|---|---|
+| « while all 12 runtime tests stay green » | faux au treizième test ajouté |
+| « the only producer » / « there is no second door » | faux au deuxième producteur |
+| « never reaches a screen » | faux tant que rien n'appelle la porte |
+
+Les trois ont produit un P1 dans ce sprint. Les mesures vivent dans le
+**rapport de review** et le **body de commit** — datés, immuables, jamais
+re-lus comme une garantie courante. Le code, lui, dérive. Reformulation qui
+ne rancit pas : « la mutation cohérente laissait la suite verte », pas
+« laissait 24/24 verts ». **Exception** : une affirmation gardée par un gate
+machine reste légitime (`census DOMAIN 29 frozen` est vérifié par
+`check-frontier-contracts.sh`) — la garde est ce qui la rend durable.
+
+**R2 — un correctif de prose RETIRE, il ne réécrit pas.** Retirer une
+affirmation invérifiable ne crée aucune surface neuve ; la remplacer par une
+affirmation plus précise en crée une, qui sera revue au round suivant. C'est
+le mécanisme direct des 21 défauts créés par correctif.
+
+**R3 — critère d'arrêt observable : DEUX rounds consécutifs sans P1 neuf,
+dont le dernier mené par Codex.** « Parfait » n'est pas un état détectable —
+L1 l'a « atteint » au round 4 puis l'a perdu au round 7. Deux rounds secs
+l'est. Codex doit être le dernier parce qu'il est le seul juge qui lit la
+SOURCE plutôt que le récit du diff (§4.5.6). C'est le pattern
+*loop-until-dry* de la doc `Workflow`, que le canon appliquait déjà à la
+découverte de bugs et jamais à sa propre boucle.
+
+**À quoi on verrait que R1/R2 sont fausses** : si le premier round joué sous
+ces règles ne réduit pas nettement la part des P1 de classe « prose » à
+périmètre comparable, elles ne servent à rien et sautent. Le coût du test est
+d'une passe de nettoyage.
+
 ---
 
 ## 5. Memory system externe
