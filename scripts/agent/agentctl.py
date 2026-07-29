@@ -587,7 +587,7 @@ def codex_review_errors(title: str, message: str, sprint: str | None, phase: str
         return errors
     if re.search(r"(?mi)^\s*#\s*Codex Review|Auditeur.*Claude|agent independant", text):
         errors.append(f"Codex review looks rewritten by Claude; expected raw `codex exec -o`: {review_rel}")
-    if not re.search(r"\b(CONFIRME|CONFIRM[EÉ]|GAP|PARTIEL|PARTIAL|CONFIRMED)\b", text, re.IGNORECASE):
+    if not re.search(r"\b(CONFIRME|CONFIRM[EÉ]|GAP|PARTIEL|PARTIAL|CONFIRMED)\b|\*\*(PASS|FAIL)", text, re.IGNORECASE):
         errors.append(f"Codex review has no per-deliverable verdict markers: {review_rel}")
     if not re.search(r"(?i)\b(Evidence|Fichier|File|ligne|line)\b|:[0-9]{1,5}\b", text):
         errors.append(f"Codex review has no file:line evidence markers: {review_rel}")
