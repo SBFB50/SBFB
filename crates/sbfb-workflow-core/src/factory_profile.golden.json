@@ -394,7 +394,7 @@
     {
       "id": "hook-lightcheck",
       "path": ".claude/hooks/phase-precommit-lightcheck.sh",
-      "blake3": "2269f36c1ed6da0066a0c0cbc8e904df571a5fedae0ad25660df192febc20df3"
+      "blake3": "570782f481e0646908a5f684f91036e6d2e92d1ba0fee679a5d482048513a3ea"
     },
     {
       "id": "hook-auditor-gate",
