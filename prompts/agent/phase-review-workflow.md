@@ -116,12 +116,61 @@ round précédent mérite le même scepticisme qu'un finding sur le code d'origi
 - Ne pas inventer d'ancre. Les numéros de ligne dérivent — re-grep avant de
   citer, et un finding sans ancre vérifiable ne compte pas.
 
+## Pour le CORRECTEUR — le gate de correctif (amendement 2026-07-29)
+
+Cette section ne s'adresse pas aux agents de review mais au **main thread**, qui
+écrit les correctifs entre deux rounds. Elle existe parce que l'asymétrie
+suivante est la cause dominante des rounds supplémentaires :
+
+> le LIVRABLE passe préflight + review + Codex ; le CORRECTIF n'passe rien,
+> jusqu'au round suivant. Il entre dans l'arbre sans contrôle propre.
+
+Trois règles, dans l'ordre de leur rendement mesuré sur S83 Phase M.
+
+**1. Un correctif n'entre pas dans l'arbre sans sa mutation.** Pour chaque
+correctif, produire la mutation qui le fait ROUGIR, avec la commande et la
+sortie réelle. « Les tests passent » ne prouve rien : ils passaient déjà avant
+le finding. Pour un correctif documentaire, la mutation est le `grep` qui prouve
+que l'affirmation est vérifiable — s'il n'existe pas, l'affirmation est une
+décoration. C'est ce contrôle qui a attrapé la garde redondante décrite au §P76
+de `docs/rust/PATTERNS.md`, qu'aucune relecture n'aurait montrée.
+
+Piège d'outillage mesuré le 2026-07-29 : `python` sous Windows ne résout PAS un
+chemin MSYS `/c/...`. Une mutation « appliquée » par python sur un tel chemin
+échoue silencieusement et laisse les tests verts **sur du code intact** —
+mesure vacueuse qui paraît réussir, exactement le défaut que la recette worktree
+de la contrainte 2 combat. Utiliser `perl -0777 -pi -e`, et VÉRIFIER par
+`grep -c` que la mutation est dans le fichier avant de lancer quoi que ce soit.
+
+**2. Fermer la famille, pas l'instance — et l'écrire.** Un finding « X manque
+dans Y » oblige à énumérer tous les Y de la famille AVANT de corriger, et à
+poser l'inventaire dans le rapport ou le commit. Sans cette trace, le round
+suivant retrouve la même classe ailleurs et le compteur de P1 remonte sans que
+rien n'ait régressé. Mémoire : `feedback_close_class_not_instance`.
+
+**3. Ne jamais ajouter une garde redondante.** Cf. §P76 : une condition, un
+endroit. La « défense en profondeur » n'est valide qu'entre couches aux modes de
+défaillance INDÉPENDANTS.
+
 ## Note honnête sur ce que ce fichier ne règle pas
 
-Ces contraintes règlent la **pollution** de l'arbre, pas la **convergence** de
-la boucle. Le rendement d'un round de review ne décroît pas mécaniquement : sur
-la Phase L1, la trajectoire des P1 par round était 8, 9, 3, 0, 1, 5, 6, 4, 2, 0
-— elle remonte, parce que chaque lot de correctifs ouvre une surface neuve.
-Borner le nombre de rounds est un arbitrage PO distinct, laissé ouvert au
-2026-07-28 : la vérification croisée externe (Codex) reste le seul juge qui lit
+Ces contraintes règlent la **pollution** de l'arbre et le **contrôle du
+correctif**, pas la convergence en elle-même. Le rendement d'un round ne décroît
+pas mécaniquement : sur la Phase L1 la trajectoire des P1 par round était
+8, 9, 3, 0, 1, 5, 6, 4, 2, 0 ; sur S83 Phase M, 5, 6, 2, 4, 1. Elle remonte,
+et le diagnostic affiné le 2026-07-29 distingue TROIS causes qu'il ne faut pas
+confondre — les confondre donne le pessimisme « chaque round casse quelque
+chose », qui est faux :
+
+- **vraie régression** (le correctif écrit un défaut neuf) — 2 sur les 18 P1 de
+  S83 Phase M. Remède : règle 1 ci-dessus ;
+- **balayage de famille incomplet** (le correctif ferme l'instance montrée et
+  laisse ses sœurs) — cause DOMINANTE. Remède : règle 2 ;
+- **défaut pré-existant révélé tard** (les rounds creusent plus profond). Aucun
+  remède : c'est le process qui fonctionne.
+
+Borner le nombre de rounds reste un arbitrage PO distinct. Un critère d'arrêt
+plus honnête que « 0 P1 » : **0 P1 ET tous les correctifs du dernier round
+mesurés discriminants** — sinon le round suivant re-trouve ce que le dernier lot
+a introduit. La vérification croisée externe (Codex) reste le seul juge qui lit
 la source plutôt que le récit du diff.

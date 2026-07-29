@@ -4406,3 +4406,55 @@ literal (e.g. the `preview/load` BLAKE3 of the default body) be trusted — a
 hidden per-run nonce or identity leak would diverge run-to-run and fail there.
 `took_ms` (search timing) was the one newly observed volatile field added to the
 point-2 allowlist.
+
+---
+
+## §P76 — Sprint 83 Phase M: one condition, one place — a duplicated guard is an INVISIBLE guard
+
+**The rule.** A condition is checked in exactly ONE place. If it is checked in
+two, neither is pinned by any test, because no test can tell "one guard" from
+"two guards".
+
+**How it was measured, and why no review would have caught it.** Review round 4
+of S83 Phase M found that `ArtifactVault::delete` refused a non-locally-minted
+reference while `ArtifactPolicy::authorise_delete` — the type documented as "the
+pure decision surface", `pub` and re-exported at the crate root — did not. The
+fix looked obviously right: add the provenance check there too, as defence in
+depth. Round 5 flagged the topology change; the measurement was unambiguous:
+
+```
+remove the guard from ArtifactVault::delete only   => 19 tests run: 19 passed
+remove the guard from authorise_delete only        => 19 tests run: 19 passed
+```
+
+Each copy masked the absence of the other, so the suite could not observe either.
+The property "delete refuses a reference this vault did not mint" was held by the
+code and pinned by NOTHING. After collapsing to a single guard (with `delete`
+delegating its whole refusal logic to `authorise_delete`) and adding a direct
+test on the public surface:
+
+```
+remove the single guard                            => 3 tests FAIL
+```
+
+**Why "defence in depth" is not a counter-argument.** The doctrine is sound
+between layers with INDEPENDENT failure modes — the type system vs a runtime
+check, a compile-fail doctest vs a mutation test, a signature vs an assertion.
+Two identical `if`s in two functions of the same module are not two layers: they
+are one layer, duplicated. Duplication buys nothing against the failure mode
+(someone deletes the check) and costs observability, which is the one thing a
+test suite exists to provide.
+
+**Exception, stated so the rule is usable.** Duplicate a condition only when the
+two sites fail for DIFFERENT reasons and each is independently pinned — e.g. a
+`#[serde(skip)]` enforced by the compiler AND a golden vector asserting the wire
+form. Then both are visible: mutate one, its own control goes red.
+
+**Smell test.** Before adding a check, ask: "if I delete the OTHER one, does
+anything go red?" If the honest answer is no, you are not adding depth — you are
+removing the ability to notice.
+
+**Sibling patterns.** §P70 (an étiquette nobody reads is not a contract) and the
+repository's standing rule that a green control must be DISCRIMINANT, not merely
+present (memory `feedback_mutation_before_trust`). Same family: a control that
+cannot go red is a decoration, whether it is a test, a tag or a guard.
