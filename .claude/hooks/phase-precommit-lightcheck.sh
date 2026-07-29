@@ -62,6 +62,63 @@ if [ -n "$DIFF_CHECK" ]; then
   ERRORS=$((ERRORS + 1))
 fi
 
+# === Check 0bis : review-agent residue (STRICT, BLOCK) ===
+#
+# Why this exists, measured on Sprint 83 Phase M. Review agents MUTATE the
+# source to check that a test can actually fail — that is the rigour the canon
+# asks for. What no prompt asked them to do was restore the tree afterwards, and
+# five incidents followed in one phase: a constant AES-GCM nonce, a key stripped
+# of its zeroising wrapper, a key derived from the PUBLIC nonce (so fully
+# predictable), and two orphan probe files. Every one of them was caught by a
+# manual `git status` and could have been committed.
+#
+# Detection was therefore resting on one person remembering to look. This check
+# is what a gate is for: it costs nothing and it cannot forget.
+#
+# Scope: staged content only, so it never fights a mutation that is still being
+# measured in the working tree.
+RESIDUE_FILES=$(git diff --cached --name-only --diff-filter=A \
+  | grep -Ei '(^|/)(zz_)|probe|_scratch|\.bak$' || true)
+if [ -n "$RESIDUE_FILES" ]; then
+  echo "" >&2
+  echo "[lightcheck] BLOCK: staged file looks like a review-agent artefact" >&2
+  echo "$RESIDUE_FILES" >&2
+  echo "  A probe or scratch file is a MEASUREMENT, never a deliverable." >&2
+  echo "  Delete it, or rename it if it is a real test." >&2
+  echo "" >&2
+  ERRORS=$((ERRORS + 1))
+fi
+
+# Scoped to CODE paths on purpose. A mutation marker inside `crates/` or
+# `web/src` is the defect; the same word inside a process document, a hook or a
+# prompt is the text that DEFINES the rule — scanning the whole diff made this
+# very check block its own commit.
+RESIDUE_MARKERS=$(git diff --cached -U0 -- crates web/src \
+  | grep -E '^\+' \
+  | grep -E 'MUTATION[-: ]|MUTATION$|TEMPORARY review probe' || true)
+if [ -n "$RESIDUE_MARKERS" ]; then
+  echo "" >&2
+  echo "[lightcheck] BLOCK: staged diff carries a mutation marker" >&2
+  echo "$RESIDUE_MARKERS" | head -10 >&2
+  echo "  A review mutation must be reverted before the commit, not shipped." >&2
+  echo "" >&2
+  ERRORS=$((ERRORS + 1))
+fi
+
+# Untracked files under the code roots are the OTHER half of the same class:
+# `git diff HEAD` is blind to them, so a review that reasons on the diff reasons
+# on an incomplete picture (post-mortem L1, structural hole 7: 71 % of a phase's
+# volume was once invisible to the canonical instrument). WARN and not BLOCK,
+# because legitimate work-in-progress lives there too.
+UNTRACKED_CODE=$(git status --porcelain --untracked-files=all -- crates web/src 2>/dev/null \
+  | grep '^??' || true)
+if [ -n "$UNTRACKED_CODE" ]; then
+  echo "[lightcheck] WARN: untracked files under crates/ or web/src at commit time:" >&2
+  echo "$UNTRACKED_CODE" | head -5 >&2
+  echo "  They are invisible to \`git diff HEAD\` — confirm they are meant to stay out." >&2
+  WARNINGS=$((WARNINGS + 1))
+fi
+
 # === Extract SPRINT + PHASE from commit title only (shared by checks 4, 5) ===
 # Extract the commit title (first line of the message, before any newline).
 # Supports both `-m "message"` and `-F filename` syntax.

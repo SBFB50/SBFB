@@ -2263,6 +2263,14 @@ phase.
     review + verification adversariale, synthese -> verdict (§4.5.7).
     Remplace l'agent unique `nexus-phase-review-deep` + le gate
     superviseur. Plus aucune consultation GO/BLOCK.
+    BRIEF OBLIGATOIRE : `prompts/agent/phase-review-workflow.md`. Il porte
+    les CONTRAINTES D'EXECUTION que les briefs ad-hoc n'avaient pas —
+    worktree isole pour toute mutation, arbre restaure et VERIFIE en fin
+    de run, sondes supprimees, interdiction d'editer le code de
+    production. Sans lui, un agent qui mesure par mutation laisse la
+    mutation dans l'arbre : mesure S83 Phase M, cinq artefacts survivants
+    dont une cle de chiffrement rendue predictible. Backstop mecanique =
+    hook `phase-precommit-lightcheck.sh` Check 0bis.
   - Codex (GPT-5.6 Sol) reste la verification croisee externe apres la
     review Workflow PASS-PENDING.
   - L'unique gate AUTOMATISE avant commit est le hook mecanique
