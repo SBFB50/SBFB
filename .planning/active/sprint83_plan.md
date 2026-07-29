@@ -2289,6 +2289,7 @@ CI fermés en A1 : deny.toml licences, etc.)
 
 ### AH.2 Livrables
 - Harness de fuzz (pack import, compiler, bridge, wire) ; corpus adversarial.
+- **Ajout 2026-07-29, carry `ARTIFACT-PARSER-UNFUZZED`** : ajouter aux surfaces `ArtifactDigest::from_hex` (Phase M) — c'est un PARSEUR d'entrée non fiable venant du réseau, que la Phase P met explicitement sur le wire, et il n'est aujourd'hui couvert que par des vecteurs choisis à la main (une revue externe y a trouvé par LECTURE que l'erreur recopiait 200 kB d'entrée — un fuzzer l'aurait signalé aussitôt). Ajouter aussi le format at-rest d'`artifact_seal` (cadrage `nonce ‖ ct` + AAD), épinglé par un golden ponctuel et non par un espace d'entrées : property-based (`proptest`) round-trip sur tout plaintext / tout mode / toute longueur. Owner = Phase AH ; trigger = écriture du harness ; exit = `fuzz_artifact_digest.rs` + property test at-rest, sans crash ni panic.
 - Scénarios sécurité : injection prompt, SSRF/DNS/redirect (Phase P), révocation mid-run,
   canari, CSP Hub, pack malveillant refusé.
 - Supply chain : `deny.toml` propre (advisories+licences), SBOM, preuve de build offline.
@@ -2601,6 +2602,10 @@ en baisse** sur les baselines d'entrée (2108/2112/412/201) — un split behavio
 8. `DelegationGrant.v1` cross-nœud — FUTUR (§14.5).
 9. Cancel fort d'une Task réseau — HORS MVP (cancel honnête local, limite affichée).
 10. Envelope chiffrée recipient-scoped — plancher public-only (Q6) ; envelope FUTURE sauf décision PO.
+    **Doctrine PO 2026-07-29, à ne pas re-débattre sans arbitrage.** Le modèle binaire de la Phase M rend aujourd'hui impossible tout groupe privé sur le réseau ; c'était un effet de bord technique, cela devient une décision, et elle SÉPARE deux choses que « partage restreint » confondait :
+    - **partage POINT-À-POINT vers des destinataires nommés — OUVRABLE** (c'est ce que cette enveloppe débloquera). Besoin banal, primitive standard, ne crée aucune structure : pas d'appartenance, pas d'historique partagé, pas d'espace ;
+    - **espaces privés PERSISTANTS — FERMÉS PAR PRINCIPE.** Appartenance durable, un « dedans » et un « dehors ». Motif : le projet a supprimé toute autorité centrale (zéro modération), donc un espace opaque persistant y est un angle mort que personne n'est en position de traiter ; et la cohérence du modèle repose sur une curation PUBLIQUE et ATTRIBUABLE (listes signées — quelqu'un signe, on peut lui demander des comptes), ce qu'un espace privé persistant supprime. Même famille de verrous que « héberger ≠ publier », « seeder ≠ auteur », pas de monnaie, pas de stake.
+    **Test pour trancher un cas concret** : la liste survit-elle à la donnée qu'elle protège ? Attachée à UN artefact, c'est du point-à-point (ouvrable) ; si elle lui survit et définit qui appartient, c'est un espace persistant (fermé). Avant de rouvrir `read_audience` ou toute notion de destinataires, appliquer ce test.
 11. Import exécutable total Flowise/n8n/LangGraph — HORS MVP (data-only, `$flow.state` jamais mappé).
 12. Mémoire personnelle P2P + optimisation auto de prompts — HORS MVP (§22.4).
 13. SBFB comme serveur MCP élargi — HORS chantier (`mcp_server_expose` gate-off ; MCP = veille).
