@@ -135,17 +135,28 @@ pub enum SecretError {
 /// both times). A doctest is the right shape because the property is "this
 /// code must not COMPILE", which no runtime assertion can express:
 ///
-/// The error code is PINNED (`E0277`, unsatisfied trait bound). A bare
-/// `compile_fail` passes on ANY compilation error — a typo, a missing crate, a
-/// renamed type — so it can go green for a reason that has nothing to do with
-/// the property. Pinning the code makes the test fail loudly if the reason
-/// changes, which is the difference between a control and a decoration.
+/// A bare `compile_fail` passes on ANY compilation error — a typo, a missing
+/// crate, a renamed type — so it can go green for a reason that has nothing to
+/// do with the property. The annotated code (`E0277`, unsatisfied trait bound)
+/// documents the reason but does NOT enforce it: measured on rustc 1.95.0 in
+/// editions 2021 and 2024, a block annotated `E0277` whose real error is
+/// `E0432` still passes. What enforces it is the TWIN below, which shares the
+/// import and the surface and must COMPILE — a rename or a moved module turns
+/// the twin red instead of quietly greening the pair.
 ///
 /// ```compile_fail,E0277
 /// use sbfb_workflow_engine::BoundSecret;
 ///
 /// fn must_not_compile(secret: &BoundSecret) -> String {
 ///     serde_json::to_string(secret).unwrap() // BoundSecret: !Serialize
+/// }
+/// ```
+///
+/// ```
+/// use sbfb_workflow_engine::BoundSecret;
+///
+/// fn must_compile(secret: &BoundSecret) -> usize {
+///     secret.expose().len()
 /// }
 /// ```
 pub struct BoundSecret {
@@ -619,6 +630,93 @@ mod tests {
             "RED ARM: the decimal-array encoding must also be detected"
         );
 
+        // ---- Sixth surface, added by Sprint 83 Phase M ----
+        //
+        // An artefact is a NEW durable place the engine writes to, so the sweep
+        // has to cover it or the canary would silently stop being exhaustive the
+        // moment runs start publishing outputs. What is checked is the store's
+        // contents — the bytes `/blob-serve` and `BLOBS_ALPN` hand to anyone —
+        // for a secret published under the mode that MUST seal it.
+        // Built through a helper parameterised by the MODE, so the SAME code path
+        // feeds both arms. Without the red arm the green one is vacuous —
+        // MEASURED: commenting out the collector left this test green on an EMPTY
+        // surface, because `find_material("", …)` is trivially `None`. Asserting
+        // non-emptiness would be weaker: it would not prove the search can find
+        // the canary in THIS surface's encoding.
+        let artefact_surface = {
+            use crate::artifact_acl::{
+                ArtifactBlobs, ArtifactDigest, ArtifactError, ArtifactMode, ArtifactRetention,
+                ArtifactSealer, ArtifactVault, ReadCapability,
+            };
+            use crate::clock::ManualClock;
+            use std::cell::RefCell;
+
+            struct XorSealer;
+            impl ArtifactSealer for XorSealer {
+                fn seal(
+                    &self,
+                    _mode: ArtifactMode,
+                    plaintext: &[u8],
+                ) -> Result<(Vec<u8>, ReadCapability), ArtifactError> {
+                    Ok((
+                        plaintext.iter().map(|b| b ^ 0x5a).collect(),
+                        ReadCapability::new(vec![0x5a; 32]),
+                    ))
+                }
+                fn unseal(
+                    &self,
+                    _mode: ArtifactMode,
+                    stored: &[u8],
+                    _capability: &ReadCapability,
+                ) -> Result<zeroize::Zeroizing<Vec<u8>>, ArtifactError> {
+                    Ok(zeroize::Zeroizing::new(
+                        stored.iter().map(|b| b ^ 0x5a).collect(),
+                    ))
+                }
+            }
+
+            #[derive(Default)]
+            struct CollectingBlobs {
+                stored: RefCell<Vec<u8>>,
+            }
+            impl ArtifactBlobs for CollectingBlobs {
+                fn put(&self, stored: &[u8]) -> ArtifactDigest {
+                    self.stored.borrow_mut().extend_from_slice(stored);
+                    ArtifactDigest::of_stored_bytes(stored)
+                }
+                fn get_unauthenticated(&self, _digest: &ArtifactDigest) -> Option<Vec<u8>> {
+                    None
+                }
+                fn untag(&self, _digest: &ArtifactDigest) {}
+            }
+
+            let publish_and_collect = |mode: ArtifactMode| -> String {
+                let sealer = XorSealer;
+                let blobs = CollectingBlobs::default();
+                let clock = ManualClock::at(0);
+                let vault = ArtifactVault::new(&sealer, &blobs, &clock);
+                vault
+                    .publish(mode, ArtifactRetention::Keep, bound.expose())
+                    .expect("publish the canary as an artefact");
+                String::from_utf8_lossy(&blobs.stored.borrow()).into_owned()
+            };
+
+            // RED ARM for this surface: published in the CLEAR, the canary MUST
+            // be found here. This is what makes the green arm below mean
+            // something, and it puts the measurement the threat model credits
+            // ("mutation-testee") inside the repository rather than in a report.
+            let leaky_store = publish_and_collect(ArtifactMode::Published);
+            assert_eq!(
+                find_material(&leaky_store, bound.expose()),
+                Some("raw text"),
+                "RED ARM: a canary published in the clear must be DETECTED in the \
+                 artefact store surface — otherwise a broken collector would keep \
+                 this test green on an empty surface"
+            );
+
+            publish_and_collect(ArtifactMode::Local)
+        };
+
         // ---- GREEN ARM: the surfaces the engine actually writes ----
         let surfaces = [
             ("step_request_jcs", request_jcs),
@@ -626,13 +724,15 @@ mod tests {
             ("activity_receipt_render", receipt_render.clone()),
             ("run_event_json", event_json),
             ("bound_secret_debug", format!("{bound:?}")),
+            ("artifact_public_store", artefact_surface),
         ];
         // Pin the COUNT too (ex-review r3 L1-D5-2): removing an entry from this
         // table shrinks what the canary covers while keeping the test green, and
-        // the threat model names "5 surfaces" explicitly.
+        // the threat model names the surface count explicitly (§19.5 moved it
+        // from 5 to 6 when Phase M made artefacts a durable destination).
         assert_eq!(
             surfaces.len(),
-            5,
+            6,
             "a surface was dropped from the canary sweep"
         );
         for (name, surface) in &surfaces {

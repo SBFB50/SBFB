@@ -163,7 +163,10 @@ Phase 0 (audit gate S82 — JOUÉ)
    L1 coffre secrets + HITL hôte (pré-coupe AM-4) ── G-SECRET-VAULT,G-SECRET,G-HITL
    │        └──────────────► N (secret_ref) ; X (2e moitié)      │
    ▼                                                             │
-   M  artefacts / ACL / provenance ── G-ARTIFACT-ACL,G-PROVENANCE│
+   M  artefacts / ACL ── G-ARTIFACT-ACL                          │
+   │                                                             │
+   ▼                                                             │
+   M1 canonicalisation signée + provenance (re-coupe de M) ── G-PROVENANCE
    │                                                             │
    ▼                                                             │
    N  modèles locaux + cloud (par secret_ref) ── ouvre G-PLACEMENT
@@ -1026,51 +1029,192 @@ G-SECRET/G-HITL ; débloque N).
 > 2026-07-28 : couper en **M** (artefacts + ACL → `G-ARTIFACT-ACL`) et **M1**
 > (canonicalisation signée + provenance → `G-PROVENANCE`), sur le patron des pré-coupes
 > L1/I1/P1 déjà jouées dans ce sprint. Aucun livrable n'est abandonné.
+>
+> **Ce que les deux arbitrages PO du 2026-07-28 amendent dans le préflight.** Le
+> préflight est un artefact DATÉ qu'on ne réécrit pas : ses items **M-d** et **M-e**
+> demandent encore « classes public/privé/secret/réseau + `read_audience` » et
+> nomment un test `read_audience_enforced`. Les deux sont caducs — `read_audience`
+> est retiré (aucun mécanisme ne peut transmettre la clé aux principals nommés) et
+> les quatre classes sont réduites à deux modes. Les items **M-h** et
+> **M-a/M-b/M-c/M-g** partent en M1 avec la provenance.
 
 ### M.1 Scope
-`ArtifactRef` typé (content-addressed), trait `artifact` hôte-neutre, classes
-**public/privé/secret/réseau**, `read_audience`, chiffrement, rétention, suppression —
-**digest ≠ droit de lecture** (connaître le digest ne permet PAS de lire un artefact privé).
-Le **lineage** et les **receipts signés** partent en M1 avec le graphe. Gate :
-**G-ARTIFACT-ACL**.
+`ArtifactRef` typé (content-addressed), seam hôte-neutre, **deux modes
+`published`/`local`**, chiffrement, rétention, suppression — **digest ≠ droit de lecture**
+(connaître le digest ne permet PAS de lire un artefact local). Le **lineage** et les
+**receipts signés** partent en M1 avec le graphe. Gate : **G-ARTIFACT-ACL**.
+
+**Deux modes, pas quatre** (arbitrage PO 2026-07-28, second challenge doctrinal). Le ch.24
+du Research Pack nommait `public`/`privé`/`secret`/`réseau`. Mesuré : `public` et `réseau`
+sont le **même mode** — `BlobsProtocol::new(&blobs_store, None)` et `/blob-serve` servent
+tout blob stocké à tout dialeur **sans aucun filtre**, donc un artefact stocké en clair est
+déjà sur le réseau et l'étiquette « réseau » n'ajoutait rien. Et `privé` vs `secret` reposait
+sur un prédicat de rendu à **zéro appelant**, alors que le matériel de credential a son
+propre type non-sérialisable depuis L1. Reste un bit : **publié** (clair, joignable, suppression
+impossible) ou **local** (scellé, ne sort pas, suppression réelle par destruction de la clé).
+La colonne suppression est la différence porteuse, et c'est elle qui justifie la coupe.
+Écart au ch.24 assumé et tracé.
 
 **L'ACL est STRUCTURELLE, pas une politique de façade.** Mesure du préflight : `/blob-serve`
 est monté dans `public_routes` (« no bearer, no Host check, no Origin check »,
 `crates/nexus-shell-daemon/src/http.rs:272`) et `BlobsProtocol::new(&blobs_store, None)`
 (`crates/nexus-core-rs/src/node.rs:442`) sert tout blob à tout dialeur — une ACL de façade
 serait court-circuitée par le chemin réseau. **Décision PO (voie a)** : le clair d'un
-artefact privé/secret n'entre JAMAIS dans le store servi par `BLOBS_ALPN` ; le chiffrement
+artefact `local` n'entre JAMAIS dans le store servi par `BLOBS_ALPN` ; le chiffrement
 est obligatoire avant `add_bytes`. Conséquence : la décision S16 (« the blob content is
 already public by construction », `http.rs:246-256`) n'est **pas révoquée** — elle reste
-vraie parce que M ne lui soumet aucun contenu privé.
+vraie parce que M ne lui soumet aucun clair d'artefact `local`.
 
 ### M.2 Livrables
 - `crates/sbfb-workflow-engine/src/artifact_acl.rs` (**module de lib**, contrainte du gate :
   le filtre positionnel de nextest matche les modules de lib, pas les noms de binaires
-  d'intégration) : `ArtifactRef` v1 + trait `artifact` hôte-neutre sur le patron
-  `SecretResolver` (référence opaque, `Debug` rédacteur, fail-closed), relié à
-  `ArtifactOutput.v1`.
-- Classes public/privé/secret/réseau + `read_audience` — **nom distinct de `GrantAudience`**
-  (`capability.rs:543`, classe de menace `T-CAP-GRANT-AUDIENCE-CONFUSION` : ne pas
-  réutiliser le mot dans le même crate avec un autre sens).
-- Classe **réseau** (décision PO 2026-07-28) : diffusable par construction, **sans
-  audience** ; la suppression y est refusée **par le type**, pas seulement documentée —
-  l'API rend une erreur au lieu de promettre un effacement qu'elle ne peut pas produire.
+  d'intégration) : `ArtifactRef` v1 + seam hôte-neutre sur le patron
+  `SecretResolver` (référence opaque, `Debug` rédacteur, fail-closed). Les deux traits
+  livrés s'appellent `ArtifactSealer` et `ArtifactBlobs` — le plan disait « trait
+  `artifact` », qui ne correspond à aucun nom de code.
+- **`ArtifactOutput.v1` : SCOPE CUT déclaré**, routé vers la Phase Y. Ce type
+  (`sbfb-workflow-core/src/graph.rs:599`) décrit ce qu'un workflow *déclare* publier dans
+  son graphe signé ; le relier à l'`ArtifactRef` produit à l'exécution exige un chemin de
+  publication, qui n'existe pas en M (0 call-site). Le lier ici produirait une association
+  qu'aucun test ne pourrait exercer. **Conséquence assumée, écrite plutôt qu'implicite** :
+  une sortie déclarée dans le pack SIGNÉ ne porte pas son mode, donc la confidentialité
+  est choisie à l'exécution par l'appelant de `publish` et un auteur de pack ne peut pas
+  la déclarer. Carry nommé, repris en §Y.2.
+- **Provenance de la référence** (non prévu au plan d'origine, livré après deux sondes de
+  review qui l'ont montré atteignable) : `ArtifactRef` porte un champ privé `RefOrigin`
+  non sérialisé, et **ses trois autres champs sont privés eux aussi** — sans quoi muter
+  une référence authentiquement mintée donnait un dé-tag arbitraire. `delete` refuse toute
+  référence non mintée localement (`UntrustedReference`) et toute capability qui n'ouvre
+  pas l'artefact. Une rétention sur un artefact PUBLIÉ est refusée à la publication
+  (`RetentionOnPublished`) : la combinaison vendait une expiration que le réseau ignore.
+- **PAS de partage sélectif** (arbitrage PO 2026-07-28) : le modèle est BINAIRE — soit la
+  donnée sort en clair, soit elle reste sur le nœud. Fondement : scope cut 10 (enveloppe
+  chiffrée recipient-scoped = FUTURE), `G-NETWORK` (« Task partagée public-only sans
+  envelope chiffré ») et le plancher MVP de la Phase P. Une première rédaction portait un
+  `read_audience` (liste de principals autorisés) : **retiré**, aucun mécanisme ne pouvant
+  leur transmettre la clé — la liste aurait nommé des lecteurs incapables de lire. En
+  conséquence `may_leave_node()` est FAUX pour le mode `local`, seul mode restant qui
+  porte une restriction de lecture (la rédaction précédente disait « pour `privé` ET
+  `secret` », deux classes que la re-coupe à deux modes a supprimées).
+- Deux modes `published` / `local` (cf. M.1). Trois prédicats, tous des lectures honnêtes
+  du même bit : `requires_sealing`, `may_leave_node`, `deletable`.
+- Suppression : **refusée par le type** pour un artefact publié — l'API rend une erreur au
+  lieu de promettre un effacement qu'elle ne peut pas produire — et refusée pour un artefact
+  local dont la capability n'est pas fournie, n'OUVRE pas l'artefact, ou dont les octets servis
+  ne correspondent pas à l'adresse de contenu (`delete` re-vérifie le digest AVANT de
+  déchiffrer, comme `read` : sans ça, une couture rendant le chiffré d'un tiers faisait
+  réussir la suppression — mesure de la vérification externe). Le succès rend `()` :
+  avec deux modes il n'y a qu'une façon de réussir. **Tout refus rend `DeleteRefusal { error,
+  capability }`** — **quatre sites de retour mais CINQ refus sémantiques** (`authorise_delete`
+  agrège `UntrustedReference` et `DeletionRefused`), tous les cinq exercés AVEC une capability
+  et vérifiés FONCTIONNELLEMENT : la capability rendue doit rouvrir son artefact. Un
+  `assert!(is_some())` laissait passer une capability fabriquée, et compter les SITES au lieu
+  des REFUS a caché le cinquième pendant deux rounds externes : la capability est prise par
+  valeur (la détruire EST la suppression), donc
+  sans ce retour un refus zéroisait la clé confiée — y compris celle d'un artefact sans
+  rapport offerte par erreur, `ReadCapability` n'étant pas `Clone`.
+- **Chemin de décodage d'`ArtifactRef`** (ajouté au round 6, en amont de la Phase P) :
+  `ArtifactDigest::from_hex` — 64 hex minuscules, majuscule REFUSÉE et non normalisée (deux
+  références au même artefact ne doivent pas différer par la casse), variante d'erreur
+  `MalformedDigest`. Sans lui « `ArtifactRef` additif 0-bump » (§P.1) était invérifiable : le
+  type n'a pas de `Deserialize` et `of_stored_bytes` exige les OCTETS, qu'un pair tenant le
+  seul JSON n'a pas encore. **La justification est CIRCULAIRE, et c'est bien pour ça qu'elle
+  tient** (correction de la vérification externe : une rédaction antérieure disait « n'obtiendra
+  jamais », ce qui est FAUX — tout pair tenant le digest récupère le chiffré par les deux
+  chemins publics, THREAT §19.5) : il faut décoder le digest AVANT de pouvoir demander ces
+  octets. C'est aussi le seul
+  endroit où l'invariant de constructeur que le type invoque pour refuser `Deserialize` est
+  réellement APPLIQUÉ.
+- **Carry nommé `ARTIFACT-UNTAG-NAME-MISMATCH`** (ouvert par la vérification externe Codex r2,
+  hors périmètre M) : le seam `ArtifactBlobs::untag` prend un DIGEST, alors que le
+  `BlobsClient` visé expose `delete_tag(nom du tag)` et que `add_bytes` abandonne le nom
+  auto-généré (`blobs.rs:77` vs `:130`). Sonde : supprimer le tag sous le hex du digest laisse
+  inchangé le nombre de tags portant ce hash. Ce n'est PAS un défaut de confidentialité — la
+  clé est bien détruite, ce qui est la garantie — mais le dé-tag serait inopérant au câblage.
+  Owner = Phase Y (premier câblage d'un producteur d'artefacts) ; trigger = première
+  implémentation de production d'`ArtifactBlobs` ; exit = le seam transporte de quoi retrouver
+  le tag, ou une décision écrite que le dé-tag est best-effort (borne 8 le dit déjà pour
+  l'échec, pas pour l'adressage).
+- **Carry nommé `ARTIFACT-DELETE-UNWIND`** (P3, Codex r2) : un `panic` dans la couture APRÈS
+  la prise de la capability la détruit sans rendre de `DeleteRefusal`. Non bloquant en M : le
+  profil release du workspace est `panic = "abort"` et il n'existe aucun call-site. Owner =
+  **Phase Y** ; trigger = un consommateur susceptible d'attraper un unwind ; exit = **soit un
+  garde qui rend la capability sur unwind, soit une borne EXÉCUTABLE** (test épinglant
+  `panic = "abort"` sur le profil release + exclusion contractuelle écrite des panics de la
+  couture). **Pas** « une borne écrite » : cette rédaction-là était déjà satisfaite par le
+  paragraphe qui l'énonçait, donc le carry se fermait sans geste (Codex r3).
+- **Carry nommé `DOCTEST-ERRCODE-NOT-ENFORCED`** (ouvert par la review round 4, hors périmètre
+  de M) : rustdoc n'enforce PAS le code d'erreur annoté d'un `compile_fail` — mesuré sur rustc
+  1.95.0, éditions 2021 ET 2024, un bloc annoté `E0277` dont l'erreur réelle est `E0432` passe.
+  Les trois doctests du moteur (`secret.rs`, `artifact_acl.rs` ×2) sont désormais appariés à un
+  jumeau qui COMPILE ; `nexus-core-rs/src/vault.rs` (`VaultSecret`, hors phase M) ne l'est pas.
+  Owner = phase de clôture docs-contrat ; trigger = audit gate S84 ; exit = jumeau posé sur
+  `vault.rs` **ET** correction de `vault.rs:195-197`, qui affirme encore que l'annotation
+  empêche un vert sur erreur étrangère. **Pas** « ou décision écrite que le doctest suffit » :
+  mesure indépendante (Codex r3, rustc 1.95.0) — un bloc `compile_fail,E0277` dont l'erreur
+  réelle est `E0432` rend `1 passed, exit 0`. Une décision ne peut pas rendre vraie une
+  affirmation mesurée fausse.
 - Chiffrement **côté hôte** (clé par artefact, patron `vault.rs`) + rétention (`Clock`) +
-  suppression = **crypto-shredding + dé-tag**, jamais effacement d'octets : aucun GC n'est
+  suppression = **crypto-shredding + dé-tag** (illisible pour qui n'a pas recopié la clé hors
+  de sa capability — THREAT §19.5 borne 10), jamais effacement d'octets : aucun GC n'est
   planifié (`crates/nexus-core-rs/src/blobs.rs:130-133`), et trois copies survivent à un
   delete (blob, cache LRU blob-serve, copies distantes). Bornes at-rest reprises mot pour
   mot de `vault.rs:22-31` — la couche 2 OS keyring est inerte (carry
   `KEYSTORE-LAYER2-INERT`), la seule protection réelle est Argon2id(PIN) : ne revendiquer
-  aucune double couche.
+  aucune double couche. **Amendé après mesure (review round 3)** : aucune clé d'artefact
+  n'est au repos — `seal_artifact` la frappe depuis le CSPRNG de l'OS et la rend à l'appelant,
+  et ni `vault.rs` ni `keystore.rs` n'expose d'API de custody d'artefact — donc **aucune borne
+  at-rest ne s'applique à M**. `vault.rs:22-31` est cité comme PATRON d'une custody future,
+  jamais comme une protection livrée (THREAT §19.5 borne 4). Corollaire : `ArtifactRetention::Keep`
+  n'a aucun support de persistance, la capability meurt avec le processus.
 
 ### M.3 Tests plan
-- `artifact_acl::tests::digest_is_not_read_right` — connaître le digest d'un artefact privé
-  ≠ droit de lecture, **avec un bras sur `/blob-serve/{digest}`** (sans lui le test ne peut
-  pas rougir sur le chemin qui compte) (G-ARTIFACT-ACL).
-- `artifact_acl::tests::{read_audience, encryption, retention}_enforced`.
-- `artifact_acl::tests::network_class_refuses_deletion` — la suppression d'un artefact de
-  classe réseau est refusée par le type.
+- `artifact_acl::tests::digest_is_not_read_right` — connaître le digest d'un artefact local
+  ≠ droit de lecture, **avec un bras sur le magasin non authentifié** (le modèle de
+  `/blob-serve` ; sans lui le test ne peut pas rougir sur le chemin qui compte) **et un
+  contrôle positif** (G-ARTIFACT-ACL).
+- `artifact_acl::tests::{encryption, retention}_enforced` (`read_audience_enforced` est
+  SUPPRIMÉ du plan avec la notion elle-même, cf. M.2).
+- `artifact_acl::tests::mode_policy_matches_the_literal_table` — les 3 prédicats des 2 modes
+  sont vérifiés contre une table LITTÉRALE indépendante. Sans elle, les tests dérivaient
+  leur attente du prédicat testé et une mutation cohérente les laissait verts.
+- `artifact_acl::tests::published_artefact_refuses_deletion`.
+- `artifact_acl::tests::local_artefacts_may_not_leave_the_node` — plancher public-only.
+- `artifact_acl::tests::deleting_a_local_artefact_requires_its_key`.
+- `artifact_sealer::tests::local_artefact_round_trips_end_to_end_under_real_crypto` — le
+  mode traverse les DEUX bras de la couture, sous crypto réelle.
+- `artifact_seal::tests::aad_matches_its_golden_vector` — le contrat at-rest publié au
+  threat model est épinglé par un vecteur connu, pas par un aller-retour auto-cohérent.
+- Tests ajoutés en cours de phase par les rounds de review, listés ici pour que le plan
+  décrive le livrable réel : `delete_refuses_a_reference_this_vault_did_not_mint`,
+  `an_edited_reference_loses_its_provenance` (+ doctest `compile_fail,E0616`),
+  `deleting_with_a_foreign_capability_is_refused` (asserte le droit de LECTURE de l'artefact
+  tiers, pas seulement son tag), `deleting_an_artefact_whose_blob_vanished_returns_the_capability`,
+  `retention_on_a_published_artefact_is_refused`,
+  `reference_wire_form_is_pinned`, `delete_refuses_bytes_that_do_not_match_the_address`
+  (`delete` re-vérifie l'adresse de contenu avant de déchiffrer, comme `read` — sans ça une
+  couture rendant le chiffré d'un tiers faisait réussir la suppression),
+  `a_digest_round_trips_through_its_hex_form` (le chemin
+  qu'un pair parcourt réellement : parser le payload, reconstruire le digest, reconstruire la
+  référence — plus six bras de refus), `authorise_delete_refuses_provenance_and_mode`,
+  `reference_serialisation_carries_no_key` (avec RED ARM),
+  `every_mode_is_listed_in_all_exactly_once`, `tampered_storage_is_refused`,
+  `reading_an_absent_digest_is_refused_like_a_mismatch`, `capability_redacts_and_zeroises`,
+  `seal_label_follows_the_published_mode`.
+- **Les deux autres FAMILLES, nommées en entier** (sans quoi ce plan ne nommerait que le tiers
+  du livrable — dont `mode_labels_are_distinct_and_stable`, que THREAT §19.5 cite pourtant
+  comme la mitigation de T-ARTIFACT-MODE-RELABEL) :
+  - `artifact_seal::tests::*` — les tests de la primitive AES-256-GCM hôte : round-trip,
+    non-recouvrement du clair dans les octets stockés, fraîcheur clé + nonce **et cadrage
+    `nonce ‖ ct` re-dérivé indépendamment**, wrapper `Zeroizing` épinglé par annotation,
+    mauvaise clé, mauvaise longueur de clé, re-étiquetage de mode, troncature fail-closed
+    sans panique, falsification du chiffré, `Debug` rédacteur en égalité exacte, vecteur doré
+    de l'AAD.
+  - `artifact_sealer::tests::*` — les tests de la couture hôte : round-trip à travers le seam
+    de l'engine, refus d'ouverture sous un autre mode, `mode_labels_are_distinct_and_stable`,
+    et le bout-en-bout sous crypto RÉELLE.
+- Doctests : deux `compile_fail` (`E0616` champs privés, `E0277` absence de `Serialize`),
+  **chacun apparié à un jumeau qui COMPILE** — rustdoc n'enforce pas le code annoté.
 - T1 = `N-A-no-frontend-change`.
 
 ### M.4 Critère d'acceptation
@@ -1079,9 +1223,15 @@ vraie parce que M ne lui soumet aucun contenu privé.
   `0 tests run: 0 passed, 160 skipped`, `error: no tests to run`) ;
   `cargo nextest run -p sbfb-workflow-engine --locked` exit 0 ;
   `bash scripts/check-frontier-contracts.sh` exit 0.
-- **Condition binaire** : ACL prouvée (digest ≠ lecture, y compris par blob-serve) +
-  chiffrement obligatoire avant `add_bytes` pour privé/secret + rétention appliquée +
-  suppression réseau refusée par le type.
+- **Condition binaire** : ACL prouvée (digest ≠ lecture, y compris par le modèle du
+  magasin non authentifié que blob-serve sert — **le long du chemin du vault**, cf. THREAT
+  §19.5 borne 6 : `ArtifactBlobs::put` reste une couture hôte publique, et aucun test
+  n'exerce `/blob-serve` ni `BLOBS_ALPN` eux-mêmes) + chiffrement obligatoire avant
+  `ArtifactBlobs::put` pour le mode `local` (la couture livrée ; `add_bytes` est la
+  primitive hôte visée, non atteinte en M faute d'implémenteur) + rétention appliquée +
+  suppression d'un artefact PUBLIÉ refusée par le type (l'ancienne rédaction disait
+  « suppression réseau », classe supprimée par la re-coupe à deux modes) + suppression
+  refusée sans une capability qui OUVRE l'artefact.
 - T2 : paliers **WA-T2.6** (joindre les sorties dans un `ArtifactRef` typé) et **WA-T5.5**
   (quotas, backpressure, rétention et suppression) — `NOT-RUN` jusqu'à AI2. WA-T2.7
   (consommer l'artefact depuis une autre app) est porté par la Phase Y.
@@ -1283,6 +1433,15 @@ de l'ensemble réel des lecteurs** du tasks-doc (§13.3). **Pré-coupée AM-4** 
 **G-WIRE-COMPAT (re-scope), G-NETWORK, G-PLACEMENT**.
 
 ### P.2 Livrables
+- **Chemin de décodage d'`ArtifactRef`, livré en amont par la Phase M** : le type n'a
+  volontairement pas de `Deserialize` (un derive court-circuiterait l'invariant de
+  constructeur), donc un pair reconstruit sa référence par
+  `ArtifactDigest::from_hex` + `ArtifactRef::from_untrusted_wire`. Sans ce maillon
+  « additif 0-bump » aurait été une promesse invérifiable : `of_stored_bytes` exige les
+  OCTETS, qu'un pair tenant le seul JSON n'a pas ENCORE — la justification est CIRCULAIRE et
+  c'est ce qui la rend valide : il faut décoder le digest AVANT de pouvoir demander ces octets
+  aux deux chemins publics (cf. §M.2 ; tout pair tenant le digest récupère le chiffré, THREAT
+  §19.5). P doit épingler la forme reçue par un golden, pas seulement la forme émise.
 - `crates/nexus-core-rs/src/task.rs:152-202` : extensions ADDITIVES (schéma/classification/
   audience/deadline) — metadata string-only préservé, `:416-453/:541-571` inchangées ;
   `G-WIRE-COMPAT` re-scope « tolérance additive prouvée + refus propre d'un champ inconnu
@@ -1798,6 +1957,12 @@ headless** du Hub et reçoit un artefact typé. **child-runs idempotents dédupl
 ### Y.2 Livrables
 - Runtime : dispatch d'opération inter-apps (intersection de grants Phase C), déduplication
   idempotente, gardes depth/cycles/budgets, résolution `ArtifactRef` sous ACL (Phase M).
+  La déduplication compare les artefacts par `ArtifactRef::addresses_same_artefact`
+  (digest seul) et non par `==`, qui compte la provenance à dessein.
+- **Relier `ArtifactOutput.v1` (déclaré dans le graphe SIGNÉ) à l'`ArtifactRef` produit à
+  l'exécution — carry de la Phase M**, coupé là faute de chemin de publication (0
+  call-site). Tant qu'il n'est pas relié, une sortie déclarée dans un pack signé ne porte
+  pas son mode : la confidentialité est choisie à l'exécution par l'appelant de `publish`.
 - Contrat host `app.invoke` (bridge type, capability-scoped) ; jamais d'appel iframe→iframe.
 - Gate `G-APPCALL` : test de dédup + garde de cycle + ACL de handoff.
 

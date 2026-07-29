@@ -71,6 +71,7 @@ pattern OWASP Threat Dragon.
 | A13 | Grants et autorite effective (`effective_capabilities` = intersection 7 couches, 17 classes typees) | Faible (structures host in-memory, jamais serialisees ni signees ; 0 `DOMAIN_*`) | **Critique** (un grant elargi/forge ou une couche contournee = EoP directe sur les effets sensibles) | Moyenne (fail-closed la ou l'AUTORITE est requise : une audience de GRANT absente/vide/expiree ⇒ REFUS de la ref ; les couches ATTENUATRICES absentes sont l'IDENTITE — la couche 7 HITL vide ne refuse que les classes `Human`, pas tout ; jamais un deni d'un run deja clos) | Algebre PURE host-neutre (`crates/sbfb-workflow-engine/src/capability.rs`) ; chaque couche ne peut qu'ATTENUER (meet monotone) ; grants audience-scopes, expiry fail-closed a la borne, revocation per-call. Cf. §19.3. |
 | A14 | Coffre de secrets hote (materiel de credential scelle au repos, lie a la `secret_ref` opaque juste-avant-l'appel) | **Critique** (materiel de credential ; le TYPE ferme la route SERIALISATION vers les 16 surfaces §14.3 — la route COPIE reste une discipline de la reliure, cf. §19.4 borne 15 ; seule la ref opaque circule) | Moyenne (AAD lie header+ref, downgrade KDF/migration de slot fail l'open) | Moyenne | Blob chiffre LOCAL (Argon2id(PIN)→KEK, AES-256-GCM, `DOMAIN_KEYSTORE_V1` reutilise, `SecretBox`/`zeroize`) ; `BoundSecret`/`VaultSecret` non-`Serialize` + `Debug` redacteur. Cf. §19.4. |
 | A15 | Approbation HITL signee chrome hote (decision humaine liee au digest exact du tuple d'effet) | **Moyenne** (artefact LOCAL jamais gossipe, mais le tuple porte principal/destination/digest — metadonnees d'exploitation ; residuel `T-RUN-ID-PII`) | **Critique** (une approbation forgee/mutee = EoP sur un effet sensible) | Moyenne | Digest injectif du tuple 15-champs (`hitl.rs`) + signature Ed25519 hote context-locale (`hitl_approval.rs`) ; rendu EXCLUSIVEMENT chrome hote (allowlist bridge FERMEE de 16 verbes, aucun de HITL) ; toute mutation invalide. **PRIMITIVE non reliee : 0 call-site en production.** Cf. §19.4 (lire son DS-1 d'abord). |
+| A16 | Artefact durable de run (sortie publiee par un run, adressee par son digest) | **Haute** (une sortie de run peut porter des donnees personnelles ; le mode `local` ne met QUE du chiffre dans un magasin dont deux chemins publics servent tout blob a qui presente le digest, SANS filtre) | **Haute** (le digest verifie le contenu ; mais `ArtifactRef` n'est PAS authentifie — une reference RECONSTRUITE peut annoncer le mode et la retention qu'elle veut, ce qui deplace encore l'egress et ressuscite une lecture expiree ; la porte DESTRUCTRICE, elle, est fermee par la provenance) | Moyenne | AES-256-GCM cle FRAICHE par artefact, AAD liant le mode + vecteur dore (`nexus-core-rs/src/artifact_seal.rs`) ; le clair d'un artefact local n'entre jamais dans le magasin LE LONG DU CHEMIN DU VAULT (`ArtifactBlobs::put` reste publique — borne 6) ; suppression = destruction de la cle (**sauf copie prealable de la cle hors de sa capability — borne 10**), REFUSEE pour un artefact publie, refusee sans la cle et refusee avec une cle qui n'OUVRE pas l'artefact ; retention appliquee a la LECTURE. **PRIMITIVE non reliee : 0 call-site en production**, `ArtifactBlobs` sans implementeur. **Aucune custody de cle n'existe** : la capability est rendue a l'appelant et rien ne la persiste (borne 4). Cf. §19.5. |
 
 ---
 
@@ -1971,7 +1972,7 @@ du materiel), disponibilite Moyenne.
 
 | # | Menace (STRIDE) | Sev | Mitigation cablee |
 |---|---|---|---|
-| **T-SECRET-REF-EXFIL** | *Information disclosure* — le materiel d'un credential fuit via une surface durable (journal/receipt/snapshot/trace/export) au lieu de rester derriere la reference opaque | **fermee par TYPE (serialisation) / bornee (reliure)** | Ce que le TYPE ferme, definitivement : `BoundSecret`/`VaultSecret` n'ont AUCUN `Serialize`, donc le materiel ne PEUT PAS etre un champ d'un `RunEvent`/`ActivityReceipt`/snapshot (erreur de compilation, pas de revue) — et cette absence est GARDEE par **DEUX doctests `compile_fail,E0277`**, un par type — `BoundSecret` cote moteur (`secret.rs`) et `VaultSecret` cote hote (`vault.rs`) —, chacun porte par le type lui-meme et chacun mesure DISCRIMINANT (injecter un `impl Serialize` qui expose le materiel fait ECHOUER le doctest correspondant). Le code d'erreur est epingle pour qu'un doctest ne puisse pas verdir sur une erreur de compilation sans rapport. Le canari, lui, n'a jamais garde cette classe : aucune de ses surfaces ne serialise l'un ou l'autre type ; `Debug` redacteur epingle en EGALITE EXACTE (un `!contains(canari)` etait aveugle a un `{:?}` du slice, qui deverse tout en decimal) ; zeroize au drop. Seule la `SecretRef` (un NOM) circule. Precedent : projection needs-free PAR CONSTRUCTION (A9, `T-A11Y-NEEDS-LEAK`). Ce que le type NE ferme PAS : rien n'empeche un appelant d'`expose()` puis de recopier les octets dans un `String` qui, lui, se serialise — c'est la reliure (adaptateur d'effet) qui doit ne jamais le faire, et il n'existe pas encore (DS-1). Canari WA-T1 `secret::tests::canary_absent_everywhere` : **bras ROUGE sur la surface de PROD** (une `ActivityReceipt` dont les `facts` portent le materiel expose DOIT etre detectee) puis bras vert sur les 5 surfaces reelles, recherche sous SIX encodages — texte, tableau decimal `serde_json`, tableau decimal `Debug`, **texte JSON-echappe** (derive du serialiseur lui-meme, pas devine), **hex**, **base64 standard et url-safe** (l'encodage d'un `Authorization: Basic`, le plus plausible d'un credential cloud) — soit SEPT bras de recherche pour six familles d'encodage (base64 standard et url-safe partagent la famille), **chacun avec son controle positif** : cinq dans `the_canary_oracle_detects_base64_hex_and_json_escaping`, les deux premiers (texte brut, tableau decimal `serde_json`) dans les bras ROUGES de `canary_absent_everywhere` lui-meme — et les encodeurs sont ecrits a la main pour ne pas depenser la Day-0 0-dep sur un helper de test ; jumeau at-rest `vault_bind_rotate_zeroize` avec ses deux controles positifs, RECOPIE et non partage (les deux crates ne dependent pas l'un de l'autre) et volontairement moins riche : il fouille un blob scelle, pas un document rendu. Sans le bras rouge, le canari passait vert meme en derivant `Serialize` sur `BoundSecret` — il ne prouvait que « je n'ai rien mis dedans ». |
+| **T-SECRET-REF-EXFIL** | *Information disclosure* — le materiel d'un credential fuit via une surface durable (journal/receipt/snapshot/trace/export) au lieu de rester derriere la reference opaque | **fermee par TYPE (serialisation) / bornee (reliure)** | Ce que le TYPE ferme, definitivement : `BoundSecret`/`VaultSecret` n'ont AUCUN `Serialize`, donc le materiel ne PEUT PAS etre un champ d'un `RunEvent`/`ActivityReceipt`/snapshot (erreur de compilation, pas de revue) — et cette absence est GARDEE par **DEUX doctests `compile_fail,E0277`**, un par type — `BoundSecret` cote moteur (`secret.rs`) et `VaultSecret` cote hote (`vault.rs`) —, chacun porte par le type lui-meme et chacun mesure DISCRIMINANT (injecter un `impl Serialize` qui expose le materiel fait ECHOUER le doctest correspondant). Le code d'erreur annote DOCUMENTE la raison mais ne l'enforce PAS — mesure Phase M sur rustc 1.95.0, editions 2021 ET 2024 : un bloc annote `E0277` dont l'erreur reelle est `E0432` passe quand meme, seul « ca a compile » fait echouer le bloc. Ce qui empeche un doctest de verdir sur une erreur sans rapport est le doctest JUMEAU qui COMPILE, meme import et meme surface (un renommage rougit le jumeau). Les jumeaux sont poses cote moteur (`secret.rs`, `artifact_acl.rs` x2) ; `vault.rs` cote hote reste a apparier — carry `sprint84_audit_plan.md`. Le canari, lui, n'a jamais garde cette classe : aucune de ses surfaces ne serialise l'un ou l'autre type ; `Debug` redacteur epingle en EGALITE EXACTE (un `!contains(canari)` etait aveugle a un `{:?}` du slice, qui deverse tout en decimal) ; zeroize au drop. Seule la `SecretRef` (un NOM) circule. Precedent : projection needs-free PAR CONSTRUCTION (A9, `T-A11Y-NEEDS-LEAK`). Ce que le type NE ferme PAS : rien n'empeche un appelant d'`expose()` puis de recopier les octets dans un `String` qui, lui, se serialise — c'est la reliure (adaptateur d'effet) qui doit ne jamais le faire, et il n'existe pas encore (DS-1). Canari WA-T1 `secret::tests::canary_absent_everywhere` : **bras ROUGE sur la surface de PROD** (une `ActivityReceipt` dont les `facts` portent le materiel expose DOIT etre detectee) puis bras vert sur les 6 surfaces du sweep — les CINQ PREMIERES sont des rendus de types de PRODUCTION ; la 6e, `artifact_public_store`, ajoutee par la Phase M, est le MODELE du magasin de blobs que `/blob-serve` et `BLOBS_ALPN` serviront A LA RELIURE (`ArtifactBlobs` n'a aucun implementeur de production — borne 6 de §19.5 — et aucun test n'atteint ces deux chemins), alimente en publiant le canari sous un MODE qui DOIT sceller, avec son propre BRAS ROUGE : publier la meme charge en mode `published` DOIT faire trouver le canari dans cette surface, faute de quoi un collecteur casse laisserait le sweep vert sur une surface VIDE, recherche sous SIX encodages — texte, tableau decimal `serde_json`, tableau decimal `Debug`, **texte JSON-echappe** (derive du serialiseur lui-meme, pas devine), **hex**, **base64 standard et url-safe** (l'encodage d'un `Authorization: Basic`, le plus plausible d'un credential cloud) — soit SEPT bras de recherche pour six familles d'encodage (base64 standard et url-safe partagent la famille), **chacun avec son controle positif** : cinq dans `the_canary_oracle_detects_base64_hex_and_json_escaping`, les deux premiers (texte brut, tableau decimal `serde_json`) dans les bras ROUGES de `canary_absent_everywhere` lui-meme — et les encodeurs sont ecrits a la main pour ne pas depenser la Day-0 0-dep sur un helper de test ; jumeau at-rest `vault_bind_rotate_zeroize` avec ses deux controles positifs, RECOPIE et non partage (les deux crates ne dependent pas l'un de l'autre) et volontairement moins riche : il fouille un blob scelle, pas un document rendu. Sans le bras rouge, le canari passait vert meme en derivant `Serialize` sur `BoundSecret` — il ne prouvait que « je n'ai rien mis dedans ». |
 | **T-SECRET-VAULT-LIFECYCLE** | *Tampering/Information disclosure* — rotation qui laisse l'ancien materiel recuperable, suppression incomplete, KEK persistant en memoire, ou downgrade des parametres KDF du blob | **fermee (falsification PARTIELLE au repos) / bornee (rollback du fichier entier)** | Chaque entree scellee AES-256-GCM sous KEK avec nonce FRAIS ; AAD = `DOMAIN_KEYSTORE_V1` + sous-contexte + header (salt+params KDF — `param_downgrade_in_header_is_refused`) + NOM de la ref length-prefixe (`tampered_ref_binding_fails`). **ENTREE-VERIFICATEUR** (`VAULT_CHECK_REF`, inatteignable car `validate_ref` refuse les caracteres de controle — `check_entry_is_unreachable_from_user_operations`) : ouverte INCONDITIONNELLEMENT a l'unlock, elle prouve le PIN meme sur un coffre VIDE (`wrong_pin_on_empty_vault_is_refused` — avant, tout coffre neuf ouvrait sous n'importe quel PIN et un `put` perdait le secret sous un KEK errone), authentifie le header meme a vide, et ne dechiffre AUCUN credential reel (avant, la sonde ouvrait l'entree lexicographiquement premiere dans un `Vec<u8>` non zeroise). Son plaintext porte `epoch ‖ blake3(set trie)` : rejeu d'une ancienne `(nonce,ct)` (`replaying_an_old_ciphertext_is_refused`) et delete silencieux (`deleting_an_entry_behind_the_vault_is_detected`) sont DETECTES — donc **la rotation est durable dans les DEUX sens**, sous les bornes ci-dessous. **Lecture ET ecriture** : `bind` relit l'epoch on-disk et fail-close en `ConcurrentModification` si le handle est perime (`stale_handle_bind_serves_nothing_after_a_revocation` — sans cette moitie, un daemon a handle long-lived continuait de SERVIR un credential qu'un autre process avait supprime ou rote, l'AAD d'une entree ne liant pas l'epoch) — **sauf apres la collision lost-update de la borne (3) ci-dessous**, ou le handle porte l'epoch du disque avec un BODY perime et ou `bind` sert donc une entree revoquee, recovery par `reload()` sans re-saisie de PIN ni Argon2 ; chaque commit relit et compare l'epoch monotone (`stale_handle_write_is_refused_not_silently_applied`). `create_new` a l'init (et suppression du fichier reserve si l'ecriture echoue — sinon `AlreadyInitialised` a vie), scratch unique par ECRITURE (`{pid}.{alea}`), `sync_all` du scratch avant le `rename` (inconditionnel) + fsync du repertoire best-effort (Unix, echec avale — cf. borne 11). KEK dans un `SecretBox` zeroize au drop ; tout plaintext ouvert l'est dans un `Zeroizing` ; le digest de derivation du KEK et le bloc retenu par le hasher sont essuyes AUX DEUX sites miroirs (`derive_vault_kek` et `combine_keks`). Vecteur dore hex sur la formule de derivation (`vault_kek_is_domain_separated_from_keystore`) : sans lui, un `blake3(kek1)` nu — sans domaine ni sous-contexte — laissait toute la suite verte. **Bornes honnetes** : (1) rembobiner le FICHIER ENTIER vers une version anterieure coherente (blob + son entree-verificateur, via backup/snapshot FS, coupure secteur incluse) reste indetectable de l'interieur — il faut un compteur hors-artefact, et le precedent maison le moins cher est un SIDECAR (`anchors.json` persiste la `revision` comme plancher anti-rollback, `iroh_runtime.rs`, test committe) : **TPM/keyring n'est PAS un prealable** ; (2) un `delete` retire du set scelle, ce n'est pas un wipe-secteur (les blocs de l'ancien inode subsistent) ; (3) le scratch etant unique par ECRITURE, il n'y a plus de collision de scratch ni pour un process ni pour deux — mais la fenetre relecture→`rename` n'est verrouillee dans aucun des deux cas : deux writers concurrents peuvent encore perdre une mise a jour (dernier `rename` gagnant, les deux blobs portant le MEME epoch, donc rollback indetectable entre eux). L'epoch est un compteur de version, pas un jeton propre au writer. **Et la consequence depasse « une mise a jour perdue »** : une fois la collision survenue, les DEUX handles portent l'epoch du disque, donc `refuse_if_stale` passe pour chacun alors que l'un detient un BODY perime. Chacun dispose alors d'UNE ecriture non gardee, et une ecriture ulterieure de l'un annule silencieusement la revocation de l'autre — la classe ex-P1-4, sans adversaire. C'est un des etats — PAS le seul — ou la moitie LECTURE ci-dessus tombe : `bind` sert alors une entree revoquee. Les deux autres, sans aucune collision (Codex round 3, borne 27) : (i) la garde d'epoch et la lecture du body ne sont pas atomiques, donc un `bind` ADMIS a l'epoch `n` peut se terminer APRES un `delete` commis a `n+1` ; (ii) meme termine AVANT la revocation, le `VaultSecret` deja rendu est consomme par le fournisseur APRES elle. Les deux sont LINEARISABLES (le bind est admis a la garde) et relevent donc de la SEMANTIQUE a enoncer, pas du defaut : un bind admis avant une revocation peut se terminer — et etre utilise — apres elle. Seule une revocation dure (bail tenu jusqu'au point d'usage du fournisseur) les fermerait. Fermeture = un verrou couvrant relecture→`rename` (verrou consultatif de repertoire, ou sentinelle `create_new`) ; c'est de la dette, comme le fsync de repertoire de la borne 11. |
 | **T-HITL-APPROVAL-TAMPER** | *Tampering* — un champ du tuple (destination, digest sortant, cout max, verdict, capacite...) est mute APRES l'approbation humaine pour rediriger/amplifier l'effet | **bornee (primitive gravee, reliure DS-1)** | Ce que la primitive ferme : l'approbation est liee au `hitl_binding_digest` du tuple COMPLET — **15 champs**, dont `capability_ref` (une approbation obtenue pour une capacite ne peut en decider une autre, `approval_is_bound_to_one_capability`) et `decision` (un refus et une autorisation n'ont JAMAIS le meme digest, `a_refusal_never_decides_a_ref`) ; a l'emission le moteur recalcule le digest depuis le tuple REEL et exige l'egalite. `mutation_invalidates_approval` : un mutateur par champ, exhaustivite tenue par DEUX controles aux portees DISTINCTES — la destructuration sans `..` attrape un champ AJOUTE a la struct (ne compile plus), le `assert_eq!(mutators.len(), 15)` attrape un mutateur RETIRE. Ni l'un ni l'autre n'attrape le troisieme cas : un champ ajoute puis silencie par `champ: _,`. Ce residu est ASSUME et borne — un champ ordinaire rougit deux fois ailleurs (vecteur dore du digest, jambe `HITL-PARITY`), seul un champ `#[serde(skip)]` passerait, c'est-a-dire precisement celui pour lequel « toute mutation invalide » serait faux. Plus un controle positif de non-vacuite, et un test qui valide `HitlBinding::new` POSITION PAR POSITION (11 champs chaines, chacun avec l'assertion du `kind` rapporte — sans quoi une boucle validant onze fois le meme champ passait). Composition prouvee jusqu'a la couche 7 : `decided_ref_gates_layer_seven` (ref decidee franchit / absente tombe / tuple mute tombe). Ce qui reste borne : le moteur est KEYLESS, il ne verifie aucune signature ; il exige un temoin `HostVerifiedApproval` dont le seul constructeur est nomme d'apres sa precondition (`attest_verified_signature`), ce qui ferme l'accident de l'AUTO-VALIDATION (l'ancienne signature `signed_digest: &str` acceptait un digest que l'appelant calculait lui-meme) mais PAS le mensonge d'un hote qui attesterait sans verifier. L'ensemble d'autorite est desormais TYPE : `HitlValidity::decided_refs` est PRIVE et ne se peuple que de `DecidedRef`, dont `decide_ref` est le SEUL producteur — le contournement « je fabrique moi-meme mes refs decidees » (plus court que l'auto-validation, puisqu'il suffisait de construire l'ensemble depuis la file PENDANTE) ne compile plus depuis un autre crate. Portee exacte : `pub(crate)` ferme la porte aux autres CRATES, pas aux autres MODULES de celui-ci — c'est une propriete de TYPE qu'aucun test ne peut faire rougir, et la reliure vivant dans ce meme crate doit passer par `decide_ref`. Et **0 call-site** : aucun code de production ne franchit encore cette porte. |
 | **T-HITL-FORGE-REPLAY** | *Spoofing/Repudiation* — une approbation est forgee (sans la cle hote) ou une approbation ancienne est rejouee | **fermee (forgerie de signature) / bornee (replay + reliure) / NON MITIGEE (repudiation, cf. borne 21)** | La signature hote (`sign_hitl_approval`/`verify_hitl_approval`) est une Ed25519 sur `context-local ‖ digest`, verifiable seulement contre la cle identite du noeud — un forgeur sans cle echoue (`a_different_key_is_rejected`), et une signature emise pour un autre usage ne verifie pas comme approbation (`context_separation_binds_the_signature`). La classe SMALL-ORDER est refusee NOMMEMENT (`is_weak()` + `verify_strict`, `a_small_order_key_cannot_forge_an_approval`, patron `pack.rs` de la Phase F) : sans elle, un `approver_pubkey` = point identite avec `(R = identite, S = 0)` satisfait l'equation permissive pour N'IMPORTE QUEL digest, sans cle privee — « le detenteur de la cle a signe » devient une phrase FAUSSE. Durcissement LOCAL : `crypto::verify` reste non-strict pour ses appelants historiques (canari, FROST), qui documentent en dependre. Le test porte l'assertion de sanite du patron (la forgerie satisfait bien l'equation permissive), sans laquelle il ne distinguerait pas une forgerie refusee d'une entree malformee. Replay : nonce mono-usage + seq + expiration sont DANS le tuple (donc dans le digest) et `verify_binding` refuse a la borne (`expiry_is_enforced`). Bornes : la CONSOMMATION mono-usage reste celle de `wait.signal` (`T-RUN-SIGNAL-FORGE-REPLAY` v26 : `INSERT OR IGNORE`, CAS atomique) et **rien ne relie encore les deux** — aucun code ne consomme un nonce a l'occasion d'une approbation ; c'est la reliure. |
@@ -2062,7 +2063,9 @@ une primitive d'autorite non reliee doit dire ce qu'elle ne garantit pas.
    **PLANCHER** d'approbation EN MEME TEMPS que le producteur de decisions,
    sinon la couche 7 ne gate jamais rien — un no-op silencieux qu'aucun test ne
    peut attraper, le drop fail-closed n'ayant jamais d'entree.
-15. **Le canari couvre 5 rendus du moteur + le blob au repos.** Il ne parcourt
+15. **Le canari couvre 6 rendus du moteur + le blob au repos** (la 6e surface,
+   `artifact_public_store`, est ajoutee par la Phase M — cf. §19.5). Il ne
+   parcourt
    PAS `runs.input_payload`, `snapshots.state`, `signals.payload`, l'env
    `SBFB_EFFECT_INPUT` ni la ligne side-output — vacueusement propres tant qu'il
    y a 0 call-site, mais EXISTANTS. Et l'invariant de A14 vaut pour la route
@@ -2311,6 +2314,159 @@ Palier T2 WA-T1.8/WA-T1.11/WA-T4 (approuver dans le chrome hote ; secret canari
 absent partout) : evidence = tests canari + a11y ; `NOT-RUN` jusqu'a AI2. Le plan
 gele cite « WA-T1.6 », qui est en realite « atteindre `waiting_human` » (Phase K)
 — l'item L1 est WA-T1.8, et le canari WA-T1.11.
+
+### 19.5 Surface artefacts, mode de publication et ACL de lecture (Sprint 83 Phase M)
+
+Meme posture DS-1 que §19.3 et §19.4 : la primitive existe et est testee, **aucune
+route de production ne la CONSOMME** (aucun effet ne publie encore d'artefact).
+Les statuts ci-dessous sont donc des proprietes de la PRIMITIVE.
+
+**Asset A16 — artefact durable de run.** Trust boundary : le magasin de blobs du
+noeud, dont DEUX chemins publics servent tout blob a qui presente son digest —
+`/blob-serve` monte dans `public_routes` (« no bearer, no Host check, no Origin
+check », `nexus-shell-daemon/src/http.rs:272`) et `BlobsProtocol::new(&store,
+None)` sur `BLOBS_ALPN` (`nexus-core-rs/src/node.rs:442`), **sans aucun filtre par
+blob**. Confidentialite **Haute** (une sortie de run peut porter des donnees
+personnelles), integrite Haute, disponibilite Moyenne.
+
+**Invariant cardinal** : connaitre le digest ne donne PAS le droit de lire. Il
+n'est PAS tenu par une verification d'autorisation — aucun des deux chemins
+ci-dessus n'execute le code du moteur, donc une telle verification serait une
+affirmation que le reseau contredit. Il est tenu **STRUCTURELLEMENT** : pour le
+mode `local`, le CLAIR n'entre jamais dans le magasin **le long du chemin du
+vault** (borne 6 — la porte est fermee au niveau du vault, pas du crate). Ce qu'un digest adresse est
+du chiffre ; le droit de lecture est la CLE, portee par une capability distincte
+(`ReadCapability`, sans `Serialize`, `Debug` redacteur, zeroize au drop, absence
+de `Serialize` gardee par un doctest `compile_fail,E0277` mesure discriminant).
+Corollaire : la decision S16 (`http.rs:246-256`, « the blob content is already
+public by construction ») n'est **PAS revoquee** — elle reste vraie parce que M ne
+soumet aucun clair confidentiel a ce magasin.
+
+**DEUX modes, parce que le systeme n'en a que deux** (arbitrage PO 2026-07-28).
+Un artefact est soit PUBLIE — stocke en clair, donc **deja joignable par tout
+pair** —, soit LOCAL — scelle, donc jamais sorti. Fondement : scope cut 10 du
+sprint (enveloppe chiffree recipient-scoped = FUTURE), `G-NETWORK` (« Task
+partagee public-only sans envelope chiffre ») et le plancher MVP de la Phase P.
+
+Deux redactions anterieures portaient davantage, toutes deux retirees APRES
+MESURE : (1) une liste de lecteurs autorises — aucun mecanisme ne peut leur
+transmettre la cle, elle aurait nomme des lecteurs incapables de lire ; (2) quatre
+classes `public`/`prive`/`secret`/`reseau` — `public` et `reseau` sont le MEME
+mode, un blob stocke en clair etant deja servi a tout dialeur par les deux chemins
+ci-dessus, et `prive` vs `secret` reposait sur un predicat de rendu a zero
+appelant alors que le materiel de credential a son propre type non-serialisable
+depuis L1 (A14).
+
+| mode | stocke | quitte le noeud | suppression |
+|---|---|---|---|
+| `published` | clair | oui — immediatement, vers tout pair | **impossible** (refusee) |
+| `local` | scelle | non | **reelle** — la cle est detruite |
+
+| # | Menace (STRIDE) | Sev | Mitigation cablee |
+|---|---|---|---|
+| **T-ARTIFACT-DIGEST-AS-READ-RIGHT** | *Information disclosure* — un tiers qui a vu passer le digest d'un artefact local (journal, plan, payload compute) obtient son contenu par un chemin qui ne traverse pas le moteur | **fermee STRUCTURELLEMENT (mode local, chemin du vault) / sans objet (mode publie)** | Le clair d'un artefact local n'entre jamais dans le magasin : `ArtifactVault::publish` est la seule porte vers `put` **a travers ce type**, et elle scelle avant. Test `digest_is_not_read_right` a QUATRE bras : (1) chemin public — recuperer le digest via le magasin non authentifie ne rend pas le clair ; (2) etiquette forgee — une reference re-etiquetee `published` sur le meme digest ne rend que du chiffre ; (3) capability — sans la cle pas de lecture, avec elle oui ; (4) **controle positif** — un artefact publie portant le MEME canari EST trouve par la meme recherche, sans quoi les trois premiers bras passeraient aussi avec une recherche cassee ou un magasin vide. Mutation-teste. **Borne (borne 6 ci-dessous)** : `ArtifactBlobs` est un trait PUBLIC re-exporte, `put` prend des octets arbitraires — du code tiers peut stocker du clair puis forger une reference `local`. La garantie porte sur le chemin du vault, pas sur le crate entier ; la fermer exigerait un newtype `StoredBytes` (idiome `DecidedRef`). |
+| **T-ARTIFACT-MODE-RELABEL** | *Tampering* — le detenteur des octets re-etiquette un artefact scelle en `published` pour le faire ouvrir par l'hote | **fermee au repos (AAD) / bornee (reference non authentifiee)** | L'AAD du scellement AES-256-GCM lie le mode : `sbfb.artifact.seal.v1 ‖ 0x1f ‖ libelle`, libelles epingles LITTERALEMENT (`mode_labels_are_distinct_and_stable`) et forme exacte epinglee par un VECTEUR DORE (`aad_matches_its_golden_vector` — sans lui, `seal` et `open` derivant du meme helper, le round-trip est aveugle par construction : reduire l'AAD au libelle nu laissait toute la suite verte). Ouvrir sous l'autre mode echoue. Le mode traverse la couture en PARAMETRE, sur les DEUX bras (`seal` et `unseal`), avec un test bout-en-bout sous crypto reelle — lier le mode a l'instance du sealer faisait diverger silencieusement l'etiquette de la reference (perte de donnees mesuree). **Borne** : `ArtifactRef` n'est pas authentifie (borne 2). |
+| **T-ARTIFACT-DELETION-THEATRE** | *Repudiation* — l'API annonce une suppression que le systeme ne peut pas produire, l'utilisateur croit ses donnees detruites | **fermee (vocabulaire et refus) / bornee (octets)** | Pour un artefact LOCAL, supprimer detruit la CLE : le chiffre devient illisible **pour un detenteur qui n'a pas recopie la cle hors de sa capability** (borne 10 : `ReadCapability::expose` rend un emprunt qu'un `.to_vec()` transforme en copie possedee, et `ReadCapability::new` reconstruirait une capability fonctionnelle — meme route COPIE que celle deja bornee pour les secrets a §19.4). Les octets ne sont pas effaces — `blobs.rs:130-133` dit que larguer le dernier tag rend le blob GC-eligible « though no GC is scheduled today » — mais plus personne ne peut les lire. Pour un artefact PUBLIE, la suppression est **REFUSEE** plutot que mal faite : son clair est dans le magasin, le magasin repond a tout pair, des copies peuvent exister ailleurs. Supprimer un artefact local SANS sa capability est egalement refuse : l'appel ne peut pas detruire une cle qu'on ne lui donne pas. **Et la capability doit OUVRIR l'artefact, pas seulement exister** : le controle est un `unseal`, pas un `Option::is_some` (`deleting_with_a_foreign_capability_is_refused`). **Deux controles et non un** — correction apportee par la verification externe Codex : `unseal` seul prouve que la cle ouvre les octets que la COUTURE A RENDUS, jamais que ces octets sont ceux que la reference nomme. Mesure : avec le chiffre valide d'un artefact tiers servi sous le digest de la victime, `delete(victime, cle_du_tiers)` rendait `Ok(())` et de-taggait la victime dont la vraie cle l'ouvrait encore — du deletion theatre par l'appel meme charge de ne pas en faire. `delete` re-verifie donc l'ADRESSE DE CONTENU avant de dechiffrer, exactement comme `read` le faisait depuis le debut (`delete_refuses_bytes_that_do_not_match_the_address`). Mesure de la review round 3 sur la revision precedente : `ReadCapability::new` etant publique, n'importe quels 32 octets de-taggaient le blob, droppaient une cle sans rapport et rendaient `Ok(())` pendant que l'artefact restait lisible avec sa vraie cle — la destruction etait fausse dans le cas meme qu'elle devait couvrir. **Et un REFUS rend la capability** (`DeleteRefusal { error, capability }`) : mesure du round 4 sur le correctif du round 3, qui prenait la capability PAR VALEUR avant deux etapes faillibles neuves — un `delete` refuse zeroisait donc la cle qu'on lui avait confiee, y compris celle d'un artefact SANS RAPPORT offerte par erreur (`ReadCapability` n'etant pas `Clone`, l'appelant n'avait aucun moyen d'en garder copie). Le test assere desormais le droit de LECTURE de l'artefact tiers, pas seulement son tag. `delete` rend `()` et non un enum d'issue — avec deux modes il n'y a qu'une seule facon de reussir ; la version precedente derivait l'issue de l'ARGUMENT et rendait « cette classe ne porte pas de cle » sur un artefact scelle, faux deux fois. |
+| **T-ARTIFACT-RETENTION-BYPASS** | *Information disclosure* — un artefact expire reste lisible | **fermee (combinaison impossible) / bornee (politique, pas revocation)** | L'expiration est appliquee sur le chemin de LECTURE (aucun reaper n'existe), borne INCLUSIVE epinglee des deux cotes. Une deadline sur un artefact PUBLIE est desormais **REFUSEE A LA PUBLICATION** (`RetentionOnPublished`, refus AVANT le `put`) : mesure d'une sonde de review — le vault cessait bien de rendre le clair apres la deadline pendant que le magasin non authentifie continuait de le servir a tout pair, donc la combinaison vendait une expiration que le reseau ignore. **Borne dite** : pour un artefact LOCAL, la retention vit dans une `ArtifactRef` que le porteur peut reconstruire avec `Keep` — reforger la reference ressuscite le clair pour un detenteur de capability. La retention est une politique que le detenteur peut decliner d'honorer ; la seule revocation reelle est la destruction de la cle. |
+| **T-ARTIFACT-FORGED-REF-DESTRUCTIVE** | *Tampering* — une reference forgee autorise une operation DESTRUCTRICE sur un artefact qu'elle ne decrit pas | **fermee (provenance non falsifiable) / bornee (egress)** | Trouve par une sonde de review, et ATTEIGNABLE : re-etiqueter un digest `published` en `local` faisait de-tagger le blob par `delete` et rendre `Ok(())`, alors que le magasin continuait de servir le clair — une destruction rapportee comme reussie qui n'avait rien detruit. `ArtifactRef` porte desormais une origine PRIVEE (`RefOrigin`, `#[serde(skip)]`, aucun constructeur public de la variante `ThisVault`) : le seul producteur est `ArtifactVault::publish`, et `delete` refuse toute reference non mintee localement (`UntrustedReference`). Le seul constructeur public est `ArtifactRef::from_untrusted_wire`, dont le NOM est l'avertissement. Mutation-teste : retirer la garde fait rougir `delete_refuses_a_reference_this_vault_did_not_mint`. **Second tour de la meme menace, ferme au round 3** : une origine privee ne suffisait pas, parce qu'un champ prive interdit la CONSTRUCTION et jamais l'assignation a un champ `pub` d'une valeur qu'on possede deja. Muter `mode` EN PLACE sur une reference authentiquement mintee conservait `ThisVault`, donc `delete` de-taggait un artefact PUBLIE et rendait `Ok(())` ; repointer `digest` de la meme facon de-taggait un blob sans rapport — un primitif de de-tag ARBITRAIRE. **Les trois champs sont desormais PRIVES** (accesseurs `digest()`/`mode()`/`retention()`) : editer une reference oblige a repasser par `from_untrusted_wire`, donc une reference EDITEE est exactement aussi untrusted qu'une reconstruite. Gardes : doctest `compile_fail,E0616` (hors crate) + `an_edited_reference_loses_its_provenance`. La classe est fermee pour TOUS les consommateurs des champs — `read`, `authorise_read`, `authorise_egress`, `authorise_delete` —, pas seulement pour `delete`. **Borne** : `authorise_egress` reste decide sur l'etiquette — re-etiqueter un `local` en `published` fait dire oui. Ce qui sort est du chiffre que personne ne peut ouvrir (evenement d'integrite, pas de divulgation) ; la fermeture propre est la provenance signee de la Phase M1. |
+| **T-ARTIFACT-LOCAL-EGRESS** | *Information disclosure* — un artefact local quitte le noeud | **bornee (predicat non relie)** | `may_leave_node()` est faux pour `local` (plancher public-only : un artefact scelle qui voyagerait ne pourrait etre ouvert par personne la-bas, rien ne distribuant sa cle). La table mode→politique est verifiee contre une table LITTERALE independante (`mode_policy_matches_the_literal_table`), parce que des tests derivant leur attente du predicat teste restaient verts sous une mutation coherente. Le canari A14 gagne une 6e surface, `artifact_public_store`, mutation-testee. **Borne** : `authorise_egress` n'a AUCUN appelant de production — c'est une porte disponible, pas une barriere active. |
+
+**Bornes honnetes (ce que M ne ferme PAS).**
+
+1. **0 call-site de production**, comme L/L1 : aucun effet ne publie d'artefact,
+   `ArtifactBlobs` n'a aucun implementeur de production (le `BlobsClient` du
+   daemon est l'implementeur PREVU). `ArtifactSealer` en a un
+   (`nexus-shell-daemon/src/artifact_sealer.rs`), non appele.
+2. **`ArtifactRef` n'est pas authentifie — sauf sur la porte destructrice.** Tous
+   ses champs sont PRIVES depuis le round 3 et il porte une ORIGINE que seul
+   `publish` peut poser, donc editer une reference revient a la reconstruire et
+   lui coute sa provenance : `delete` refuse toute reference non mintee
+   localement. Restent ouverts : CONSTRUIRE une reference annoncant le MODE
+   qu'on veut deplace encore `authorise_egress` (ce qui sort est du chiffre
+   inouvrable — integrite, pas divulgation), et annoncer la RETENTION `Keep`
+   ressuscite une lecture expiree pour un detenteur de capability. Lier une
+   reference a son producteur DE BOUT EN BOUT est le travail de provenance de la
+   Phase M1.
+3. **Perte de la deduplication** pour les artefacts locaux : une cle fraiche par
+   artefact fait que deux charges identiques produisent deux chiffres et deux
+   digests differents. Prix assume de la garantie de shredding.
+4. **Aucune custody de cle d'artefact n'existe, donc AUCUNE borne at-rest ne la
+   couvre.** `seal_artifact` frappe la cle depuis le CSPRNG de l'OS et la rend a
+   l'appelant comme capability ; rien ne la persiste, ni dans
+   `nexus_core_rs::vault` ni dans `keystore` (mesure : aucune API artefact dans
+   l'un ou l'autre). Consequence pratique : une capability meurt avec le
+   processus, donc un artefact `local` est de facto illisible apres redemarrage,
+   et `ArtifactRetention::Keep` est une POLITIQUE sans support de persistance.
+   L'enonce « at-rest = Argon2id(PIN) seul, couche 2 OS-keyring INERTE (borne 25,
+   carry `KEYSTORE-LAYER2-INERT`) » reste vrai de ce que `vault` garantit POUR
+   SES PROPRES entrees, et est cite ici comme le PATRON qu'une custody future
+   devra suivre — pas comme une protection que M fournit. Une redaction
+   anterieure disait « la cle de scellement vit dans le coffre de l'hote » : c'etait
+   faux, et le module frere du meme commit ecrivait l'inverse.
+5. **Oracle de taille** : la longueur du chiffre reste observable par quiconque
+   recupere le blob, meme sans la cle — meme classe residuelle que la borne 16.
+6. **La porte du magasin n'est fermee qu'au niveau du VAULT**, pas du crate :
+   `ArtifactBlobs::put` est publique et re-exportee. Fermeture = newtype
+   `StoredBytes` dont le seul constructeur est le chemin de scellement.
+7. **Rien n'oblige un implementeur de `ArtifactSealer::seal` a sceller
+   reellement.** Un sealer STRICTEMENT conforme au trait qui rendrait le clair
+   tel quel comme `stored` ferait entrer le clair d'un artefact `local` dans le
+   magasin non authentifie, et `publish` ne re-verifie pas. L'obligation est
+   desormais ECRITE sur la methode (« load-bearing for `G-ARTIFACT-ACL` »), mais
+   c'est de la prose, pas du type — le newtype `StoredBytes` de la borne 6
+   fermerait la porte du MAGASIN. Un controle `stored != plaintext` ne
+   suffirait pas : `clair ‖ padding` le franchit. Aujourd'hui il existe un seul
+   implementeur, reel (AES-256-GCM) et teste bout-en-bout.
+   **Correction de la verification externe** : une redaction anterieure affirmait
+   que ce newtype fermerait « les DEUX portes d'un geste ». FAUX — un newtype
+   rend structurelle la porte `put` ; il ne peut prouver ni qu'un implementeur
+   externe a CHIFFRE, ni qu'il verifie une cle (borne 11).
+8. **La couture `ArtifactBlobs` est synchrone et infaillible** au-dessus d'un
+   implementeur prevu (`BlobsClient`) qui est async et faillible sur ses **neuf**
+   methodes de transfert (la dixieme, `new`, est un simple wrapper — chiffre
+   recompte a la source, `grep -c "pub async fn"`). Cote LECTURE c'est fail-CLOSED (un `None` ressort en
+   `DigestMismatch`) ; cote ECRITURE non : `put` ne peut pas signaler un refus du
+   magasin, donc `publish` rendrait `Ok` pour des octets non stockes, et `untag`
+   ne peut pas signaler d'echec, donc le `Ok(())` de `delete` porte la
+   destruction de la CLE et jamais le largage effectif du tag. Les trois
+   consequences (paniquer plutot que fabriquer un digest ; `untag` best-effort ;
+   bloquer via `spawn_blocking` et jamais un `block_on` naif) sont ecrites sur le
+   trait. Fermeture = passer les trois methodes en `Result` — gratuit tant qu'il
+   n'y a aucun implementeur, fige au premier cablage.
+9. **Un artefact dont le blob a disparu du magasin n'est pas supprimable PAR
+   CETTE API.** La possession se prouve en dechiffrant ; sans octets elle ne se
+   prouve pas, donc `delete` refuse (`DigestMismatch`) et le tag survit.
+   Contrepartie assumee du choix « possession, pas presence ». La garantie qui
+   compte reste disponible : le refus REND la capability, donc l'appelant
+   crypto-shredde en la droppant. Nommee par
+   `deleting_an_artefact_whose_blob_vanished_returns_the_capability`.
+10. **Le crypto-shredding ne survit pas a une COPIE de la cle.** `delete` consomme et
+    zeroise la capability qu'on lui donne, mais `ReadCapability::expose` rend un
+    emprunt qu'un `.to_vec()` transforme en copie possedee, et `ReadCapability::new`
+    est publique : un detenteur qui a recopie les octets rouvre l'artefact apres la
+    suppression. Le TYPE ferme la route SERIALISATION (pas de `Serialize`, garde par
+    un doctest `compile_fail` apparie a un jumeau qui compile) ; ne pas copier reste
+    une discipline de l'appelant. C'est exactement la borne que §19.4 ecrit deja pour
+    `BoundSecret` (« `.to_vec()` is one keystroke away ») — meme classe, meme
+    honnetete. Les deux sites du code la portent (`artifact_acl.rs`, doc de `delete`
+    et de `expose`) ; cette borne est ce qui la rend lisible depuis le document que
+    l'auditeur grep en premier.
+11. **Rien n'oblige `ArtifactSealer::unseal` a AUTHENTIFIER la capability** — la
+    TROISIEME porte de la couture, absente des bornes jusqu'a la verification
+    externe Codex, qui ne couvraient que `seal`. Or `read` lui delegue le DROIT
+    DE LECTURE, `delete` s'en sert comme UNIQUE preuve de possession, et
+    `ReadCapability::new` est publique. Mesure : avec un implementeur
+    type-correct qui ignore son argument `capability` — forme dont le depot
+    contient deja un exemple compile dans un double de test — une capability
+    VIDE et inventee lit puis supprime un artefact local. L'obligation est
+    desormais ECRITE sur la methode ; comme celle de `seal` elle est en prose, et
+    aucun type ne peut la fermer. Le `HostArtifactSealer` reel est correct : il
+    transmet la cle a AES-GCM.
+
+Palier T2 WA-T2.6 (joindre les sorties dans un `ArtifactRef` type) et WA-T5.5
+(quotas, backpressure, retention et suppression) : `NOT-RUN` jusqu'a AI2. WA-T2.7
+(consommer l'artefact depuis une autre app) appartient a la Phase Y ; WA-T5.6
+(mutation de chaque classe de digest/receipt/lineage) a la Phase M1.
 
 ## 20. Revue et evolution
 
@@ -2655,6 +2811,55 @@ Historique versions :
   INCHANGE, 0 bump wire, 0 dep runtime neuve (dep intra-workspace
   engine→core seule). Re-coupe B6 : routes daemon + D7 + golden_http +
   clôture docs-contrat = Phase I1.
+- **v29 (Sprint 83 Phase M, 2026-07-28)** : ajout **§19.5 Surface artefacts,
+  mode de publication et ACL de lecture** + asset **A16** (artefact durable de
+  run, ligne ajoutee dans §2 comme l'impose §20 item 3). **6 rows neuves** —
+  compte recompte a la source (`grep -c '^| \*\*T-ARTIFACT'`) plutot que
+  recopie, statuts recopies VERBATIM de la table :
+  **T-ARTIFACT-DIGEST-AS-READ-RIGHT** *fermee STRUCTURELLEMENT (mode local,
+  chemin du vault) / sans objet (mode publie)* — le clair d'un artefact local
+  n'entre jamais dans le magasin le long du chemin du vault, test
+  `digest_is_not_read_right` a 4 bras dont un controle positif ;
+  **T-ARTIFACT-MODE-RELABEL** *fermee au repos (AAD) / bornee (reference non
+  authentifiee)* — libelles epingles litteralement + vecteur dore de l'AAD, le
+  mode traverse la couture en PARAMETRE sur les DEUX bras ;
+  **T-ARTIFACT-DELETION-THEATRE** *fermee (vocabulaire et refus) / bornee
+  (octets)* — supprimer un artefact PUBLIE est refuse, supprimer un LOCAL sans
+  sa capability aussi, et une capability qui n'OUVRE pas l'artefact est refusee
+  (le controle est un `unseal`, pas un `is_some`) ;
+  **T-ARTIFACT-RETENTION-BYPASS** *fermee (combinaison impossible) / bornee
+  (politique, pas revocation)* — une deadline sur un artefact PUBLIE est refusee
+  a la publication ; reforger la reference avec `Keep` ressuscite le clair ;
+  **T-ARTIFACT-FORGED-REF-DESTRUCTIVE** *fermee (provenance non falsifiable) /
+  bornee (egress)* — `RefOrigin` prive, `delete` refuse une reference non
+  mintee localement, et les trois autres champs d'`ArtifactRef` sont PRIVES
+  depuis le round 3 : muter une reference authentiquement mintee (ce qu'une
+  origine privee seule n'empechait pas) donnait un de-tag arbitraire ;
+  **T-ARTIFACT-LOCAL-EGRESS** *bornee (predicat non relie)* — table
+  mode→politique verifiee contre une table LITTERALE independante, canari A14
+  porte a **6 surfaces** (`artifact_public_store` — le MODELE du magasin, non un
+  chemin de production ; avec son bras ROUGE).
+  L'ordre ci-dessus suit celui de la table §19.5.
+  Ces fermetures viennent de sondes de review qui les ont
+  montrees ATTEIGNABLES, pas d'une relecture.
+  Bornes portees de 6 a **11** : obligation d'implementeur sur `seal` (7),
+  couture `ArtifactBlobs` infaillible cote ecriture (8), artefact au blob
+  disparu non supprimable par l'API (9), crypto-shredding qui ne survit pas
+  a une COPIE de la cle (10, meme classe que la route COPIE de §19.4), et
+  obligation d'implementeur sur `unseal` (11, ouverte par la verification
+  externe Codex — les bornes ne couvraient que `seal`).
+  0 famille `DOMAIN_*` neuve (census **29** inchange), 0 bump wire, 0 dep
+  runtime neuve.
+  **DEUX arbitrages PO du 2026-07-28, tous deux consecutifs a un challenge sur
+  la doctrine** : (1) pas de partage selectif — une premiere redaction portait
+  une liste de lecteurs autorises, RETIREE faute de tout mecanisme capable de
+  leur transmettre la cle (scope cut 10) ; (2) **DEUX modes et non quatre** —
+  `public` et `reseau` sont le meme mode (un blob en clair est deja servi a tout
+  dialeur par `BLOBS_ALPN`, sans filtre), et `prive` vs `secret` reposait sur un
+  predicat de rendu a zero appelant alors que le materiel de credential a son
+  propre type non-serialisable depuis L1. Ecart assume au ch.24 du Research
+  Pack, qui nommait quatre classes.
+  Provenance signee et lineage = Phase M1.
 - **v28 (Sprint 83 Phase L1, 2026-07-24)** : ajout **§19.4 Surface coffre
   de secrets et HITL hote signe** (livre le PRODUCTEUR de la couche 7 laissee
   vide en L ; elle reste VIDE en production, cf. DS-1)

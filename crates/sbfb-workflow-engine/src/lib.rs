@@ -177,6 +177,7 @@
 //! outlives the process cannot leak prompt or output content.
 
 pub mod activity;
+pub mod artifact_acl;
 pub mod capability;
 pub mod clock;
 pub mod echo;
@@ -198,6 +199,10 @@ pub use activity::{
     ACTIVITY_RECEIPT_KIND, Activity, ActivityError, ActivityReceipt, EffectContext,
     FencedFileActivity, PollOutcome, ScriptedActivity, UNFENCED_EPOCH, fenced_side_output_count,
     read_fenced_side_outputs,
+};
+pub use artifact_acl::{
+    ArtifactBlobs, ArtifactDigest, ArtifactError, ArtifactMode, ArtifactPolicy, ArtifactRef,
+    ArtifactRetention, ArtifactSealer, ArtifactVault, DeleteRefusal, ReadCapability,
 };
 pub use capability::{
     ApprovalLevel, BoundedCapability, CapabilityClass, CapabilityGrant, CapabilityPolicy, Ceiling,

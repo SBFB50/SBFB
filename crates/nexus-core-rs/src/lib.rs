@@ -36,6 +36,7 @@
 #![warn(missing_docs)]
 
 pub mod activation_commit;
+pub mod artifact_seal;
 pub mod attestations;
 pub mod blobs;
 pub mod canonical;
