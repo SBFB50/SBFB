@@ -2401,11 +2401,60 @@ A/B test S22, etait specifique a Opus 4.7), puis **4.8 → Opus 5 le
 
 EXCEPTION, sens INVERSE, pour les sous-agents d'un Workflow : un
 `agent()` de Workflow retombe sur le defaut Haiku 4.5 s'il n'a pas
-d'override, donc il faut y passer `model: 'claude-opus-5[1m]'`
-EXPLICITEMENT a chaque appel (maps `parallel`/`pipeline` ET etapes de
-synthese). Et quand l'ID de modele change, re-lancer le Workflow a
-NEUF : un `resumeFromRunId` rejouerait le cache des agents de
-l'ancien modele.
+d'override, donc il faut y passer un `model:` EXPLICITEMENT a chaque
+appel (maps `parallel`/`pipeline` ET etapes de synthese). Et quand
+l'ID de modele change, re-lancer le Workflow a NEUF : un
+`resumeFromRunId` rejouerait le cache des agents de l'ancien modele.
+
+MODELE — UN SEUL, PARTOUT (arbitrage PO 2026-07-29). Toutes les etapes
+tournent sur `claude-opus-5[1m]` : audit gate, kickoff, scans de preflight,
+dimensions de review, mutation, refutation, synthese, redaction de rapport,
+suites §7.4, census. **`effort` est le SEUL levier de reglage par etape**
+(matrice ci-dessus). Ne panache PAS les familles.
+
+Pourquoi un seul axe : un process qui ne converge pas se diagnostique en
+faisant varier UNE variable. Melanger les familles ajoute un facteur
+confondant a chaque round — un finding manque devient inattribuable entre
+« effort trop bas » et « modele trop faible ». Le gain suppose ne vaut pas
+la perte de diagnosticabilite.
+
+TRACE — proposition REJETEE le 2026-07-29, conservee pour qu'elle ne soit
+pas re-proposee. Une matrice de MODELE par etape a ete rediged le meme jour
+(Sonnet 5 sur la transformation, Haiku 4.5 sur le mecanique, Opus 5 sur le
+jugement), sur la logique « la matrice d'effort s'applique aussi au
+modele ». Ecartee par arbitrage PO au profit de l'axe unique. Deux faits
+MESURES ce jour-la restent vrais et valent d'etre gardes :
+  - **Fable 5 n'est pas un tier economique** : $10/$50 par MTok, soit le
+    DOUBLE d'Opus 5 ($5/$25) — c'est le modele le plus cher du catalogue,
+    et ses tours durent plusieurs minutes sur les taches dures. Toute
+    proposition de l'utiliser « pour aller plus vite » est fausse par les
+    prix.
+  - **Haiku 4.5 plafonne a 200K de contexte** la ou Opus 5, Sonnet 5 et
+    Fable 5 sont a 1M — il ne pourrait de toute facon pas ingerer les gros
+    diffs de ce depot.
+
+IDS — MESURES, pas supposes (2026-07-29, 7 sondes `agent()`, 0 erreur).
+Ce qui compte pour la regle : `claude-opus-5[1m]` est CONFIRME, et l'override
+de modele est REELLEMENT EFFICACE — pas decoratif. Sept sondes ont chacune
+rapporte la famille qu'on leur demandait, et **seule celle a qui on demandait
+Haiku a repondu Haiku** ; si les IDs n'etaient pas honores, les sept seraient
+retombees sur le defaut Haiku 4.5 et l'auraient dit. La sonde
+`claude-opus-5` a d'ailleurs rapporte d'elle-meme la forme canonique
+« ID claude-opus-5[1m] ».
+
+Limite de la mesure, enoncee : l'auto-report d'un modele est un signal
+fiable sur la FAMILLE, faible sur la VERSION exacte — la sonde
+`claude-sonnet-5[1m]` n'a corrobore ni l'une ni l'autre (« inconnu »), ce qui
+n'est ni une preuve d'echec ni une preuve de succes. N'INVENTE donc aucun
+suffixe : un ID qu'aucune sonde n'a valide peut etre accepte sans erreur ET
+retomber sur Haiku 4.5 — le bug meme que cette regle combat. Refaire une
+sonde (7 agents triviaux, 5 s) est moins cher que de le decouvrir dans un
+round de review.
+
+FRONTMATTERS DES 5 AGENTS : tous sur `claude-opus-5[1m]`, comme le reste du
+process. Ils jouent chacun une etape ENTIERE en solo (fallback quand le
+Workflow n'est pas disponible), donc leur charge est superieure a celle d'un
+agent de dimension — c'est un argument de plus pour ne jamais les descendre.
 
 EFFORT — MATRICE PAR ETAPE (amendement 2026-07-29, Opus 5).
 L'effort se choisit par ETAPE, pas une fois pour toutes :

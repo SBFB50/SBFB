@@ -74,6 +74,20 @@ le 2026-05-28, puis **4.8 → Opus 5 le 2026-07-25** (directive PO en
 S83 Phase L1 ; contexte 1M conserve). Meme ID pour les sous-agents
 `agent()` d'un Workflow ultracode, ou l'override est OBLIGATOIRE
 (sans lui ils retombent sur le defaut Haiku 4.5).
+**UN SEUL MODELE, PARTOUT** (arbitrage PO 2026-07-29) : toutes les
+etapes sont sur `claude-opus-5[1m]` — jugement, decouverte, redaction,
+mecanique. **`effort` est le SEUL levier de reglage par etape.** Ne
+panache PAS les familles : un process qui ne converge pas se
+diagnostique en faisant varier UNE variable, et melanger les modeles
+rend un finding manque inattribuable entre « effort trop bas » et
+« modele trop faible ». Une matrice de MODELE par etape (Sonnet 5 sur
+la transformation, Haiku 4.5 sur le mecanique) a ete proposee puis
+REJETEE le meme jour — trace et faits mesures en README §7.1, dont :
+Fable 5 coute le DOUBLE d'Opus 5 ($10/$50 vs $5/$25, c'est le modele
+le plus cher du catalogue) et Haiku 4.5 plafonne a 200K de contexte
+contre 1M pour les autres. Les IDs sont MESURES, jamais devines
+(7 sondes `agent()` le 2026-07-29) : n'invente aucun suffixe, un ID
+non valide est accepte sans erreur ET retombe sur Haiku 4.5.
 
 **Regle effort — MATRICE PAR ETAPE** (amendement 2026-07-29, Opus 5) :
 `max` jugement irreversible (audit gate, kickoff) · `xhigh` decouverte
