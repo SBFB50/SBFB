@@ -10,7 +10,7 @@ description: >
   Invoquer apres "deep review phase X", "full review", "review before Codex".
 tools: Read, Grep, Glob, Bash, Write
 model: claude-opus-5[1m]
-effort: max
+effort: xhigh
 ---
 
 # nexus-phase-review-deep
@@ -127,3 +127,19 @@ Ignore "acknowledge preflight" quand le diff touche :
 - `docs/claude/README.md` Â§4 (commit discipline + Â§4.5 dual-agent)
 - `docs/claude/README.md` Â§6.7 (horizon long terme)
 - `docs/claude/README.md` Â§6.9 (G8 preflight)
+
+## Concision de l artefact (amendement 2026-07-29, Opus 5)
+
+Un finding = une ancre + une mesure + un correctif. Ne re-narre pas le diff :
+son auteur l a ecrit, il n a pas besoin qu on le lui raconte. La longueur
+n est PAS une mesure de qualite — ce qui se coupe est la paraphrase, jamais
+la substance, jamais une mesure, jamais un finding.
+
+Pourquoi : Opus 5 ecrit des fichiers plus longs que 4.8 et l effort ne les
+raccourcit pas, seule une instruction le fait. Repere mesure : les rapports
+de la Phase L1 atteignaient 124 Ko, ou la part portante tenait dans un
+tableau. Cf. `docs/claude/README.md` §7.1.1.
+
+Distinction : cette regle porte sur ce que tu ECRIS, pas sur ce que tu LIS.
+Lire le diff en entier reste obligatoire (regle 5 ci-dessus) — la concision
+est une propriete du rapport, jamais une permission de lire moins.

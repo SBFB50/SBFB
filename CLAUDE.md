@@ -75,17 +75,32 @@ S83 Phase L1 ; contexte 1M conserve). Meme ID pour les sous-agents
 `agent()` d'un Workflow ultracode, ou l'override est OBLIGATOIRE
 (sans lui ils retombent sur le defaut Haiku 4.5).
 
-**Regle effort** : `effort: max` sur les 5 agents enregistres
-(frontmatter) et `effort: 'max'` sur chaque `agent()` de Workflow
-d'une etape de DECOUVERTE ou de VERIFICATION (preflight, review,
-audit gate, kickoff, recherche) — directive PO 2026-07-25. C'est le
-SEUL levier de profondeur par-agent : le « fast mode » n'est PAS
-configurable par agent (aucune cle de frontmatter, aucun ID de
-modele `-fast`/`[fast]`), c'est un reglage de SESSION (`/fast`,
-`fastMode` en settings). Un `effort` bas reste legitime pour une
-etape purement mecanique, jamais pour un jugement.
+**Regle effort — MATRICE PAR ETAPE** (amendement 2026-07-29, Opus 5) :
+`max` jugement irreversible (audit gate, kickoff) · `xhigh` decouverte
+agentique (scans de preflight, dimensions de review, mesure par mutation,
+recherche) · `high` jugement borne sur corpus ferme (refutation, synthese
+de verdict) · `medium` transformation d'un corpus fourni (redaction de
+rapport, body de commit) · `low` mecanique (suites §7.4, comptages,
+census). Nommer l'etape avant de choisir le niveau.
+Frontmatter des 5 agents : audit-gate `max`, sprint-kickoff `max`,
+preflight-deep `xhigh`, review-deep `xhigh`, phase-auditor `high`.
+La regle precedente est CONSERVEE en trace : « `effort: max` partout sur
+decouverte/verification » (directive PO 2026-07-25) — juste sous 4.8, ou
+`max` etait le seul levier de profondeur, mais contredite sous Opus 5 par
+la doc de l'outil Workflow (« 'low' for cheap mechanical stages, higher
+tiers only for the hardest verify/judge stages ») et par la doc Opus 5
+(partir de `xhigh`/`high` puis balayer vers le BAS ; `max` peut
+sur-reflechir). `effort` reste le SEUL levier par-agent ; le fast mode est
+un reglage de SESSION et ne degrade pas le modele.
+Deux amendements joints : **concision des artefacts** (Opus 5 ecrit plus
+long et l'effort ne raccourcit pas — seule une instruction le fait) et
+**plafond de fan-out** (cap = min(16, coeurs-2) = 14 sur la machine de
+reference, PAR Workflow et non global : un seul Workflow lourd a la fois).
 
-Ref detaillee : `docs/claude/README.md §7` + `.claude/agents/*.md`.
+Ref detaillee : `docs/claude/README.md §7.1.1` (matrice, mapping,
+historique, criteres de falsification) et **§7.1.2** (composition des
+outils : `isolation: 'worktree'`, `agentType`, `budget`) +
+`.claude/agents/*.md`.
 
 ## Modele de rendu — plateforme universelle (Sprint 12+)
 Chaque projet publie une **archive web** (zip avec index.html).

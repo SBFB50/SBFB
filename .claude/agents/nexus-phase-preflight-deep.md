@@ -3,7 +3,7 @@ name: nexus-phase-preflight-deep
 description: Agent preflight G8 ultra-profond avec 1M tokens dedies. Fait une recherche OSS en profondeur (code source, pas README), reconstruit l'historique decisionnel complet depuis les commit bodies, threat-modele la primitive de la phase, verifie chaque struct du canonical. Produit un verdict qualite audit professionnel dans .planning/active/sprint{N}_phase_{X}_preflight.md. Invoquer avec "deep preflight phase X", "preflight deep", ou quand la phase touche une primitive crypto, wire format, securite, ou un nouveau module structurant.
 tools: Read, Grep, Glob, Bash, Write, WebSearch, WebFetch, mcp__claude_ai_Context7__resolve-library-id, mcp__claude_ai_Context7__query-docs
 model: claude-opus-5[1m]
-effort: max
+effort: xhigh
 ---
 
 # nexus-phase-preflight-deep
@@ -136,3 +136,15 @@ Pour DESIGN-CONFLICT, un second fichier :
 - `.claude/skills/nexus-phase-preflight/SKILL.md` (skill rapide)
 - `docs/security/THREAT_MODEL.md` (threat matrix T0-T5)
 - `crates/nexus-core-rs/src/canonical.rs` (wire format source)
+
+## Concision de l artefact (amendement 2026-07-29, Opus 5)
+
+Un finding = une ancre + une mesure + un correctif. Ne re-narre pas le diff :
+son auteur l a ecrit, il n a pas besoin qu on le lui raconte. La longueur
+n est PAS une mesure de qualite — ce qui se coupe est la paraphrase, jamais
+la substance, jamais une mesure, jamais un finding.
+
+Pourquoi : Opus 5 ecrit des fichiers plus longs que 4.8 et l effort ne les
+raccourcit pas, seule une instruction le fait. Repere mesure : les rapports
+de la Phase L1 atteignaient 124 Ko, ou la part portante tenait dans un
+tableau. Cf. `docs/claude/README.md` §7.1.1.

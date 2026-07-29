@@ -34,6 +34,8 @@ autre LLM) qui doit ouvrir, livrer ou auditer un sprint.
 - `.claude/skills/nexus-phase-preflight/SKILL.md` — fallback preflight, cite §6.9, §7.1
 - `.claude/hooks/phase-auditor-gate.sh` — implémente l'audit gate §3
 - `.claude/hooks/phase-precommit-lightcheck.sh` — implémente §4.2, Check 9 body format `##`
+- `prompts/agent/phase-review-workflow.md` — contraintes d'exécution de la review Workflow (worktree, concision) ; cité par §7.1.2
+- `prompts/agent/phase-review.md`, `prompts/agent/audit-gate-checks.md` — briefs cités par §7.1 (Cas A et Cas B)
 - `docs/claude/TOOLING.md` — cite §3, §4, §5
 - `CLAUDE.md` — pointe vers ce document + table agents §Agents d'orchestration
 
@@ -64,8 +66,8 @@ le moindre Read d'un autre fichier, avant le pre-flight, avant de détecter
 le cas), lis INTÉGRALEMENT le bloc de bootstrap §7.1. Pour cibler la plage
 exacte sans deviner : Grep BOOTSTRAP:BEGIN et BOOTSTRAP:END dans
 docs/claude/README.md -> 2 numéros de ligne -> Read en UN appel
-(offset = ligne du BEGIN, limit = END - BEGIN + 5, ~450 lignes, sous le cap
-Read). Tu DOIS voir « <!-- BOOTSTRAP:END --> » dans ce que tu as réellement
+(offset = ligne du BEGIN, limit = END - BEGIN + 5 — ~580 lignes au 2026-07-29,
+largement sous le cap Read ; ne code pas ce chiffre en dur, calcule-le). Tu DOIS voir « <!-- BOOTSTRAP:END --> » dans ce que tu as réellement
 lu ; sinon la lecture est tronquée : augmente limit / re-Read par fenêtres
 jusqu'à voir le marqueur de fin AVANT le pre-flight. (Un Read naïf du fichier
 entier s'arrête au milieu du bootstrap — toujours passer par les marqueurs.)
@@ -120,7 +122,8 @@ session fraîche est le bloc de bootstrap §7.1, délimité par
 à lire **intégralement** avant d'agir. Ne code JAMAIS un numéro de ligne en
 dur (ce fichier bouge) : Grep les deux marqueurs pour obtenir la plage
 courante, puis Read `offset = ligne BEGIN`, `limit = END - BEGIN + 5`. Le
-bloc (~430 lignes) tient en UN Read sous le cap de 2000 lignes ; un Read naïf
+bloc (~580 lignes au 2026-07-29 ; recalcule-le, il grossit) tient en UN Read
+sous le cap de 2000 lignes ; un Read naïf
 du fichier entier s'arrête au milieu du bootstrap. Le reste du README se lit
 **à la demande**, section par section, quand le pre-flight ou un agent t'y
 renvoie.
@@ -1835,7 +1838,9 @@ cassé. S4 sans S1 = invariants préservés sur approche obsolète.
 
 **Parallelisation via agents ultra-profonds (depuis S65).** Les 5
 scans sont independants en entree. Lancer les 5 en parallele via
-des agents Claude independants (Opus 4.6, 1M tokens chacun).
+des agents Claude independants (`claude-opus-5[1m]` depuis le 2026-07-25,
+effort `xhigh` par la matrice §7.1.1 — cette consigne nommait Opus 4.6
+jusqu'au 2026-07-29).
 L'orchestrateur agrege les resultats et emit le verdict. Gain
 mesure : ~3x sur phases > 10 fichiers cibles. Detail : §4.5.7.
 
@@ -2258,11 +2263,15 @@ phase.
   - Le PREFLIGHT de phase (G8) = Workflow : fan-out des 5 scans
     factuels (S1a OSS prior-art + S1b deps + S2 decisions historiques
     + S3 threat model + S4 wire format), synthese -> verdict (§4.5.7).
-    Remplace l'agent unique `nexus-phase-preflight-deep`.
+    N'oppose PAS le Workflow a l'agent enregistre : les composer via
+    `agent(prompt, { agentType: 'nexus-phase-preflight-deep' })` applique
+    le prompt VERSIONNE de l'agent et multiplie les angles (§7.1.2).
   - La REVIEW de phase (G4) = Workflow : fan-out des dimensions de
     review + verification adversariale, synthese -> verdict (§4.5.7).
-    Remplace l'agent unique `nexus-phase-review-deep` + le gate
-    superviseur. Plus aucune consultation GO/BLOCK.
+    Remplace le gate superviseur : plus aucune consultation GO/BLOCK.
+    Ne remplace PAS `nexus-phase-review-deep` — le composer via
+    `agentType` (§7.1.2), pour que le prompt vienne d'un fichier du depot
+    et non du script de la session.
     BRIEF OBLIGATOIRE : `prompts/agent/phase-review-workflow.md`. Il porte
     les CONTRAINTES D'EXECUTION que les briefs ad-hoc n'avaient pas —
     worktree isole pour toute mutation, arbre restaure et VERIFIE en fin
@@ -2398,17 +2407,89 @@ synthese). Et quand l'ID de modele change, re-lancer le Workflow a
 NEUF : un `resumeFromRunId` rejouerait le cache des agents de
 l'ancien modele.
 
-EFFORT (directive PO 2026-07-25) : `effort: max` dans le frontmatter
-des 5 agents enregistres, et `effort: 'max'` sur chaque `agent()` de
-Workflow d'une etape de DECOUVERTE / VERIFICATION. C'est le SEUL
-levier de profondeur par-agent — le « fast mode » n'est PAS
-configurable par agent (verifie sur la doc officielle : la liste des
-champs de frontmatter supportes n'en contient aucun, et il n'existe
-pas d'ID de modele `-fast`/`[fast]`) ; c'est un reglage de SESSION
-(`/fast`, cle `fastMode` des settings, coupable par
-`CLAUDE_CODE_DISABLE_FAST_MODE=1`). `model` accepte `sonnet`/`opus`/
-`haiku`/`fable` OU un full model ID — d'ou la legitimite de
-`claude-opus-5[1m]`.
+EFFORT — MATRICE PAR ETAPE (amendement 2026-07-29, Opus 5).
+L'effort se choisit par ETAPE, pas une fois pour toutes :
+
+  max    jugement irreversible a large portee — audit gate inter-sprint,
+         kickoff de sprint (D1..D5 + design review). Une erreur s'y paie
+         sur tout un sprint ; la latence n'y est pas critique.
+  xhigh  DECOUVERTE agentique — scans de preflight, dimensions de review,
+         lecture de code, mesure par mutation, recherche multi-source.
+  high   jugement BORNE sur un corpus deja collecte — refutation
+         adversariale, synthese d'un verdict, arbitrage de findings.
+  medium transformation d'un corpus fourni — redaction d'un rapport de
+         synthese, body de commit, artefacts de trace. Rien a decouvrir.
+  low    MECANIQUE — lancer les suites §7.4 et rapporter, compter des
+         tests, verifier une presence, census DOMAIN, delta de compteurs.
+
+Nomme l'etape avant de choisir le niveau. Un niveau qu'aucune ligne de
+cette matrice ne justifie est un reglage par defaut deguise.
+
+TRACE — regle precedente, CONSERVEE dans ses DEUX formulations (elles ne
+disaient pas exactement la meme chose, et n'en garder qu'une serait deja
+perdre quelque chose) :
+  - README §7.1, forme absolue : « `effort: max` dans le frontmatter des 5
+    agents enregistres, et `effort: 'max'` sur CHAQUE `agent()` de Workflow
+    d'une etape de DECOUVERTE / VERIFICATION » ;
+  - CLAUDE.md, forme avec porte de sortie : « ... — directive PO 2026-07-25.
+    C'est le SEUL levier de profondeur par-agent (...). **Un `effort` bas
+    reste legitime pour une etape purement mecanique, jamais pour un
+    jugement.** »
+La seconde phrase est l'ancetre direct de la matrice ci-dessus : elle posait
+deja le bon critere (mecanique vs jugement) mais n'offrait que deux crans.
+La matrice en ouvre cinq et nomme les etapes.
+Elle n'est pas annulee pour faute : sous 4.8, `max` etait le
+seul moyen d'obtenir de la profondeur, et elle etait juste. Elle a ete
+ecrite le jour meme de la bascule Opus 5, donc sans retour d'experience
+sur ce modele, et deux sources la contredisent MESURABLEMENT :
+(1) la doc de l'outil Workflow prescrit « use 'low' for cheap mechanical
+    stages and higher tiers only for the hardest verify/judge stages » ;
+(2) la doc Opus 5 prescrit de partir de `xhigh` (coding/agentique) ou
+    `high` puis de balayer vers le BAS — `low`/`medium` y sont
+    exceptionnellement forts, `max` peut sur-reflechir sur une tache
+    simple, et « prior-model defaults rarely transfer ».
+Detail, mapping des 5 agents et historique complet : §7.1.1.
+
+`effort` reste le SEUL levier de profondeur par-agent. Le « fast mode »
+n'est PAS configurable par agent (aucune cle de frontmatter, aucun ID de
+modele `-fast`/`[fast]`) : c'est un reglage de SESSION (`/fast`, cle
+`fastMode` des settings, coupable par `CLAUDE_CODE_DISABLE_FAST_MODE=1`),
+et il ne degrade pas le modele — meme intelligence, sortie plus rapide.
+`model` accepte `sonnet`/`opus`/`haiku`/`fable` OU un full model ID —
+d'ou la legitimite de `claude-opus-5[1m]`.
+
+CONCISION DES ARTEFACTS (amendement 2026-07-29, Opus 5). Opus 5 ecrit des
+fichiers plus longs que 4.8 et l'effort ne les raccourcit PAS — seule une
+instruction le fait. Tout brief d'agent produisant un artefact DOIT donc
+porter : « un finding = une ancre + une mesure + un correctif ; ne re-narre
+pas le diff ; la longueur n'est pas une mesure de qualite ». Ce qui se coupe
+est la paraphrase, jamais la substance ni une mesure.
+ETAT DU PORTAGE au 2026-07-29 — c'est une obligation, pas encore un fait :
+la phrase est portee par `prompts/agent/phase-review-workflow.md` (contrainte
+6), `nexus-phase-preflight-deep.md` et `nexus-phase-review-deep.md`. Elle ne
+l'est PAS encore par les autres briefs de `prompts/agent/` ni par les skills
+`.claude/skills/*/SKILL.md` — a porter quand ils sont edites. Toute redaction
+qui affirmerait « tous les briefs la portent » serait fausse aujourd'hui.
+
+PLAFOND DE FAN-OUT (amendement 2026-07-29, Opus 5). Opus 5 delegue plus
+volontiers que 4.8, et le cap de concurrence d'un Workflow vaut
+min(16, coeurs - 2) — 14 sur la machine de reference. Au-dela, les agents
+FONT LA QUEUE : un fan-out de 20 n'est pas plus parallele qu'un de 14, il
+est plus cher. Ce cap est PAR WORKFLOW, pas global : deux Workflows
+concurrents peuvent mettre 28 agents sur 16 coeurs. Donc un seul Workflow
+LOURD (agents qui compilent) a la fois ; un Workflow de lecture pure peut
+se superposer. Declarer le nombre d'agents et justifier au-dela de 14.
+
+OBSERVATION NON CONTROLEE du 2026-07-29, gardee pour ce qu'elle vaut et
+PAS comme la preuve de la regle ci-dessus : sous deux Workflows concurrents
+(13 + 11 agents), `boot_path_reenters_sync_set_and_delivers_after_reopen` a
+ECHOUE sur son `await_neighbor(20 s)` — il n'a pas ralenti, il a atteint sa
+borne et panique (`dispatch_loop.rs:666`), donc « 20 s » est la CONSTANTE du
+test, pas une mesure de degradation. Relance isolee : 1 passed. Causalite non
+etablie — un seul run workspace dans la session, un frere PASS a 31,99 s dans
+le MEME run, et un frere mesure a 20,997 s le 2026-07-26 SANS fan-out
+concurrent. La classe est declaree env-instable dans CLAUDE.md. Pour en faire
+une mesure, il faudrait N>=3 avec et sans Workflow concurrent.
 
 # === Détection du cas + routage agent ===
 
@@ -2707,6 +2788,159 @@ Langue : français pour réponses utilisateur, docs planning,
 commit bodies. Anglais pour code, identifiants, commit titles.
 ```
 <!-- BOOTSTRAP:END -->
+
+### 7.1.1 Matrice d'effort par étape — détail et historique
+
+Le bloc de bootstrap §7.1 porte la matrice actionnable. Cette section porte le
+**pourquoi**, le **mapping des agents enregistrés**, et l'**historique complet** —
+aucune directive d'effort du projet n'est perdue.
+
+#### La matrice, avec sa justification
+
+| Étape | Classe | Effort | Pourquoi ce niveau |
+|---|---|---|---|
+| Audit gate inter-sprint (Cas A, 11 tracks) | jugement irréversible | `max` | Le verdict bloque un sprint entier. Joué une fois par sprint : le coût est marginal, l'erreur ne l'est pas. |
+| Kickoff de sprint (Cas C, D1..D5, design review) | jugement irréversible | `max` | Les décisions Day-0 sont figées ensuite et se paient sur 40+ phases. |
+| Préflight — scans S1a/S1b/S2/S3/S4 | découverte agentique | `xhigh` | Recherche OSS, historique décisionnel, threat model, wire format : lecture large et outillée. |
+| Préflight — synthèse du verdict | jugement borné | `high` | Arbitre 5 scans déjà produits. Le corpus est fermé. |
+| Review — dimensions (diff, crypto, tests, docs, plan) | découverte agentique | `xhigh` | Lecture de code + mesure par mutation. C'est le cas d'usage que `xhigh` sert. |
+| Review — réfutation adversariale | jugement borné | `high` | Corpus fermé : les findings d'une dimension. |
+| Review — **synthèse du verdict** (PASS-PENDING / CONCERN / FAIL) | jugement borné | `high` | C'est ce verdict qui autorise le passage à Codex puis au commit (§4.5.7). Même opération qu'en préflight, donc même niveau. |
+| Review — **rédaction du rapport** autour du verdict | transformation | `medium` | Rien à découvrir ; le dossier est fourni. Le risque ici est la verbosité, pas la superficialité. |
+| Recherche multi-source (roadmap, design study) | découverte agentique | `xhigh` | |
+| Suites §7.4 (nextest, clippy, fmt, doctests) | mécanique | `low` | Lancer et rapporter. Un effort élevé n'améliore pas un exit code. |
+| Scans mécaniques (census DOMAIN, delta de tests, présence d'ancres) | mécanique | `low` | |
+| Body de commit, artefacts de trace | transformation | `medium` | |
+
+**Règle de lecture** : nommer l'étape d'abord, choisir le niveau ensuite. Un `effort`
+qu'aucune ligne ne justifie est un défaut déguisé.
+
+#### Mapping des 5 agents enregistrés
+
+Ces agents sont des **fallbacks** : quand le Workflow n'est pas disponible, un seul agent
+joue TOUTE l'étape. Leur charge est donc supérieure à celle d'un agent de dimension.
+
+| Agent | Effort | Avant | Raison du niveau |
+|---|---|---|---|
+| `nexus-audit-gate` | `max` | `high` (04-15) → `max` (07-25) | inchangé depuis 07-25 — jugement irréversible |
+| `nexus-sprint-kickoff` | `max` | `high` (04-15) → `max` (07-25) | inchangé depuis 07-25 — décisions figées |
+| `nexus-phase-preflight-deep` | `xhigh` | absent (04-15) → `max` (07-25) | découverte agentique complète en un agent |
+| `nexus-phase-review-deep` | `xhigh` | `high` (04-15) → `max` (07-25) | idem, sur le diff |
+| `nexus-phase-auditor` | `high` | **`medium`** (04-15) → `max` (07-25) | subsumé par review-deep ; périmètre le plus étroit des cinq. Revient près de son réglage d'origine |
+
+#### Historique des directives d'effort — rien n'est perdu
+
+| Date | Directive | Contexte | Statut |
+|---|---|---|---|
+| 2026-04-15 | `effort` **par agent** dans les frontmatters : audit-gate `high`, sprint-kickoff `high`, review-deep `high`, phase-auditor `medium` (`119de3aa`, gradation revue par `cc8cf1e8` le 2026-05-18) | l'échelle était donc déjà graduée par agent, sur deux niveaux | superseded le 2026-07-25 |
+| 2026-04-20 | **`docs/claude/MODEL_AND_EFFORT.md`** — matrice à 4 niveaux avec latence relative (`medium` 1x → `max` 10-15x), mapping par type de phase, et l'anti-pattern écrit noir sur blanc : « Défaut global `max` ruine le budget sur les phases simples » | **supprimé le jour même** par `2438c590` (« process bankruptcy — purge hooks, compress context, delete obsolete docs ») | **supprimé** — récupérable par `git show df8a7a19:docs/claude/MODEL_AND_EFFORT.md` |
+| 2026-07-25 | **`effort: max` partout** sur découverte/vérification (directive PO, S83 Phase L1) | jour de la bascule 4.8 → Opus 5 ; sous 4.8, `max` était le seul levier de profondeur | **conservée en trace** dans le bloc §7.1 ; juste pour 4.8, écrite sans retour d'expérience Opus 5 |
+| 2026-07-29 | **matrice par étape** (`max`/`xhigh`/`high`/`medium`/`low`) | Opus 5 en service depuis 4 jours ; deux sources contredisent `max` partout | **en vigueur** |
+
+**Ce tableau existe parce que sa première rédaction était fausse.** Elle disait « avant
+2026-07-25 : pas de directive `effort` explicite — l'échelle n'était pas exploitée », sous
+un titre « rien n'est perdu ». La vérification adversariale du canon l'a mesuré (`git show
+5372ca5e^:.claude/agents/*.md` et `git show df8a7a19:docs/claude/MODEL_AND_EFFORT.md`) :
+c'était faux deux fois, et la seconde erreur effaçait le fait que **ce projet avait déjà
+inventé cette matrice trois mois plus tôt, puis l'avait supprimée**. Un historique qui
+commence à la directive qu'on remplace n'est pas un historique. La formulation exacte qui
+reste vraie est : « pas de directive `effort` **par étape** avant ce jour ».
+
+#### Les deux sources qui motivent l'amendement
+
+1. **La doc de l'outil `Workflow` lui-même**, sur `opts.effort` : « use 'low' for cheap
+   mechanical stages and higher tiers only for the hardest verify/judge stages ». La
+   directive « max partout » ne contredisait pas seulement une recommandation de modèle :
+   elle contredisait la spécification de l'outil qui l'applique.
+2. **La doc Opus 5** : partir de `xhigh` (coding/agentique) ou `high`, puis **balayer vers
+   le bas** — `low` et `medium` y sont exceptionnellement forts, `max` peut montrer des
+   rendements décroissants et sur-réfléchir sur une tâche simple, et « prior-model defaults
+   rarely transfer ».
+
+#### À quoi on verrait que cette matrice est fausse
+
+- **Si le taux de findings P1 par round chute** après le passage à `xhigh` sur les
+  dimensions de review, à périmètre de phase comparable, le niveau est trop bas et la ligne
+  « découverte agentique » remonte à `max`.
+- **Si un défaut de code réel** (pas une affirmation de doc) échappe à une review menée à
+  `xhigh` et est rattrapé par Codex, la dimension concernée remonte d'un cran.
+- **Si les synthèses à `medium` perdent des findings** produits par les dimensions — un
+  finding mesuré et absent du rapport final —, la ligne « transformation » remonte à `high`.
+- **Coût si la matrice est fausse** : un round de review supplémentaire par phase. Le coût
+  de ne pas l'appliquer est du token brûlé en sur-réflexion sur des étapes mécaniques, ce
+  qui est moins grave — d'où l'ordre de préférence : en cas de doute sur une étape de
+  JUGEMENT, monter d'un cran.
+
+La matrice n'a **pas** été mesurée A/B dans ce dépôt : aucune comparaison de deux niveaux
+d'effort n'y existe. C'est une application de la doc, pas un résultat expérimental — et
+c'est exactement ce que les critères de falsification ci-dessus servent à corriger.
+
+### 7.1.2 Composition des outils d'orchestration (amendement 2026-07-29)
+
+Trois capacités du harness que le canon n'exploitait pas, vérifiées sur la spécification
+des outils le 2026-07-29.
+
+**`isolation: 'worktree'` et la recette manuelle de review.** `Agent` et `agent()`
+acceptent `isolation: 'worktree'`, qui crée un worktree jetable auto-nettoyé. Le
+discriminant contre son usage en review pre-commit n'est **pas** « il part d'un commit » —
+la recette du brief part elle aussi de `HEAD` — mais qu'**il ne prend aucun argument
+permettant d'y porter l'arbre de travail**. Or c'est là que vit le code d'une phase en
+cours : `git cat-file -e HEAD:crates/nexus-core-rs/src/artifact_seal.rs` échoue, donc un
+worktree ouvert sur `HEAD` ne contient aucun des fichiers neufs et toute mutation y est
+sans objet.
+
+**Défaut mesuré le 2026-07-29 sur la recette elle-même** : la contrainte 2 du brief
+s'arrêtait à `git worktree add <scratch>/<label> HEAD`, sans étape de report du diff — donc
+elle produisait exactement le worktree vide décrit ci-dessus. Corrigée dans le même lot.
+
+**Piège de base pour l'usage légitime** (code déjà committé — audit gate, recherche sur
+l'historique) : le `baseRef` par défaut d'un worktree d'agent est `fresh`, c'est-à-dire
+`origin/<branche par défaut>`, et aucun réglage ne le change dans ce dépôt (0 hit dans les
+trois `settings.json`). Mesuré : `git rev-list --left-right --count origin/master...HEAD`
+rend `0  29` — HEAD est **29 commits devant** `origin/master`. Un audit gate lancé sans
+précaution auditerait donc silencieusement un arbre d'ère S82. Imposer `baseRef: head`, ou
+jouer la vérification `rev-list` avant le run et la rapporter.
+
+**`agentType` compose les agents enregistrés avec le fan-out.** `agent()` accepte
+`agentType`, résolu depuis le même registre que l'outil `Agent` — donc
+`agent(prompt, { agentType: 'nexus-phase-review-deep', … })` applique le prompt versionné
+de l'agent ET multiplie les angles. Le canon opposait les deux (« le Workflow REMPLACE
+l'agent unique ») : c'est une fausse opposition, et elle a un coût déjà payé — le commit
+`d079ebbe` documente qu'un brief de review non versionné, réécrit dans le script de chaque
+session, a laissé cinq artefacts de mutation survivants dont une clé de chiffrement rendue
+prédictible. `agentType` fait porter le prompt par un fichier du dépôt. Même correctif que
+`d079ebbe`, un cran plus haut.
+
+**`budget` — borner la dépense plutôt que le nombre de rounds.** Les Workflows exposent
+`budget.total` / `spent()` / `remaining()` et le pattern
+`while (budget.total && budget.remaining() > N)`. L'arbitrage PO « borner le nombre de
+rounds de review » est **laissé ouvert** — daté du 2026-07-28 par
+`prompts/agent/phase-review-workflow.md` et du 2026-07-29 par le body de `d079ebbe` ; les
+deux sources divergent d'un jour et aucune n'est arbitre, donc la date n'est pas reprise
+ici. Le budget offre une troisième voie : ne pas
+borner la profondeur, borner la dépense. La boucle s'arrête quand l'enveloppe est
+consommée, ce qui préserve la propriété qui compte.
+
+**Mesure qui tranche l'arbitrage, prise le 2026-07-29 sur les 10 rounds de la Phase L1**
+(`.planning/active/rounds/sprint83_phase_l1_review_r*.md`, comptage direct des sections
+`### P1` et des verdicts en ligne 3) : la trajectoire des P1 par round est **8, 9, 3, 0, 1,
+5, …** et — le point décisif — **le round 4 a rendu `PASS-PENDING` avec 0 P1**, puis les
+rounds 5, 6 et 7 ont produit **1, 5 et 6 nouveaux P1**. Une boucle bornée à 4 rounds aurait
+donc committé cette phase en laissant au moins douze P1 non trouvés. **Un `PASS-PENDING`
+n'est pas un plateau** : c'est un état qui peut se rouvrir, parce que chaque lot de
+correctifs ouvre une surface neuve.
+
+**Ce que cette mesure ne dit PAS**, et la première rédaction de ce paragraphe le disait à
+tort : le vrai bug de code hérité de S20 (`Path::exists()` rendant le panic wipe fail-open,
+invisible ~3 mois) n'a été trouvé par **aucun** des dix rounds de review — `grep -c
+'Path::exists'` sur les dix fichiers de round rend 0 partout. Il apparaît dans
+`sprint83_phase_l1_codex_review_r3.md:33`, et le body de `8199c50a` l'écrit : Codex a trouvé
+ce que dix rounds de review interne avaient manqué. La preuve la plus spectaculaire
+appartient donc à un **gate séparé, insensible au nombre de rounds** — elle n'argumente ni
+pour ni contre le bornage. Ce que les rounds 5-7 ont produit reste douze P1 réels, dont la
+nature (documentation, discriminance de test, code) n'a pas été re-catégorisée ici : la
+thèse « un round tardif attrape un défaut de CODE » est **non tranchée par la mesure
+disponible**. **Proposition soumise au PO, pas une décision prise.**
 
 ### 7.2 Templates de commit par cas
 

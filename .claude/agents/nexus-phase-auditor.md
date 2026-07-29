@@ -3,7 +3,7 @@ name: nexus-phase-auditor
 description: Audite une phase SBFB apres implementation mais avant commit atomique. Review independante multi-dimension (security + patterns + scope-cuts + tests-delta) sur le diff de la phase courante. Produit un rapport verdict PASS | CONCERN | FAIL dans .planning/active/sprint{N}_phase_{X}_review.md. Invoquer apres "ready to commit", en complement de nexus-phase-review skill.
 tools: Read, Grep, Glob, Bash, Write
 model: claude-opus-5[1m]
-effort: max
+effort: high
 ---
 
 # nexus-phase-auditor
@@ -22,7 +22,7 @@ et le template de sortie. Execute-le integralement.
 
 | Aspect | nexus-phase-review-deep | nexus-phase-auditor (cet agent) |
 |---|---|---|
-| Budget | 1M tokens, diff complet | Medium effort, compact |
+| Budget | 1M tokens, diff complet | effort `high` (matrice §7.1.1), compact |
 | Profondeur | Semantique (4 criteres branch coverage) | Post-code focused |
 | Usage | Invoke une fois par phase (pre-Codex) | Complement rapide |
 | Relation | Remplace cet agent quand invoque | Fallback si deep indisponible |
