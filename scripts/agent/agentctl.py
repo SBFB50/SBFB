@@ -8,6 +8,7 @@ Git hooks, human operators, and any model provider that can execute commands.
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import shutil
 import subprocess
@@ -608,6 +609,57 @@ def codex_review_errors(title: str, message: str, sprint: str | None, phase: str
     return errors
 
 
+PROFILE_GOLDEN = "crates/sbfb-workflow-core/src/factory_profile.golden.json"
+
+
+def profile_sources() -> list[str]:
+    """Les chemins des fichiers-sources epingles par le profil Factory.
+
+    Lus DANS le golden (``sources[].path``), jamais recopies ici : ajouter une
+    source a l'enum Rust la protege sans editer ce fichier. Golden absent ou
+    illisible => liste vide, et c'est le test Rust qui tranche ce cas
+    (« golden missing — regenerate »).
+    """
+    golden_path = ROOT / PROFILE_GOLDEN
+    try:
+        golden = json.loads(golden_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    sources = golden.get("sources", [])
+    if not isinstance(sources, list):
+        return []
+    return [s["path"] for s in sources if isinstance(s, dict) and isinstance(s.get("path"), str)]
+
+
+def profile_golden_errors(files: list[str]) -> list[str]:
+    """Miroir du Check 11 du hook shell.
+
+    Le blake3 des six sources est epingle dans le golden. Editer l'une d'elles
+    sans rafraichir le golden rend ``factory_profile::tests::extract_matches_golden``
+    rouge au run SUIVANT — donc apres le commit fautif, impute au travail en
+    cours. Mesure : deux occurrences en deux jours (``d079ebbe`` corrige par
+    ``de3e9570``, ``76441588`` corrige par ``4efb5a6e``), les deux fois sur le
+    hook lightcheck lui-meme.
+
+    Duplication assumee vis-a-vis du hook shell (§P76) : les deux chemins
+    d'execution sont distincts — le hook est l'autorite au commit (PreToolUse),
+    agentctl est le gate portable des autres providers — et chacun est epingle
+    par son propre controle (mutation manuelle cote shell, ce test cote Python).
+    """
+    staged = set(files)
+    if PROFILE_GOLDEN in staged:
+        return []
+    touched = sorted(p for p in profile_sources() if p in staged)
+    if not touched:
+        return []
+    return [
+        "profil Factory: source(s) stagee(s) sans le golden rafraichi ("
+        + ", ".join(touched)
+        + f") — UPDATE_SNAPSHOTS=1 cargo nextest run -p sbfb-workflow-core "
+        f"extract_matches_golden --locked, puis stager {PROFILE_GOLDEN}"
+    ]
+
+
 def cmd_precommit_lightcheck(args: argparse.Namespace) -> int:
     files = staged_files()
     diff = staged_diff() if args.scope in {"all", "staged", "message"} else ""
@@ -622,6 +674,7 @@ def cmd_precommit_lightcheck(args: argparse.Namespace) -> int:
         errors.extend(staged_diff_check_errors())
         errors.extend(pub_mod_errors(diff, staged))
         errors.extend(loc_plan_errors(files, diff))
+        errors.extend(profile_golden_errors(files))
     if args.scope in {"all", "message"}:
         errors.extend(phase_title_errors(title, sprint, phase))
         errors.extend(commit_body_section_errors(title, message, sprint, phase))

@@ -119,6 +119,28 @@ def test_phase_grammar_shared_across_hooks() -> None:
     assert _hook_extract(malformed) == "AI2", "grep glouton des hooks tronque 'AI22'->'AI2' (divergence connue, hors usage)"
 
 
+def test_profile_golden_guard() -> None:
+    """Une source du profil Factory stagée sans le golden est refusée.
+
+    Miroir du Check 11 du hook shell. Les chemins viennent du golden lui-même
+    (``sources[].path``), donc le test couvre les six sans en recopier aucune :
+    une septième source ajoutée à l'enum Rust est protégée sans toucher ici.
+
+    Discriminance : chaque source est asservie DANS LES DEUX SENS — refusée
+    seule, acceptée avec le golden. Un test qui ne vérifierait que le refus
+    passerait encore si la fonction refusait tout.
+    """
+    sources = agentctl.profile_sources()
+    assert len(sources) >= 2, f"le golden doit exposer ses sources, vu {sources!r}"
+    for src in sources:
+        assert agentctl.profile_golden_errors([src]), f"{src} stagée sans le golden doit être refusée"
+        assert not agentctl.profile_golden_errors([src, agentctl.PROFILE_GOLDEN]), (
+            f"{src} stagée AVEC le golden doit passer"
+        )
+    assert not agentctl.profile_golden_errors(["README.md"]), "un fichier hors profil ne dit rien"
+    assert not agentctl.profile_golden_errors([]), "un index vide ne dit rien"
+
+
 def main() -> int:
     fails = 0
 
@@ -160,6 +182,7 @@ def main() -> int:
         test_bi_letter_phase_labels_parse,
         test_numeric_phase_label_refused,
         test_phase_grammar_shared_across_hooks,
+        test_profile_golden_guard,
     ):
         try:
             tfn()

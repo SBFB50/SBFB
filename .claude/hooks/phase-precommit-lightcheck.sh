@@ -27,6 +27,10 @@
 #      sprint{N}_phase_{X}_preflight.md existe.
 #   9. Commit body sections (STRICT, BLOCK feat/docs Phase) — verifier
 #      les 9 headers ## obligatoires du body (§4.1 README).
+#  10. Gate de testabilite au wrap-up (WARN) — verification.md doit porter
+#      un verdict T1/T2 machine-lisible (§4).
+#  11. Golden factory_profile (STRICT, BLOCK) — editer une des sources
+#      epinglees par le profil sans stager le golden rafraichi.
 #
 # Exit 0 : autorise (avec warnings stderr eventuels)
 # Exit 2 : bloque (erreur stricte)
@@ -574,6 +578,51 @@ if [ -n "$STAGED_VERIF" ]; then
       WARNINGS=$((WARNINGS + 1))
     fi
   done <<< "$STAGED_VERIF"
+fi
+
+# === Check 11 : golden factory_profile vs ses sources liees (BLOCK) ===
+# Le profil de process expose par sbfb-workflow-core epingle le blake3 de six
+# fichiers-sources. Editer l'un d'eux sans rafraichir le golden rend la suite
+# `-p sbfb-workflow-core` ROUGE — et le rouge n'apparait qu'au run SUIVANT, donc
+# apres le commit fautif, impute au travail en cours.
+# Mesure : deux occurrences en deux jours, les deux fois sur ce hook meme —
+# `d079ebbe` corrige par `de3e9570`, `76441588` corrige par `4efb5a6e`. Le gate
+# PROFILE_STALE du test signale la derive apres coup ; ce check impose le geste
+# DANS le commit qui bouge la source. Une instance est un oubli, deux font une
+# classe (memory feedback_close_class_not_instance).
+# La liste des sources est EXTRAITE du golden (`sources[].path`), jamais recopiee :
+# ajouter une source a l'enum Rust la protege ici sans editer ce hook. La cle
+# `"path"` n'appartient qu'a `sources[]` — les ancres de mecanisme utilisent `"file"`.
+# Si le golden est absent, la liste est vide et ce check se tait : ce cas-la est
+# tranche par le test Rust lui-meme (« golden missing — regenerate »).
+PROFILE_GOLDEN="crates/sbfb-workflow-core/src/factory_profile.golden.json"
+STAGED_ALL=$(git diff --cached --name-only 2>/dev/null || true)
+if [ -n "$STAGED_ALL" ] && [ -f "$PROFILE_GOLDEN" ]; then
+  PROFILE_SOURCES=$(grep -oE '"path": *"[^"]+"' "$PROFILE_GOLDEN" | sed -E 's/.*"path": *"([^"]+)".*/\1/' || true)
+  TOUCHED_SOURCES=""
+  while IFS= read -r src; do
+    [ -z "$src" ] && continue
+    if printf '%s\n' "$STAGED_ALL" | grep -qxF "$src"; then
+      TOUCHED_SOURCES="${TOUCHED_SOURCES}  ${src}
+"
+    fi
+  done <<< "$PROFILE_SOURCES"
+  if [ -n "$TOUCHED_SOURCES" ] && ! printf '%s\n' "$STAGED_ALL" | grep -qxF "$PROFILE_GOLDEN"; then
+    echo "" >&2
+    echo "[lightcheck] BLOCK: source du profil Factory editee sans rafraichir le golden" >&2
+    echo "  Fichier(s) source stage(s) :" >&2
+    printf '%s' "$TOUCHED_SOURCES" >&2
+    echo "  Golden non stage : ${PROFILE_GOLDEN}" >&2
+    echo "" >&2
+    echo "  Le blake3 de ces fichiers est epingle dans le golden. Sans refresh," >&2
+    echo "  factory_profile::tests::extract_matches_golden devient ROUGE au commit" >&2
+    echo "  SUIVANT, et le rouge sera impute au travail en cours." >&2
+    echo "  Geste : relire le diff de la source, puis" >&2
+    echo "    UPDATE_SNAPSHOTS=1 cargo nextest run -p sbfb-workflow-core extract_matches_golden --locked" >&2
+    echo "  et stager le golden dans CE commit." >&2
+    echo "" >&2
+    ERRORS=$((ERRORS + 1))
+  fi
 fi
 
 if [ "$ERRORS" -gt 0 ]; then
