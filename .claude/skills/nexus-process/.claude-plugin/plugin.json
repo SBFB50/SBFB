@@ -1,0 +1,21 @@
+{
+  "name": "nexus-process",
+  "version": "0.1.0",
+  "description": "État du process nexus/SBFB (sprint, phase, review, Codex, rounds, git, CI) en barre de statut, bandeau et panneau /nexus, plus une garde de fin de tour.",
+  "author": { "name": "FlowUP" },
+  "types":"./types/index.d.ts",
+  "userConfig": {
+    "nexusRoot": {
+      "type": "string",
+      "title": "Racine du repo nexus",
+      "description": "Chemin absolu du repo nexus. Vide : détecté depuis le dossier de la session.",
+      "default": ""
+    },
+    "nextSprintPlan": {
+      "type": "string",
+      "title": "Plan du prochain sprint",
+      "description": "Fichier lu si .planning/sprint{N+1}_plan.md n'existe pas. ~ = dossier utilisateur.",
+      "default": "~/.claude/plans/creer-un-plan-deep-wise-puzzle.md"
+    }
+  }
+}

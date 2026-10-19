@@ -54,6 +54,15 @@ lifecycle modes, gate contracts, and prompt registry.
 
 Use `docs/agent/PROCESS.md` as the vendor-neutral sprint workflow for Claude,
 GPT, and local LLMs. Sprint phase commits require
-`.planning/active/sprint{N}_phase_{X}_review.md` with `## Verdict: PASS`.
+`.planning/active/sprint{N}_phase_{X}_review.md` with `## Verdict: PASS`
+and the raw Codex artifact `.planning/active/sprint{N}_phase_{X}_codex_review.md`
+(byte-identical output of `codex exec -m gpt-6.1-sol -o`, never rewritten).
+Before any commit, no review residue may be staged (probe / `zz_` / `_scratch`
+/ `.bak` files, `MUTATION` markers under `crates/` or `web/src`), and a staged
+source of the Factory profile golden requires the refreshed
+`crates/sbfb-workflow-core/src/factory_profile.golden.json` in the same commit.
+Full prompt for a non-Claude driver:
+`python scripts/agent/agentctl.py prompt --kind universal --depth deep`.
+Prompts for Codex as independent auditor: `.claude/templates/codex_*.txt`.
 `scripts/agent/agentctl.py` (legacy Python) and `crates/sbfb-factory` (Rust)
 enforce the portable gates.

@@ -124,8 +124,9 @@ memory.
 ## Verification Standard
 
 During implementation, scoped checks are acceptable for fast feedback. Before a
-phase commit, the review prompt must require the complete three-block
-verification unless the phase is docs-only and the exemption is explicit:
+phase commit, the review prompt must require the complete two-block
+verification (Rust + Frontend), without docs-only exemption. The Python block
+was retired with `packages/` (Sprints 50-51):
 
 ```bash
 cargo fmt --all --check
@@ -134,11 +135,6 @@ cargo build --workspace --release --locked
 cargo nextest run --workspace --locked
 cargo test --workspace --locked --doc
 
-uv run ruff format --check packages/
-uv run ruff check packages/
-uv run pytest packages/nexus-sdk/tests/ -q
-uv run pytest packages/nexus-coordinator/tests/ -q
-uv run pytest packages/nexus-app-gov/tests/ -q
 
 cd web
 npx tsc --noEmit -p tsconfig.app.json
@@ -158,6 +154,11 @@ Phase commit bodies must use exactly 9 markdown sections and include
 `## Codex verification`. Do not reuse older 8-section templates or add
 `Security delta` as a separate tenth header; record security delta inside
 `## Codex verification`.
+
+The raw Codex artifact (`.planning/active/sprint{N}_phase_{X}_codex_review.md`,
+output of `codex exec -m gpt-6.1-sol -o`) and the residue / golden checks are
+commit gates: see `prompts/agent/universal.md` sections "Codex Verification
+Artifact" and "Residue and Golden Gates".
 
 ## Completion Report
 

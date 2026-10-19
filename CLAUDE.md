@@ -66,26 +66,28 @@ fan-out Workflow en avant-plan, et ne terminer le tour qu'avec un arbre
 de travail propre.
 
 **Regle modele** : ne JAMAIS passer le parametre `model` dans les
-appels Agent(). Les agents ont `model: claude-opus-5[1m]` dans
+appels Agent(). Les agents ont `model: claude-opus-5-5[1m]` dans
 leur frontmatter — le param model override le frontmatter, et il
-faut toujours utiliser l'ID explicite `claude-opus-5[1m]`, jamais
+faut toujours utiliser l'ID explicite `claude-opus-5-5[1m]`, jamais
 l'alias `opus` (resolution d'alias non garantie). Bascule 4.6 → 4.8
-le 2026-05-28, puis **4.8 → Opus 5 le 2026-07-25** (directive PO en
-S83 Phase L1 ; contexte 1M conserve). Meme ID pour les sous-agents
-`agent()` d'un Workflow ultracode, ou l'override est OBLIGATOIRE
-(sans lui ils retombent sur le defaut Haiku 4.5).
+le 2026-05-28, **4.8 → Opus 5 le 2026-07-25** (directive PO en S83
+Phase L1), puis **Opus 5 → Opus 5.5 le 2026-10-19** (directive PO :
+Opus 5 passe legacy ; ID verifie par sonde CLI, contexte 1M ; la sonde
+des 7 `agent()` reste a refaire, carry). Meme ID pour les sous-agents
+`agent()` d'un Workflow ultracode, ou l'override explicite reste la
+regle (la doc actuelle dit qu'un `agent()` sans `model` herite du
+modele de la session ; l'ID explicite l'en rend independant).
 **UN SEUL MODELE, PARTOUT** (arbitrage PO 2026-07-29) : toutes les
-etapes sont sur `claude-opus-5[1m]` — jugement, decouverte, redaction,
+etapes sont sur `claude-opus-5-5[1m]` — jugement, decouverte, redaction,
 mecanique. **`effort` est le SEUL levier de reglage par etape.** Ne
 panache PAS les familles : un process qui ne converge pas se
 diagnostique en faisant varier UNE variable, et melanger les modeles
 rend un finding manque inattribuable entre « effort trop bas » et
 « modele trop faible ». Une matrice de MODELE par etape (Sonnet 5 sur
 la transformation, Haiku 4.5 sur le mecanique) a ete proposee puis
-REJETEE le meme jour — trace et faits mesures en README §7.1, dont :
-Fable 5 coute le DOUBLE d'Opus 5 ($10/$50 vs $5/$25, c'est le modele
-le plus cher du catalogue) et Haiku 4.5 plafonne a 200K de contexte
-contre 1M pour les autres. Les IDs sont MESURES, jamais devines
+REJETEE le meme jour — trace et faits mesures en README §7.1 (prix
+et contextes du catalogue de juillet, PERIMES au 2026-10-19 : Fable
+5.1 coute x2,5 Opus 5.5, $10/$50 vs $4/$20 ; Haiku 5.5 est a 1M). Les IDs sont MESURES, jamais devines
 (7 sondes `agent()` le 2026-07-29) : n'invente aucun suffixe, un ID
 non valide est accepte sans erreur ET retombe sur Haiku 4.5.
 

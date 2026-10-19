@@ -1,0 +1,14 @@
+{
+  "name": "nexus-terminal-rec",
+  "version": "0.1.0",
+  "description": "Enregistre la session Claude Code en asciicast (.cast) dans nexus/.planning/terminal pour le rejeu dans l'UI Factory.",
+  "author": { "name": "FlowUP" },
+  "userConfig": {
+    "nexusRoot": {
+      "type": "string",
+      "title": "Racine du repo nexus",
+      "description": "Chemin absolu du repo nexus. Vide : détecté depuis le dossier de la session.",
+      "default": ""
+    }
+  }
+}

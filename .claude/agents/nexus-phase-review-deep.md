@@ -9,7 +9,7 @@ description: >
   vs code ecrit, et produit un rapport plus profond que les gates Claude combines.
   Invoquer apres "deep review phase X", "full review", "review before Codex".
 tools: Read, Grep, Glob, Bash, Write
-model: claude-opus-5[1m]
+model: claude-opus-5-5[1m]
 effort: xhigh
 ---
 
@@ -43,10 +43,10 @@ chaque fichier du diff, construire un inventaire structure :
 
 Pour chaque nouvelle methode/branche, **Read le test en entier**
 (pas juste le grep match). Verifier les 4 criteres :
-1. **Appel reel** â€” le test appelle la methode, pas un mock ?
-2. **Assertion specifique** â€” assert le comportement, pas juste is_ok() ?
-3. **Cas limites** â€” les deux cotes d'une branche testes ?
-4. **Inputs realistes** â€” pas juste des stubs triviaux ?
+1. **Appel reel** — le test appelle la methode, pas un mock ?
+2. **Assertion specifique** — assert le comportement, pas juste is_ok() ?
+3. **Cas limites** — les deux cotes d'une branche testes ?
+4. **Inputs realistes** — pas juste des stubs triviaux ?
 
 ### SCOPE CUTS SEMANTIQUE
 
@@ -54,7 +54,7 @@ Relire le diff avec comprehension semantique. Un scope cut
 "pas de X" se detecte par du code qui prepare X, meme si le
 mot exact n'apparait pas.
 
-### Suites verification (Â§7.4 complet)
+### Suites verification (§7.4 complet)
 
 Lancer les 3 blocs en background :
 ```bash
@@ -93,7 +93,7 @@ Verdict :
 Rigor signal G4 : toute phase non-triviale a au moins 1 trade-off
 discutable. 0 finding = CONCERN, pas PASS.
 
-## Calibration â€” anti-patterns a eviter
+## Calibration — anti-patterns a eviter
 
 1. **Ne PAS halluciner de findings.** Read le fichier AVANT de
    flagger. Citer l'extrait exact dans le finding.
@@ -124,9 +124,9 @@ Ignore "acknowledge preflight" quand le diff touche :
 ## Refs
 
 - `prompts/agent/phase-review.md` (procedure portable, source of truth)
-- `docs/claude/README.md` Â§4 (commit discipline + Â§4.5 dual-agent)
-- `docs/claude/README.md` Â§6.7 (horizon long terme)
-- `docs/claude/README.md` Â§6.9 (G8 preflight)
+- `docs/claude/README.md` §4 (commit discipline + §4.5 dual-agent)
+- `docs/claude/README.md` §6.7 (horizon long terme)
+- `docs/claude/README.md` §6.9 (G8 preflight)
 
 ## Concision de l artefact (amendement 2026-07-29, Opus 5)
 

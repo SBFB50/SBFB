@@ -17,9 +17,10 @@ Never rely on private model memory. If a rule matters, it must be visible in:
 
 - `AGENTS.md`
 - `CLAUDE.md`
+- `docs/agent/AGENT_SYSTEM.md`
 - `docs/agent/PROCESS.md`
 - `docs/agent/TOOLING.md`
-- `docs/claude/README.md`
+- `docs/claude/README.md` (§4.5 verification process, §7.1 canonical bootstrap)
 - `docs/claude/SPRINT_LOG.md`
 - `.planning/active/`
 - the current diff and command outputs
@@ -110,8 +111,8 @@ Use this sequence for normal sprint work:
    or a pivot proposal.
 6. Implement one phase at a time.
 7. Run scoped verification during development.
-8. Before a phase commit, run full review and three-block verification unless
-   the phase is explicitly docs-only.
+8. Before a phase commit, run full review and the full two-block verification
+   (Rust + Frontend). There is no docs-only exemption (README §4.5.6).
 9. Use `## Verdict: PASS-PENDING` only for a driver handoff awaiting Codex
    verification.
 10. Complete Codex verification for every phase commit and update
@@ -402,12 +403,12 @@ During implementation, run focused checks after meaningful edits:
 ```bash
 python scripts/agent/agentctl.py verify-on-write --file <changed-file>
 cargo nextest run -p <crate> --locked
-uv run pytest <focused-test> -q
 cd web && npm run test:unit -- <focused-test>
 ```
 
-Before a phase commit, run the full three-block verification unless the phase is
-docs-only and the exemption is written in the review.
+Before a phase commit, run the full two-block verification below, without
+exception. The former Python block was retired with `packages/` and `nexus/`
+(Sprints 50-51): there is no Python suite to run.
 
 Rust:
 
@@ -417,16 +418,6 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo build --workspace --release --locked
 cargo nextest run --workspace --locked
 cargo test --workspace --locked --doc
-```
-
-Python:
-
-```bash
-uv run ruff format --check packages/
-uv run ruff check packages/
-uv run pytest packages/nexus-sdk/tests/ -q
-uv run pytest packages/nexus-coordinator/tests/ -q
-uv run pytest packages/nexus-app-gov/tests/ -q
 ```
 
 Frontend:
@@ -453,6 +444,53 @@ bash scripts/check-spdx.sh
 
 If a command cannot run, record the exact command, failure, environment reason,
 and the smallest next verification step.
+
+## Codex Verification Artifact
+
+Codex is the independent cross-verifier of every phase (README §4.5). Its
+output is a mechanical commit gate (`agentctl.py` `codex_review_errors`,
+lightcheck Check 7), so its shape is not optional:
+
+- Prompt: start from `.claude/templates/codex_phase_review.txt`
+  (`codex_preflight_review.txt`, `codex_recheck.txt` for the other passes),
+  written to the path `python scripts/agent/agentctl.py codex-prompt-path
+  --sprint {N} --phase {X}` prints.
+- Run (PowerShell, README §4.5.2), one numbered round per run:
+
+```powershell
+Get-Content ".git/CODEX_SPRINT{N}_PHASE_{X}.txt" -Raw | codex exec `
+  -m gpt-6.1-sol -c model_reasoning_effort=max `
+  -o ".planning/active/rounds/sprint{N}_phase_{X}_codex_review_r{R}.md"
+```
+
+- Promote the final round as a BYTE-IDENTICAL copy to
+  `.planning/active/sprint{N}_phase_{X}_codex_review.md`, staged in the phase
+  commit. Never rewrite, summarise or concatenate it: a `# Codex Review`
+  heading or a missing verdict marker (CONFIRME / PARTIEL / GAP) or a missing
+  `file:line` evidence blocks the commit.
+- The phase review gets a `## Codex reconciliation` section, and the commit
+  body reports the Codex counts (`N CONFIRME / N PARTIEL / N GAP`); a body
+  that says `0 GAP` while the artifact carries a GAP is blocked.
+
+## Residue and Golden Gates
+
+Two invariants added in July 2026 are enforced by the Claude hook
+`.claude/hooks/phase-precommit-lightcheck.sh`. The portable path
+(`.githooks/` → `agentctl.py`) enforces the golden one but NOT the residue
+one, so a non-Claude driver must check it by hand before every commit:
+
+```bash
+# Check 0bis — review residue: must print nothing
+git diff --cached --name-only --diff-filter=A | grep -Ei '(^|/)(zz_)|probe|_scratch|\.bak$'
+git diff --cached -U0 -- crates web/src | grep -E '^\+' | grep -E 'MUTATION[-: ]|MUTATION$|TEMPORARY review probe'
+# Check 11 — staging a source pinned by the Factory profile golden requires
+# refreshing the golden in the SAME commit:
+UPDATE_SNAPSHOTS=1 cargo nextest run -p sbfb-workflow-core extract_matches_golden --locked
+git add crates/sbfb-workflow-core/src/factory_profile.golden.json
+```
+
+A review that measures by mutation must run in an isolated worktree and
+restore the tree (`prompts/agent/phase-review-workflow.md`).
 
 ## Phase Review Requirements
 
@@ -483,6 +521,7 @@ HEAD: <sha>
 | Patterns/design | ok/concern/fail | docs checked |
 
 ## Codex verification
+## Codex reconciliation
 ## Findings
 ## Anti-Hallucination Notes
 ## Recommendation
@@ -519,9 +558,6 @@ Use this full 9-section body. Do not add or remove top-level body sections:
 
 ## Delta tests
 - Rust workspace: <before> -> <after> (+<delta>) via <command or Not run: reason>.
-- Python SDK: <before> -> <after> (+<delta>) via <command or Not run: reason>.
-- Python coordinator: <before> -> <after> (+<delta>) via <command or Not run: reason>.
-- Python app-gov: <before> -> <after> (+<delta>) via <command or Not run: reason>.
 - Vitest unit: <before> -> <after> (+<delta>) via <command or Not run: reason>.
 - Playwright: <before> -> <after> (+<delta>) via <command or Not run: reason>.
 - Frontend build/size/i18n: <result> via <command or Not run: reason>.
@@ -543,7 +579,9 @@ Use this full 9-section body. Do not add or remove top-level body sections:
 - Decoder/canonical policy: <preserved or explicit decision>.
 
 ## Codex verification
-- Codex pass: <session/agent and date, or Not run: commit blocked>.
+- Codex pass: <model, date, rounds r1..rN, or Not run: commit blocked>.
+- Codex counts: <N CONFIRME / N PARTIEL / N GAP>, artifact
+  .planning/active/sprint{N}_phase_{X}_codex_review.md (raw, byte-identical).
 - Final review: .planning/active/sprint{N}_phase_{X}_review.md contains exactly `## Verdict: PASS`.
 - Verification commands: <commands and result, or Not run with reason>.
 - Security delta: <none, or exact security/protocol change and mitigation>.

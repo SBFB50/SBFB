@@ -84,10 +84,12 @@ Process courant (ne pas réinventer) :
     code JAMAIS une phase en parallèle ; l'écriture d'une phase reste
     main-thread, séquentielle, un commit atomique par phase.
   - PAS DE SUPERVISEUR (amendement 2026-06-17) : ne crée aucun teammate
-    supervisor, n'attends aucun verdict GO-*/BLOCK-*. Codex (GPT-5.6 Sol) = vérif
-    croisée externe après review Workflow PASS-PENDING. Seul gate automatisé
-    au commit = hook phase-precommit-lightcheck.sh.
-  - Modèle agents : ID explicite claude-opus-5[1m], jamais l'alias « opus »,
+    supervisor, n'attends aucun verdict GO-*/BLOCK-*. Codex (GPT-6.1 Sol) = vérif
+    croisée externe après review Workflow PASS-PENDING. Gates automatisés
+    au commit = hooks PreToolUse phase-auditor-gate.sh (review PASS) +
+    phase-precommit-lightcheck.sh (.githooks/ + agentctl pour les autres
+    providers).
+  - Modèle agents : ID explicite claude-opus-5-5[1m], jamais l'alias « opus »,
     jamais passer le param model à Agent(). Pour les sous-agents `agent()` d'un
     Workflow, l'override explicite est au contraire OBLIGATOIRE.
 
@@ -955,7 +957,7 @@ déclenche un nouveau cycle.
 
 **Verification croisee Codex (depuis S65, cf. §4.5).** Apres que
 toutes les suites sont vertes et que la review Claude a produit un
-verdict `PASS-PENDING`, lancer la verification Codex GPT-5.6 Sol pour
+verdict `PASS-PENDING`, lancer la verification Codex GPT-6.1 Sol pour
 TOUTES les phases sans exception (§4.5.6). Sequence complete avant
 commit phase :
 
@@ -966,9 +968,9 @@ commit phase :
 3. Codex verification croisee (§4.5) — GAPs corriges ou documentes
 4. Reconciliation Claude post-Codex — review.md promu a `PASS` final
    avec section `## Codex reconciliation`
-5. Commit atomique — l'unique gate automatise est le hook mecanique
-   `phase-precommit-lightcheck.sh` (staging coherence, body 9
-   sections, artefact Codex brut). Plus de consultation superviseur
+5. Commit atomique — les gates automatises sont les hooks mecaniques PreToolUse `phase-auditor-gate.sh` (review PASS)
+   et `phase-precommit-lightcheck.sh`
+   (staging coherence, body 9 sections, artefact Codex brut). Plus de consultation superviseur
    GO/BLOCK.
 
 L'ordre preflight → code/tests → review `PASS-PENDING` → Codex →
@@ -1029,17 +1031,18 @@ etc.) + Meta-track LOC estimations (transverse P3-S22A-1 +
 P3-B-1 + P2-E-2 + Phase D déviation LOC = 4 occurrences du
 même pattern à fermer S23 chore planning).
 
-### 4.5 Verification Process — Workflow ultracode + Codex GPT-5.6 Sol
+### 4.5 Verification Process — Workflow ultracode + Codex GPT-6.1 Sol
 
 Depuis Sprint 65, chaque phase de chaque sprint est verifiee par un
 processus a deux couches : une **orchestration Workflow ultracode**
 (fan-out d'agents Claude ultra-profonds, 1M tokens chacun, +
 verification adversariale + synthese) pour le preflight et la review,
-puis une verification croisee independante par Codex CLI (GPT-5.6 Sol,
-`gpt-5.6-sol` reasoning `max` — bascule 5.5→5.6 Sol 2026-07-10, le tier
-flagship, au reasoning maximal ; acces VERIFIE sur ce compte Codex, a
-exige un upgrade CLI codex — 0.142.5 refuse, 0.144.1 fonctionne, cf.
-§4.5.2).
+puis une verification croisee independante par Codex CLI (GPT-6.1 Sol,
+`gpt-6.1-sol` reasoning `max` — bascule 5.6 Sol → 6.1 Sol le 2026-10-19,
+directive PO : modele recommande par OpenAI, `gpt-5.6-sol` maintenu
+seulement pendant la transition ; acces VERIFIE sur ce compte le
+2026-10-19 avec codex-cli 0.162.1. Historique : 5.5→5.6 Sol le
+2026-07-10, qui exigeait deja un CLI >= 0.144.1, cf. §4.5.2).
 
 Le superviseur process (`nexus-process-supervisor`) et les
 consultations de gate GO/BLOCK (`G-SPAWN`/`G-PREFLIGHT`/`G-REVIEW`/
@@ -1047,8 +1050,8 @@ consultations de gate GO/BLOCK (`G-SPAWN`/`G-PREFLIGHT`/`G-REVIEW`/
 2026-06-17). Ils sont remplaces par : (1) l'orchestration Workflow
 elle-meme, qui porte le verdict du preflight et de la review ;
 (2) Codex, la verification croisee externe ; (3) le hook mecanique
-`phase-precommit-lightcheck.sh`, l'unique gate automatise avant
-commit. Aucun agent ne repond plus GO/BLOCK a chaque etape — le
+`phase-precommit-lightcheck.sh` et `phase-auditor-gate.sh`, les gates
+automatises avant commit. Aucun agent ne repond plus GO/BLOCK a chaque etape — le
 main thread enchaine les couches et le hook bloque mecaniquement
 au commit si un invariant est viole.
 
@@ -1075,7 +1078,7 @@ partages), le fan-out avant-plan est le mode par defaut sur.
 Plan section Phase X lue
   |
   v
-Workflow preflight (fan-out agents 1M, claude-opus-5[1m])
+Workflow preflight (fan-out agents 1M, claude-opus-5-5[1m])
   |  5 scans factuels S1a-S4 en parallele + synthese -> verdict
   v
 Code ecrit par Claude (execution phase standard, main-thread)
@@ -1085,7 +1088,7 @@ Workflow phase review (fan-out dimensions + verif adversariale)
   |  6+ dimensions, synthese -> verdict PASS-PENDING/CONCERN/FAIL
   v
 Codex verification (codex exec, prompt structure, findings)
-  |  Review croisee independante GPT-5.6 Sol
+  |  Review croisee independante GPT-6.1 Sol
   v
 Claude reconciliation (lit Codex, corrige/documente, promeut review.md a PASS)
   |
@@ -1104,8 +1107,8 @@ Memory + chore planning a jour (G6)
 ```
 
 Le preflight et la review Workflow restent les gates primaires
-(G8 + G4) ; le hook lightcheck est l'unique gate automatise au
-commit. Codex est une verification supplementaire — il ne
+(G8 + G4) ; les hooks lightcheck et auditor-gate sont les gates
+automatises au commit. Codex est une verification supplementaire — il ne
 remplace ni le preflight, ni la review, ni l'audit gate. Il n'y a
 plus de superviseur ni de consultation GO/BLOCK entre les etapes.
 
@@ -1123,7 +1126,7 @@ plus de superviseur ni de consultation GO/BLOCK entre les etapes.
 
 # 2. Pipe via stdin vers codex exec
 Get-Content ".git/CODEX_SPRINT{N}_PHASE_{X}.txt" -Raw | codex exec `
-  -m gpt-5.6-sol -c model_reasoning_effort=max `
+  -m gpt-6.1-sol -c model_reasoning_effort=max `
   --dangerously-bypass-approvals-and-sandbox `
   -o ".planning/active/rounds/sprint{N}_phase_{X}_codex_review_r{R}.md"
 
@@ -1136,7 +1139,7 @@ Copy-Item ".planning/active/rounds/sprint{N}_phase_{X}_codex_review_r{R}.md" `
 
 | Parametre | Role |
 |-----------|------|
-| `-m gpt-5.6-sol` | Modele de la review croisee = GPT-5.6 Sol (tier flagship, acces verifie sur ce compte). SCOPE la review SBFB sans toucher le default global `~/.codex/config.toml` des autres projets. Bascule 5.5→5.6 Sol 2026-07-10. Requiert un CLI codex recent (0.142.5 donne `400 requires a newer version of Codex`, 0.144.1 fonctionne — l'install que PowerShell resout doit etre a jour, cf. NOTE ci-dessous). Slug exact : `sol` (PAS `solar`/`sol-pro`/`codex-sol`, tous refuses en compte ChatGPT). |
+| `-m gpt-6.1-sol` | Modele de la review croisee = GPT-6.1 Sol (recommande par OpenAI, acces verifie sur ce compte le 2026-10-19, codex-cli 0.162.1). SCOPE la review SBFB sans toucher le default global `~/.codex/config.toml` des autres projets. Bascule 5.6→6.1 Sol le 2026-10-19 (5.5→5.6 Sol le 2026-07-10). Requiert un CLI codex recent (0.142.5 donne `400 requires a newer version of Codex`, 0.144.1 fonctionne — l'install que PowerShell resout doit etre a jour, cf. NOTE ci-dessous). Slug exact : `sol` (PAS `solar`/`sol-pro`/`codex-sol`, tous refuses en compte ChatGPT). |
 | `-c model_reasoning_effort=max` | Epingle l'effort `max` explicitement (independant du global) — la review croisee vise la profondeur maximale (directive PO 2026-07-10). Sol supporte aussi `ultra` au-dessus si une phase le justifie ; `xhigh` en-dessous si le budget temps l'exige. |
 | `--dangerously-bypass-approvals-and-sandbox` | Execution sans approbation interactive (equivalent de `--yolo`) |
 | `-o fichier.md` | Ecrit l'output dans un fichier lisible par Claude apres execution |
@@ -1234,7 +1237,7 @@ n'existe pas de review final `PASS` ni de commit autorise.
 
 Le preflight et la review de phase sont des etapes de LECTURE /
 verification : elles s'orchestrent en **Workflow ultracode**
-(fan-out d'agents independants, 1M tokens chacun, claude-opus-5[1m],
+(fan-out d'agents independants, 1M tokens chacun, claude-opus-5-5[1m],
 + verification adversariale + synthese). Gain mesure : ~3x sur
 phases > 10 fichiers. Le Workflow ne code JAMAIS une phase en
 parallele (editions concurrentes des fichiers partages = conflits +
@@ -1859,8 +1862,8 @@ un nouveau wire format, ou une nouvelle dépendance cryptographique.
 Le preflight s'orchestre en Workflow ultracode (fan-out des 5 scans
 + synthèse, §4.5.7) ; fallback skill `nexus-phase-preflight`. Il n'y
 a plus de superviseur process ni de consultation de gate — le hook
-mécanique `phase-precommit-lightcheck.sh` est l'unique gate
-automatisé au commit.
+mécaniques `phase-precommit-lightcheck.sh` et `phase-auditor-gate.sh`
+sont les gates automatisés au commit.
 
 #### Quand
 
@@ -1898,7 +1901,8 @@ cassé. S4 sans S1 = invariants préservés sur approche obsolète.
 
 **Parallelisation via agents ultra-profonds (depuis S65).** Les 5
 scans sont independants en entree. Lancer les 5 en parallele via
-des agents Claude independants (`claude-opus-5[1m]` depuis le 2026-07-25,
+des agents Claude independants (`claude-opus-5-5[1m]` depuis le 2026-10-19,
+`claude-opus-5[1m]` du 2026-07-25 au 2026-10-18,
 effort `xhigh` par la matrice §7.1.1 — cette consigne nommait Opus 4.6
 jusqu'au 2026-07-29).
 L'orchestrateur agrege les resultats et emit le verdict. Gain
@@ -2340,11 +2344,12 @@ phase.
     mutation dans l'arbre : mesure S83 Phase M, cinq artefacts survivants
     dont une cle de chiffrement rendue predictible. Backstop mecanique =
     hook `phase-precommit-lightcheck.sh` Check 0bis.
-  - Codex (GPT-5.6 Sol) reste la verification croisee externe apres la
+  - Codex (GPT-6.1 Sol) reste la verification croisee externe apres la
     review Workflow PASS-PENDING.
-  - L'unique gate AUTOMATISE avant commit est le hook mecanique
+  - Les gates AUTOMATISES avant commit sont les deux hooks PreToolUse
+    `phase-auditor-gate.sh` (review `## Verdict: PASS`) et
     `phase-precommit-lightcheck.sh` (staging coherence, body 9
-    sections, artefact Codex brut). Il n'y a plus de superviseur
+    sections, artefact Codex brut, golden factory_profile). Il n'y a plus de superviseur
     process (`nexus-process-supervisor`) ni de gates GO/BLOCK
     `G-SPAWN`/`G-PREFLIGHT`/`G-REVIEW`/`G-CODEX`/`G-COMMIT`/`G-POST`.
 
@@ -2398,7 +2403,7 @@ grep -Ei '^- \[SBFB pivot|tip ' "$HOME/.claude/projects/C--Users-FlowUP-Document
 grep -lE 'triggers_revalidate' docs/security/*.md docs/rust/PATTERNS.md docs/shell/PATTERNS.md 2>/dev/null || true
 
 # G6 — fraîcheur memory vs tip master (ouvrir question si > 2 sprints sans touch)
-{ ls -la "$HOME/.claude/projects/C--Users-FlowUP-Documents-Code-nexus/memory/" 2>/dev/null || true; } | head -20
+{ ls -lat "$HOME/.claude/projects/C--Users-FlowUP-Documents-Code-nexus/memory/" 2>/dev/null || true; } | head -12
 
 # G8 hint — historical decisions qui pourraient flager DESIGN-CONFLICT
 # (lecture rapide, signal uniquement, le scan S2 complet vit dans skill preflight)
@@ -2437,37 +2442,48 @@ IMMEDIATEMENT apres le pre-flight, AVANT la detection de cas :
      la review est porte par l'orchestration Workflow elle-meme ;
      Codex est la verification croisee ; le commit n'a qu'un gate.
 
-  3. Gate mecanique unique : le hook `phase-precommit-lightcheck.sh`
-     s'execute automatiquement au commit et BLOQUE si un invariant
-     est viole (staging coherence STRICT BLOCK, body 9 sections
-     Check 9, artefact Codex brut Check 7, design_review.md Phase A
-     Check 5). C'est le seul mecanisme d'arret automatise restant.
-     Le hook `Stop` peut aussi bloquer une fin de tour qui sonne
-     "termine" alors que le repo n'est pas propre. Aucune action
+  3. Gates mecaniques : deux hooks PreToolUse s'executent au
+     commit. `phase-auditor-gate.sh` BLOQUE si la review de la phase
+     n'est pas `## Verdict: PASS`. `phase-precommit-lightcheck.sh`
+     BLOQUE si un invariant est viole (residus de review Check 0bis,
+     design_review.md Phase A Check 5, artefact Codex brut Check 7,
+     preflight Check 8, body 9 sections Check 9, golden
+     factory_profile Check 11). Il n'y a PAS de hook `Stop` dans
+     .claude/settings.json (supprime le 2026-06-17, `42c74489`).
+     Fin de tour : le mod `.claude/skills/nexus-process` (garde
+     classic.Stop, 2026-10-19) bloque UNE fois une fin annoncee
+     (« termine », « PASS », « pret a commit ») s'il reste une
+     mutation de review, une sonde ou un golden non rafraichi —
+     pas un repo sale en general. Aucune action
      manuelle de consultation de gate n'est requise — enchainer les
      etapes du plan et laisser le hook trancher au commit.
 
 # === Regle modele agents (§7.1.1) ===
 
 Ne JAMAIS passer le parametre `model` dans les appels Agent().
-Les 5 agents enregistres ont `model: claude-opus-5[1m]` dans leur
+Les 5 agents enregistres ont `model: claude-opus-5-5[1m]` dans leur
 frontmatter (.claude/agents/*.md). Le parametre `model` de l'outil
 Agent() OVERRIDE le frontmatter — et les alias (`opus`) n'ont pas de
 resolution garantie vers la bonne version. Utiliser l'ID explicite
-`claude-opus-5[1m]`. Omission = heritage correct. Bascule 4.6 → 4.8
+`claude-opus-5-5[1m]`. Omission = heritage correct. Bascule 4.6 → 4.8
 le 2026-05-28 (la regression MRCR qui motivait le pin 4.6, cf. §7.x
 A/B test S22, etait specifique a Opus 4.7), puis **4.8 → Opus 5 le
-2026-07-25** (directive PO en S83 Phase L1).
+2026-07-25** (directive PO en S83 Phase L1), puis **Opus 5 → Opus 5.5
+le 2026-10-19** (directive PO : Opus 5 passe « legacy », Opus 5.5 sorti
+le 2026-09-22 ; ID verifie par sonde CLI ci-dessous).
 
-EXCEPTION, sens INVERSE, pour les sous-agents d'un Workflow : un
-`agent()` de Workflow retombe sur le defaut Haiku 4.5 s'il n'a pas
-d'override, donc il faut y passer un `model:` EXPLICITEMENT a chaque
-appel (maps `parallel`/`pipeline` ET etapes de synthese). Et quand
+EXCEPTION, sens INVERSE, pour les sous-agents d'un Workflow : passer
+un `model:` EXPLICITEMENT a chaque `agent()` (maps `parallel`/`pipeline`
+ET etapes de synthese). La doc actuelle de l'outil Workflow dit qu'un
+`agent()` sans `model` HERITE du modele de la boucle principale (le
+repli sur Haiku 4.5 constate en juillet n'est plus documente) ; l'ID
+explicite reste la regle parce qu'il rend le modele independant de la
+session qui lance le Workflow. Et quand
 l'ID de modele change, re-lancer le Workflow a NEUF : un
 `resumeFromRunId` rejouerait le cache des agents de l'ancien modele.
 
 MODELE — UN SEUL, PARTOUT (arbitrage PO 2026-07-29). Toutes les etapes
-tournent sur `claude-opus-5[1m]` : audit gate, kickoff, scans de preflight,
+tournent sur `claude-opus-5-5[1m]` : audit gate, kickoff, scans de preflight,
 dimensions de review, mutation, refutation, synthese, redaction de rapport,
 suites §7.4, census. **`effort` est le SEUL levier de reglage par etape**
 (matrice ci-dessus). Ne panache PAS les familles.
@@ -2479,11 +2495,13 @@ confondant a chaque round — un finding manque devient inattribuable entre
 la perte de diagnosticabilite.
 
 TRACE — proposition REJETEE le 2026-07-29, conservee pour qu'elle ne soit
-pas re-proposee. Une matrice de MODELE par etape a ete rediged le meme jour
+pas re-proposee. Une matrice de MODELE par etape a ete redigee le meme jour
 (Sonnet 5 sur la transformation, Haiku 4.5 sur le mecanique, Opus 5 sur le
 jugement), sur la logique « la matrice d'effort s'applique aussi au
 modele ». Ecartee par arbitrage PO au profit de l'axe unique. Deux faits
-MESURES ce jour-la restent vrais et valent d'etre gardes :
+MESURES ce jour-la (2026-07-29, catalogue de l'epoque — PERIMES au
+2026-10-19 : Fable 5.1 $10/$50 contre Opus 5.5 $4/$20, soit x2,5 ; Haiku
+5.5 est a 1M de contexte) :
   - **Fable 5 n'est pas un tier economique** : $10/$50 par MTok, soit le
     DOUBLE d'Opus 5 ($5/$25) — c'est le modele le plus cher du catalogue,
     et ses tours durent plusieurs minutes sur les taches dures. Toute
@@ -2493,7 +2511,13 @@ MESURES ce jour-la restent vrais et valent d'etre gardes :
     Fable 5 sont a 1M — il ne pourrait de toute facon pas ingerer les gros
     diffs de ce depot.
 
-IDS — MESURES, pas supposes (2026-07-29, 7 sondes `agent()`, 0 erreur).
+IDS — MESURES, pas supposes. 2026-10-19 : sonde CLI
+`claude -p --model "claude-opus-5-5[1m]"` → le modele rapporte
+« claude-opus-5-5[1m] — fenetre de 1 million de tokens » ; sans le
+suffixe il ne rapporte aucune fenetre. La sonde des 7 `agent()`
+decrite ci-dessous n'a PAS ete refaite pour Opus 5.5 (directive PO :
+bascule sans elle) — elle reste a jouer au prochain Workflow (carry).
+Mesure precedente (2026-07-29, 7 sondes `agent()`, 0 erreur) :
 Ce qui compte pour la regle : `claude-opus-5[1m]` est CONFIRME, et l'override
 de modele est REELLEMENT EFFICACE — pas decoratif. Sept sondes ont chacune
 rapporte la famille qu'on leur demandait, et **seule celle a qui on demandait
@@ -2511,7 +2535,7 @@ retomber sur Haiku 4.5 — le bug meme que cette regle combat. Refaire une
 sonde (7 agents triviaux, 5 s) est moins cher que de le decouvrir dans un
 round de review.
 
-FRONTMATTERS DES 5 AGENTS : tous sur `claude-opus-5[1m]`, comme le reste du
+FRONTMATTERS DES 5 AGENTS : tous sur `claude-opus-5-5[1m]`, comme le reste du
 process. Ils jouent chacun une etape ENTIERE en solo (fallback quand le
 Workflow n'est pas disponible), donc leur charge est superieure a celle d'un
 agent de dimension — c'est un argument de plus pour ne jamais les descendre.
@@ -2564,8 +2588,10 @@ n'est PAS configurable par agent (aucune cle de frontmatter, aucun ID de
 modele `-fast`/`[fast]`) : c'est un reglage de SESSION (`/fast`, cle
 `fastMode` des settings, coupable par `CLAUDE_CODE_DISABLE_FAST_MODE=1`),
 et il ne degrade pas le modele — meme intelligence, sortie plus rapide.
-`model` accepte `sonnet`/`opus`/`haiku`/`fable` OU un full model ID —
-d'ou la legitimite de `claude-opus-5[1m]`.
+Le frontmatter d'agent et `agent()` de Workflow acceptent un full model
+ID — d'ou la legitimite de `claude-opus-5-5[1m]`. Le parametre `model`
+de l'outil Agent(), lui, n'accepte que `sonnet`/`opus`/`haiku`/`fable`
+(raison de plus pour ne jamais le passer).
 
 CONCISION DES ARTEFACTS (amendement 2026-07-29, Opus 5). Opus 5 ecrit des
 fichiers plus longs que 4.8 et l'effort ne les raccourcit PAS — seule une
@@ -2602,7 +2628,7 @@ une mesure, il faudrait N>=3 avec et sans Workflow concurrent.
 
 # === Détection du cas + routage agent ===
 
-Compare ce que tu vois avec les 4 cas ci-dessous. Le main thread
+Compare ce que tu vois avec les 5 cas ci-dessous. Le main thread
 DETECTE le cas et INVOQUE l'agent spécialisé. Il ne joue PAS la
 procédure lui-même (sauf Cas D hotfix).
 
@@ -2689,13 +2715,13 @@ procédure lui-même (sauf Cas D hotfix).
       autorise directement le passage a Codex.
 
     APRÈS review PASS-PENDING, AVANT commit (Codex §4.5) :
-      Lancer la verification croisee Codex GPT-5.6 Sol pour TOUTES
+      Lancer la verification croisee Codex GPT-6.1 Sol pour TOUTES
       les phases sans exception (§4.5.6 zero exemption).
       Ecrire prompt `.git/CODEX_SPRINT{N}_PHASE_{X}.txt`, lancer via
-      `Get-Content | codex exec -m gpt-5.6-sol -c
+      `Get-Content | codex exec -m gpt-6.1-sol -c
       model_reasoning_effort=max -o .planning/active/rounds/
       sprint{N}_phase_{X}_codex_review_r{R}.md` (slug exact `sol`,
-      effort `max`, requiert CLI codex >=0.144.1, cf. §4.5.2).
+      effort `max`, verifie avec codex-cli 0.162.1, cf. §4.5.2).
 
       ROUNDS NUMEROTES (canon 2026-07-20, §4.5.8). CHAQUE round Codex
       ecrit son PROPRE fichier `rounds/..._codex_review_r{R}.md`,
@@ -2750,14 +2776,17 @@ procédure lui-même (sauf Cas D hotfix).
 
     APRÈS commit : mettre planning/memory a jour (G6 — §5.1.1,
       §7.5) et s'assurer que la phase suivante est claire. Pas de
-      gate G-POST ; le hook `Stop` est le backstop si le repo reste
-      sale en fin de tour.
+      gate G-POST. Pas de hook `Stop` dans les settings ; la garde
+      de fin de tour du mod nexus-process ne couvre que les residus
+      de review et le golden (cf. point 3 ci-dessus) — verifier
+      `git status` soi-meme.
 
   Cas C — Nouveau sprint à ouvrir
     Signal : .planning/active/ contient au max le
              sprint{N-1}_audit_findings.md avec verdict PASS ou
              CONDITIONAL PASS levé. Le sprint N-1 est complètement
-             clos.
+             clos, OU suspendu selon le Cas E (marqueur
+             sprint{N-1}_suspended.md + audit gate partiel PASS).
     ACTION : INVOQUER agent `nexus-sprint-kickoff`.
              L'agent lit l'état complet du projet, exécute une
              recherche ultra-profonde pour chaque D1..D5 (context7
@@ -2782,6 +2811,37 @@ procédure lui-même (sauf Cas D hotfix).
       5. Update memory nexus_grid_pivot.md
     Fallback : si ni Workflow ni l'agent ne sont disponibles, le main
              thread joue manuellement la procedure §2 + §6.1.1 + §6.2.1.
+
+  Cas E — Sprint suspendu (amendement 2026-10-19)
+    Signal : le PO decide d'interrompre le sprint N en cours pour
+             ouvrir N+1 (precedent : S83 suspendu apres M1 pour S84
+             « Messagerie anonyme »), OU le marqueur
+             sprint{N}_suspended.md existe deja.
+    Sans ce cas, la detection retombe en Cas B sur N (kickoff +
+    plan sans verification.md) et l'audit gate de N+1 auditerait
+    un sprint non clos.
+    SUSPENDRE N (apres le commit de la derniere phase livree) :
+      1. Ecrire sprint{N}_suspended.md : date, directive PO,
+         derniere phase commitee (SHA), phases restantes, carries,
+         conditions de reprise.
+      2. Ecrire sprint{N+1}_audit_plan.md = audit PARTIEL des
+         phases livrees de N (meme canon 11 tracks, perimetre
+         borne aux phases commitees).
+      3. `git mv .planning/active/sprint{N}_* .planning/archive/v{X}/`
+         (marqueur compris) : current_sprint() d'agentctl et le mod
+         nexus-process lisent le max N dans active/ + archive/, ils
+         passent a N+1 des que sprint{N+1}_* existe ; review_file()
+         retrouve les reviews de N dans archive/v*/.
+      4. SPRINT_LOG : ligne N → « SUSPENDU apres Phase X (SHA) —
+         directive PO date » ; CLAUDE.md etat courant a jour.
+      5. Commit chore(planning): Sprint N suspendu apres Phase X.
+    ENSUITE : Cas A (audit gate partiel de N via
+             sprint{N+1}_audit_plan.md), puis Cas C (kickoff N+1).
+    REPRENDRE N plus tard : git mv inverse vers active/, supprimer
+             le marqueur, ligne SPRINT_LOG « REPRIS », Cas B.
+    Un paquet N+1 prepare AVANT la suspension vit hors de active/
+    (`.planning/sprint{N+1}_*.md`, precedent S78 `c3670471`) pour ne
+    pas faire basculer current_sprint() trop tot.
 
   Cas D — Hotfix hors sprint (main thread direct)
     Signal : utilisateur demande explicitement un fix urgent.
@@ -3521,3 +3581,9 @@ Changements majeurs surveilles :
   Workflows arriere-plan / Monitor notifient en fin de tour donc
   composent avec un arbre propre — en milieu de phase, fan-out
   avant-plan synchrone.
+- Amendement 2026-10-19 (directive PO) : modele Claude Opus 5 →
+  Opus 5.5 (`claude-opus-5-5[1m]`, sonde CLI ; sonde 7 `agent()` en
+  carry), Codex gpt-5.6-sol → gpt-6.1-sol (sonde codex-cli 0.162.1) ;
+  correction de deux affirmations fausses (hook `Stop` supprime le
+  2026-06-17 ; deux gates PreToolUse et non un) ; ajout du Cas E
+  « sprint suspendu » ; G6 trie la memoire par date.
