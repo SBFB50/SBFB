@@ -310,6 +310,71 @@ class SBFBBridge {
     return this._call("feed_cursor_get", {});
   }
 
+  // ---------------------------------------------------------------
+  // Chat v1 (ADR_CHAT_V1) — end-to-end encrypted messaging. Keys live in
+  // the local daemon, never in the app. Requires `bridge.methods` to list
+  // the chat_* verbs in SBFB.json AND the user's consent (asked by the host).
+  // ---------------------------------------------------------------
+
+  /** @returns {Promise<{ id: string, name: string, fingerprint: string }>} */
+  chatIdentity() {
+    return this._call("chat_identity", {});
+  }
+
+  /** Set the display name shown to contacts. */
+  chatSetProfile(name) {
+    return this._call("chat_set_profile", { name: String(name || "") });
+  }
+
+  /** @returns {Promise<Array<{ id: string, title: string, is_admin: boolean, removed: boolean, members: Array<{ id: string, name: string, fingerprint: string, admin: boolean }> }>>} */
+  chatList() {
+    return this._call("chat_list", {});
+  }
+
+  /** @returns {Promise<{ id: string }>} */
+  chatCreate(title) {
+    return this._call("chat_create", { title: String(title || "") });
+  }
+
+  /**
+   * Mint a single-use invitation link (`sbfb-chat:...`). Share it only with
+   * the person you invite: it lets its holder join the conversation.
+   * @returns {Promise<{ invite: string, expires_at: number }>}
+   */
+  chatInvite(conversation, ttlSecs) {
+    var payload = { conversation: conversation };
+    if (ttlSecs) payload.ttl_secs = ttlSecs;
+    return this._call("chat_invite", payload);
+  }
+
+  /** @returns {Promise<{ id: string }>} */
+  chatAccept(invite) {
+    return this._call("chat_accept", { invite: String(invite || "") });
+  }
+
+  chatSend(conversation, text) {
+    return this._call("chat_send", { conversation: conversation, text: String(text || "") });
+  }
+
+  /** @returns {Promise<Array<{ from: string, from_name: string, body: string, sent_at: number, mine: boolean }>>} */
+  chatMessages(conversation) {
+    return this._call("chat_messages", { conversation: conversation });
+  }
+
+  /** Admin only: remove a member (keys rotate, the conversation moves). */
+  chatRemove(conversation, member) {
+    return this._call("chat_remove", { conversation: conversation, member: member });
+  }
+
+  /**
+   * Live chat updates pushed by the host: `{ type: "message" | "members" |
+   * "removed", conversation, ... }`.
+   * @returns {() => void} unsubscribe
+   */
+  onChat(callback) {
+    return this.onEvent("chat_event", callback);
+  }
+
   /**
    * Register a callback invoked when the storage version changes
    * (remote sync detected). Polls every 3s. Sprint 58 Phase D.

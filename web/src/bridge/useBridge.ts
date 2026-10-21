@@ -17,6 +17,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   BridgeHeartbeatSchema,
   BridgeRequestSchema,
+  CHAT_MAX_TEXT_LENGTH,
   PiiRedactPayloadSchema,
   createErrorResponse,
   createEvent,
@@ -119,6 +120,9 @@ export interface UseBridgeHandle {
  * @param coordUrl — base URL of the active coordinator
  * @param appName  — name of the app whose API we proxy to
  * @param iframeRef — ref to the iframe element (for source validation)
+ * @param chatAppKey — chat v1 namespace (publisher key + app name, so two
+ *   publishers of the same app name never share a messaging identity);
+ *   defaults to `appName`
  * @returns handle with `pushEvent` for host → iframe push (Sprint 15)
  */
 export function useBridge(
@@ -126,11 +130,13 @@ export function useBridge(
   appName: string | null,
   iframeRef: React.RefObject<HTMLIFrameElement | null>,
   authority?: BridgeAuthority,
+  chatAppKey?: string | null,
 ): UseBridgeHandle {
   const coordUrlRef = useRef(coordUrl);
   const appNameRef = useRef(appName);
+  const chatAppRef = useRef(chatAppKey ?? appName);
   // Sprint 83 Phase C — the resolved per-app authority (release ∩ grant ∩ policy),
-  // read per call. Omitted -> grandfathered legacy (permissive over the 16 verbs);
+  // read per call. Omitted -> grandfathered legacy (non-sensitive verbs only);
   // the intersection is still ALWAYS evaluated, never bypassed. The ref is refreshed
   // in the effect below (same pattern as coordUrl/appName — a render-phase ref write
   // is disallowed by `react-hooks/refs`). Residual (accepted): a `message` landing
@@ -146,6 +152,7 @@ export function useBridge(
   useEffect(() => {
     coordUrlRef.current = coordUrl;
     appNameRef.current = appName;
+    chatAppRef.current = chatAppKey ?? appName;
     authorityRef.current = authority ?? GRANDFATHER_AUTHORITY;
   });
 
@@ -219,7 +226,7 @@ export function useBridge(
       }
 
       // Dispatch async — don't block the event loop.
-      void dispatch(url, app, req).then(
+      void dispatch(url, app, chatAppRef.current ?? app, req).then(
         (data) => reply(event.source as Window, createResponse(req.id, data)),
         (err) =>
           reply(
@@ -330,9 +337,47 @@ async function dispatchPiiRedact(
   };
 }
 
+/** Chat v1: call `/app/{chatApp}/chat/{path}` and surface the daemon's error text. */
+async function chatCall(
+  coordUrl: string,
+  chatApp: string,
+  path: string,
+  signal: AbortSignal,
+  body?: Record<string, unknown>,
+): Promise<unknown> {
+  const resp = await authFetch(
+    `${coordUrl}/app/${encodeURIComponent(chatApp)}/chat/${path}`,
+    body === undefined
+      ? { signal }
+      : {
+          method: "POST",
+          signal,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        },
+  );
+  const data: unknown = await resp.json().catch(() => null);
+  if (!resp.ok) {
+    const msg =
+      data && typeof data === "object" && "error" in data
+        ? String((data as { error: unknown }).error)
+        : `chat request failed: ${resp.status}`;
+    throw new Error(msg);
+  }
+  return data;
+}
+
+/** Chat v1: a conversation id from the payload, path-encoded. */
+function conversationPath(payload: Record<string, unknown>): string {
+  const id = String(payload.conversation ?? "");
+  if (!id) throw new Error("payload.conversation is required");
+  return `conversations/${encodeURIComponent(id)}`;
+}
+
 async function dispatch(
   coordUrl: string,
   appName: string,
+  chatApp: string,
   req: BridgeRequest,
 ): Promise<unknown> {
   const controller = new AbortController();
@@ -512,6 +557,66 @@ async function dispatch(
         if (resp.status === 404) return { card: null };
         if (!resp.ok) throw new Error(`proof_card_get failed: ${resp.status}`);
         return await resp.json();
+      }
+
+      // Chat v1 (ADR_CHAT_V1) — sensitive class, reached only after consent
+      // (authority check above). Keys and plaintext-at-rest stay in the daemon.
+      case "chat_identity":
+        return await chatCall(coordUrl, chatApp, "identity", controller.signal);
+      case "chat_set_profile":
+        return await chatCall(coordUrl, chatApp, "profile", controller.signal, {
+          name: String(req.payload.name ?? ""),
+        });
+      case "chat_list":
+        return await chatCall(coordUrl, chatApp, "conversations", controller.signal);
+      case "chat_create":
+        return await chatCall(coordUrl, chatApp, "conversations", controller.signal, {
+          title: String(req.payload.title ?? ""),
+        });
+      case "chat_invite": {
+        const ttl = Number(req.payload.ttl_secs);
+        return await chatCall(
+          coordUrl,
+          chatApp,
+          `${conversationPath(req.payload)}/invite`,
+          controller.signal,
+          Number.isFinite(ttl) && ttl > 0 ? { ttl_secs: Math.floor(ttl) } : {},
+        );
+      }
+      case "chat_accept": {
+        const invite = String(req.payload.invite ?? "");
+        if (!invite) throw new Error("chat_accept requires payload.invite");
+        return await chatCall(coordUrl, chatApp, "accept", controller.signal, { invite });
+      }
+      case "chat_send": {
+        const text = String(req.payload.text ?? "");
+        if (!text.trim()) throw new Error("chat_send requires payload.text");
+        if (text.length > CHAT_MAX_TEXT_LENGTH) throw new Error("message too large");
+        return await chatCall(
+          coordUrl,
+          chatApp,
+          `${conversationPath(req.payload)}/send`,
+          controller.signal,
+          { text },
+        );
+      }
+      case "chat_messages":
+        return await chatCall(
+          coordUrl,
+          chatApp,
+          `${conversationPath(req.payload)}/messages`,
+          controller.signal,
+        );
+      case "chat_remove": {
+        const member = String(req.payload.member ?? "");
+        if (!member) throw new Error("chat_remove requires payload.member");
+        return await chatCall(
+          coordUrl,
+          chatApp,
+          `${conversationPath(req.payload)}/remove`,
+          controller.signal,
+          { member },
+        );
       }
 
       default:

@@ -66,8 +66,8 @@ pub enum ManifestError {
 ///     grants a sandbox escape — the CSP iframe sandbox is orthogonal.
 ///
 /// Sprint 76 Phase B (B10, BRIDGE-ALLOWLIST-DRIFT): this list MUST mirror the host
-/// dispatch schema `BridgeMethodSchema` in `web/src/bridge/protocol.ts` (16 methods;
-/// S76-H added `task_result`). Pre-B10 it carried only 10, so a manifest declaring a
+/// dispatch schema `BridgeMethodSchema` in `web/src/bridge/protocol.ts` (25 methods;
+/// S76-H added `task_result`, chat v1 the 9 `chat_*` verbs). Pre-B10 it carried only 10, so a manifest declaring a
 /// genuinely host-dispatched method (`pii_redact`, `storage_version`, `provenance_get`,
 /// `provenance_verify`, `feed_cursor_get`) was wrongly rejected. As of S83 Phase C the
 /// parity is a SECURITY invariant (a drift lets a release declare a method the host
@@ -98,6 +98,33 @@ const BRIDGE_METHOD_ALLOWLIST: &[&str] = &[
     "proof_card_get",
     // Sprint 76 Phase H — poll a completed compute task's result text.
     "task_result",
+    // Chat v1 (2026-10-21, ADR_CHAT_V1) — the SENSITIVE class (see
+    // `SENSITIVE_BRIDGE_METHODS`): never grandfathered, consent-gated.
+    "chat_identity",
+    "chat_set_profile",
+    "chat_list",
+    "chat_create",
+    "chat_invite",
+    "chat_accept",
+    "chat_send",
+    "chat_messages",
+    "chat_remove",
+];
+
+/// Chat v1 sensitive class: methods a release may DECLARE but that are never part
+/// of the grandfather grant and are granted only after explicit user consent
+/// (host side: `web/src/bridge/authority.ts` `SENSITIVE_METHODS`). Reaching them
+/// lets an app make the node join conversations and hand out write access.
+pub const SENSITIVE_BRIDGE_METHODS: &[&str] = &[
+    "chat_identity",
+    "chat_set_profile",
+    "chat_list",
+    "chat_create",
+    "chat_invite",
+    "chat_accept",
+    "chat_send",
+    "chat_messages",
+    "chat_remove",
 ];
 
 impl SbfbManifest {
@@ -198,7 +225,7 @@ mod tests {
     /// Sprint 76 Phase B (B10, BRIDGE-ALLOWLIST-DRIFT): the declarative manifest
     /// allowlist MUST mirror the host dispatch schema `BridgeMethodSchema` in
     /// `web/src/bridge/protocol.ts`. This `EXPECTED` list is the canonical mirror
-    /// of that TS enum (16 methods); if either side adds/removes a method, this
+    /// of that TS enum (25 methods); if either side adds/removes a method, this
     /// test fails until both are updated. The allowlist is DECLARATIVE manifest
     /// validation, not the sandbox/dispatch boundary — a method present here is a
     /// method an app may legitimately DECLARE, never a sandbox escape.
@@ -222,6 +249,15 @@ mod tests {
             "search",
             "proof_card_get",
             "task_result",
+            "chat_identity",
+            "chat_set_profile",
+            "chat_list",
+            "chat_create",
+            "chat_invite",
+            "chat_accept",
+            "chat_send",
+            "chat_messages",
+            "chat_remove",
         ];
         let actual: std::collections::BTreeSet<&str> =
             BRIDGE_METHOD_ALLOWLIST.iter().copied().collect();
