@@ -234,6 +234,18 @@ pub const DOMAIN_FEED_V1: &[u8] = b"nexus-feed-v1";
 /// pre-image spaces are disjoint by construction.
 pub const DOMAIN_SEED_REQUEST_V1: &[u8] = b"nexus-seed-request-v1";
 
+/// Domain separation tag for chat v1 INVITATION canonical bytes
+/// (`nexus-messaging-core::invite`, ADR_CHAT_V1). Signed by the inviter's
+/// messaging identity (a vodozemac Ed25519 key, never the node key), so an
+/// invitation can never be replayed as any node-signed payload above.
+pub const DOMAIN_CHAT_INVITE_V1: &[u8] = b"nexus-chat-invite-v1";
+
+/// Domain separation tag for chat v1 ENVELOPE canonical bytes
+/// (`nexus-messaging-core::envelope`) — every entry written to a
+/// conversation document is signed under this tag by its sender's
+/// messaging identity.
+pub const DOMAIN_CHAT_ENVELOPE_V1: &[u8] = b"nexus-chat-envelope-v1";
+
 /// Domain separation tag for cross-node seed RESPONSE canonical bytes.
 ///
 /// Sprint 74 Phase E — the seeder signs its accept/reject decision with

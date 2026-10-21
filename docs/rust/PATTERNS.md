@@ -4098,12 +4098,14 @@ find crates -type f -name '*.rs' ! -path '*/llama.cpp/*' ! -path '*/target/*' \
   -exec grep -hoE 'const DOMAIN_[A-Z0-9_]+_V[0-9]+' {} + | sort -u | wc -l
 ```
 
-= **29** distinct const families across all crates (27 in `canonical.rs` +
+= **31** distinct const families across all crates (29 in `canonical.rs` +
 `DOMAIN_KEYSTORE_V1` in `keystore.rs` + `DOMAIN_TRACE_EVENT_V1` in
 `nexus-trace-core`), of which **4** carry a generated schema (COMPUTE_GROUP,
 SHARD_PLAN — `ShardPlan` + `ShardedSessionManifest` —, RUN_PROOF,
-WORKFLOW_PACK) → **25** unschematised: 22 **accept-and-closed** (no exhaustive
-tagging of the backlog, D8) + 3 RESERVED tags (COMPILED_PLAN, RUN_EVENT,
+WORKFLOW_PACK) → **27** unschematised: 22 **accept-and-closed** (no exhaustive
+tagging of the backlog, D8) + 2 chat v1 tags (CHAT_INVITE, CHAT_ENVELOPE —
+2026-10-21, D8 = no-schema: app-level payloads with a single producer/consumer
+crate, `nexus-messaging-core`, pinned by round-trip and tamper tests) + 3 RESERVED tags (COMPILED_PLAN, RUN_EVENT,
 PACK_INSTALL_RECEIPT — the `DOMAIN_KUDOS_V1` arrangement: tag fixed before its
 payload contract lands, D8 rationale = no-schema until the reserved identity is
 filled). The prior 23 was the `canonical.rs`-only scope; 21 was never derivable

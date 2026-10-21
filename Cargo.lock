@@ -5468,6 +5468,8 @@ dependencies = [
 name = "nexus-messaging-core"
 version = "1.1.0"
 dependencies = [
+ "base64 0.22.1",
+ "nexus-core-rs",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
