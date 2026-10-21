@@ -153,6 +153,8 @@ pub(crate) async fn mk_state_with_mode_tx(
     // keystore can still reference its directory across the
     // state's lifetime. Unit tests never actually invoke the
     // panic service, so the directory stays untouched.
+    let chat_root = tmp.path().join("chat");
+    let node = Arc::new(node);
     std::mem::forget(tmp);
     Arc::new(DaemonHttpState {
         node_id: node.node_id(),
@@ -162,7 +164,7 @@ pub(crate) async fn mk_state_with_mode_tx(
         api_port: 12345,
         curator_runtime: Arc::new(CuratorRuntime::new(None)),
         browse_aggregator: Arc::new(BrowseAggregator::new()),
-        node: Arc::new(node),
+        node: Arc::clone(&node),
         gossip_sender: Arc::new(RwLock::new(None)),
         gossip_cmd_tx,
         default_curators: vec![],
@@ -207,6 +209,12 @@ pub(crate) async fn mk_state_with_mode_tx(
         seed_registry: Arc::new(crate::seed_registry::SeedRegistry::new()),
         shard_sessions: Arc::new(crate::shard_session::ShardSessionRegistry::default()),
         run_store: std::sync::Arc::new(std::sync::Mutex::new(run_store)),
+        chat: Arc::new(crate::chat_api::ChatService::new(
+            Arc::clone(&node),
+            chat_root,
+            [7u8; 32],
+            true,
+        )),
     })
 }
 

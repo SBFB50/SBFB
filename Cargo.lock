@@ -5496,6 +5496,7 @@ dependencies = [
  "nexus-coordinator-rs",
  "nexus-core-rs",
  "nexus-events-core",
+ "nexus-messaging-core",
  "nexus-shell-daemon-core",
  "nexus-trace-core",
  "nexus-worker-core",

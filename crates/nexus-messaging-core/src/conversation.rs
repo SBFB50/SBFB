@@ -472,6 +472,28 @@ impl Conversation {
         Ok(ingested)
     }
 
+    /// Re-publish the local member's profile (e.g. after a name change).
+    pub fn announce_profile(&mut self, me: &Identity, profile: MemberProfile) -> Result<Envelope> {
+        if profile.identity != me.public() {
+            return Err(ChatError::Malformed("own profile"));
+        }
+        self.members.insert(self.me.clone(), profile.clone());
+        self.seal(me, Wire::Profile { profile })
+    }
+
+    /// Re-read a stored `Message` envelope without touching ingest state.
+    /// Megolm inbound sessions decrypt any index from their first known one,
+    /// so the daemon rebuilds history from the document on demand and never
+    /// keeps plaintext at rest. `None` = not a message, or no key for it.
+    pub fn read_message(&mut self, env: &Envelope) -> Option<ChatEvent> {
+        match &env.wire {
+            Wire::Message { session_id, megolm } => {
+                self.decrypt_message(env, session_id, megolm).ok().flatten()
+            }
+            _ => None,
+        }
+    }
+
     fn decrypt_message(
         &mut self,
         env: &Envelope,

@@ -210,6 +210,9 @@ pub struct DaemonHttpState {
     /// Mutex (not RwLock) because `RunStore` wraps one rusqlite
     /// `Connection` (`Send + !Sync`).
     pub run_store: Arc<std::sync::Mutex<sbfb_workflow_engine::RunStore>>,
+    /// Chat v1 (ADR_CHAT_V1): E2E messaging service; keys never leave the
+    /// daemon, conversations are iroh-docs documents of signed ciphertext.
+    pub chat: Arc<crate::chat_api::ChatService>,
 }
 
 impl DaemonHttpState {
@@ -512,6 +515,40 @@ pub fn build_router(
         .route(
             "/api/daemon/storage/{app}/version",
             get(crate::storage_api::storage_version),
+        )
+        // Chat v1 (ADR_CHAT_V1): app-scoped E2E messaging.
+        .route(
+            "/app/{name}/chat/identity",
+            get(crate::chat_api::chat_identity),
+        )
+        .route(
+            "/app/{name}/chat/profile",
+            post(crate::chat_api::chat_set_profile),
+        )
+        .route(
+            "/app/{name}/chat/conversations",
+            get(crate::chat_api::chat_list).post(crate::chat_api::chat_create),
+        )
+        .route(
+            "/app/{name}/chat/accept",
+            post(crate::chat_api::chat_accept),
+        )
+        .route("/app/{name}/chat/stream", get(crate::chat_api::chat_stream))
+        .route(
+            "/app/{name}/chat/conversations/{id}/invite",
+            post(crate::chat_api::chat_invite),
+        )
+        .route(
+            "/app/{name}/chat/conversations/{id}/send",
+            post(crate::chat_api::chat_send),
+        )
+        .route(
+            "/app/{name}/chat/conversations/{id}/messages",
+            get(crate::chat_api::chat_messages),
+        )
+        .route(
+            "/app/{name}/chat/conversations/{id}/remove",
+            post(crate::chat_api::chat_remove),
         )
         .route(
             "/api/daemon/feed/ticket",

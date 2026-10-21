@@ -501,6 +501,8 @@ mod tests {
             &tmp.path().join(crate::workflow_api::RUN_STORE_FILE),
         )
         .expect("test run store");
+        let chat_root = tmp.path().join("chat");
+        let node = Arc::new(node);
         std::mem::forget(tmp);
         let state = Arc::new(DaemonHttpState {
             node_id: node.node_id(),
@@ -510,7 +512,7 @@ mod tests {
             api_port: 12345,
             curator_runtime: Arc::new(CuratorRuntime::new(None)),
             browse_aggregator: Arc::new(BrowseAggregator::new()),
-            node: Arc::new(node),
+            node: Arc::clone(&node),
             gossip_sender: Arc::new(RwLock::new(None)),
             gossip_cmd_tx: tokio::sync::mpsc::channel(8).0,
             default_curators: vec![curator_hex.clone()],
@@ -558,6 +560,12 @@ mod tests {
             seed_registry: Arc::new(crate::seed_registry::SeedRegistry::new()),
             shard_sessions: Arc::new(crate::shard_session::ShardSessionRegistry::default()),
             run_store: std::sync::Arc::new(std::sync::Mutex::new(run_store)),
+            chat: Arc::new(crate::chat_api::ChatService::new(
+                Arc::clone(&node),
+                chat_root,
+                [7u8; 32],
+                true,
+            )),
         });
         let app = build_test_router(state);
         let resp = app

@@ -33,6 +33,7 @@ mod artifact_sealer;
 mod blob_serve_http;
 mod browse_api;
 mod canary_api;
+mod chat_api;
 mod cli;
 mod consent;
 mod contributor_api;

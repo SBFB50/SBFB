@@ -821,6 +821,20 @@ impl DaemonRuntime {
             // route populates it behind the signature + membership gate.
             shard_sessions: Arc::new(crate::shard_session::ShardSessionRegistry::default()),
             run_store,
+            // Chat v1 (ADR_CHAT_V1): keys sealed under a per-install key file
+            // next to node_key; the whole surface is off under duress.
+            chat: {
+                let dir = nexus_shell_daemon_core::paths::shell_daemon_dir()
+                    .unwrap_or_else(|| std::path::PathBuf::from(".sbfb"));
+                let key = crate::chat_api::load_or_create_chat_key(&dir)
+                    .context("failed to load or create chat.key")?;
+                Arc::new(crate::chat_api::ChatService::new(
+                    Arc::clone(&node),
+                    dir.join("chat"),
+                    key,
+                    identity_mode == nexus_core_rs::IdentityMode::Normal,
+                ))
+            },
         });
         // Sprint 16 Phase A (D1) + Sprint 18 audit fix D-1: resolve
         // the loopback bearer auth state (env token > rotated
