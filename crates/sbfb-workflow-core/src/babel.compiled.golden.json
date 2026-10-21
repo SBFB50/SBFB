@@ -1,12 +1,4 @@
 {
-  "compiler": {
-    "version": "1.0.0",
-    "profile": "strict-v1"
-  },
-  "pack_digest": "da7083df0b620eff22729248cd2a11277d284543527f639d8db43b1c6c41cc6d",
-  "pack_name": "golden-babel",
-  "pack_revision": 1,
-  "root_workflow_id": "babel-translation",
   "artefact_digests": {
     "agents": {
       "babel-reviewer": "121757207fe144b87deda7bf984cffafcce7c3d59d9d967f8f76ef129fb645b9",
@@ -36,232 +28,26 @@
       "babel-translation": "90139de0d22f69f8609005855a1354a189e78ceb6ca4a525bf81572cafcae84e"
     }
   },
+  "cancellation_policies": {
+    "": {
+      "allow_host_operator_cancel": true,
+      "cancel_on_budget_exhausted": true,
+      "cancel_on_timeout": true
+    },
+    "/polish-rounds": {
+      "allow_host_operator_cancel": true,
+      "cancel_on_budget_exhausted": true,
+      "cancel_on_timeout": true
+    }
+  },
   "capability_closure": {
     "network.publish": [
       "/publish"
     ]
   },
-  "node_instances": {
-    "/await-community": {
-      "workflow_id": "babel-translation",
-      "node_id": "await-community",
-      "kind": "wait.signal",
-      "depth": 0,
-      "node": {
-        "kind": "wait.signal",
-        "signal_name": "community-review-complete",
-        "payload_schema_ref": {
-          "schema_id": "community-signal",
-          "blake3": "cef0bcf9ba559c851be65fca0201c2fe57ac59fac0cbb9023b9ca59fc8e46eb3"
-        }
-      }
-    },
-    "/native-review": {
-      "workflow_id": "babel-translation",
-      "node_id": "native-review",
-      "kind": "agent.invoke",
-      "depth": 0,
-      "node": {
-        "kind": "agent.invoke",
-        "agent_id": "babel-reviewer",
-        "budget": {
-          "max_total_tokens": 150000,
-          "max_cost_micro_usd": 1500000,
-          "max_wall_clock_seconds": 900,
-          "max_turns": 8
-        }
-      }
-    },
-    "/polish-rounds": {
-      "workflow_id": "babel-translation",
-      "node_id": "polish-rounds",
-      "kind": "repeat",
-      "depth": 0,
-      "node": {
-        "kind": "repeat",
-        "max_iterations": 3,
-        "body_subworkflow_ref": {
-          "workflow_id": "babel-polish-round",
-          "blake3": "ceea508a1ae2d1c1e9eedbd9dba93d1b8034f6ffb6dd77658e90e4b0930dd7fc"
-        },
-        "until_output_flag": "quality_ok"
-      }
-    },
-    "/polish-rounds/bp-in": {
-      "workflow_id": "babel-polish-round",
-      "node_id": "bp-in",
-      "kind": "input",
-      "depth": 1,
-      "node": {
-        "kind": "input",
-        "schema_ref": {
-          "schema_id": "polish-input",
-          "blake3": "639910df9c96ab0769a46cafe01f8d0a19673f600f45f9927ff33fc5b405d9fc"
-        }
-      }
-    },
-    "/polish-rounds/bp-out": {
-      "workflow_id": "babel-polish-round",
-      "node_id": "bp-out",
-      "kind": "output",
-      "depth": 1,
-      "node": {
-        "kind": "output",
-        "schema_ref": {
-          "schema_id": "polish-report",
-          "blake3": "5acb1908e9b16f5a1937f70c524c87cd571074e98cd29f7c73556cabdfc549b0"
-        },
-        "artifact_name": "polish-report"
-      }
-    },
-    "/polish-rounds/polish": {
-      "workflow_id": "babel-polish-round",
-      "node_id": "polish",
-      "kind": "model.invoke",
-      "depth": 1,
-      "node": {
-        "kind": "model.invoke",
-        "prompt_ref": {
-          "prompt_id": "polish",
-          "blake3": "5d9fc1fd30c0c6ae6868fae2013e968c893fe09ae35d70400344e7188ff102e0"
-        },
-        "input_schema_ref": {
-          "schema_id": "polish-input",
-          "blake3": "639910df9c96ab0769a46cafe01f8d0a19673f600f45f9927ff33fc5b405d9fc"
-        },
-        "output_schema_ref": {
-          "schema_id": "polish-report",
-          "blake3": "5acb1908e9b16f5a1937f70c524c87cd571074e98cd29f7c73556cabdfc549b0"
-        },
-        "model_policy": {
-          "provider_class": "local",
-          "model_id": "qwen3:14b",
-          "require_structured_output": true
-        },
-        "budget": {
-          "max_total_tokens": 60000,
-          "max_cost_micro_usd": 600000,
-          "max_wall_clock_seconds": 300,
-          "max_turns": 2
-        }
-      }
-    },
-    "/prepare": {
-      "workflow_id": "babel-translation",
-      "node_id": "prepare",
-      "kind": "transform",
-      "depth": 0,
-      "node": {
-        "kind": "transform",
-        "input_schema_ref": {
-          "schema_id": "source-text",
-          "blake3": "26221655fdcbee1c6ee5e64e07016d5197b20695fdb62487279fa5597570a0b4"
-        },
-        "output_schema_ref": {
-          "schema_id": "translation-task",
-          "blake3": "ae37c0779f1c885ad50fcbf82634d5d020499074990865a1e12e93a12449e442"
-        },
-        "field_map": {
-          "target_language": "target_language",
-          "text": "text"
-        }
-      }
-    },
-    "/publish": {
-      "workflow_id": "babel-translation",
-      "node_id": "publish",
-      "kind": "capability.call",
-      "depth": 0,
-      "node": {
-        "kind": "capability.call",
-        "capability_ref": "network.publish",
-        "args_schema_ref": {
-          "schema_id": "publish-args",
-          "blake3": "d9378c4ddf85ec0b6edae0b24c246f1d3677d086f740ddb9a36dad448d8f1519"
-        },
-        "output_schema_ref": {
-          "schema_id": "publish-receipt",
-          "blake3": "ea2db51ccf063aebc7bf1780fba619b8cfe4652178ab07af4c4750e3438ee0f6"
-        }
-      }
-    },
-    "/published-out": {
-      "workflow_id": "babel-translation",
-      "node_id": "published-out",
-      "kind": "output",
-      "depth": 0,
-      "node": {
-        "kind": "output",
-        "schema_ref": {
-          "schema_id": "publish-receipt",
-          "blake3": "ea2db51ccf063aebc7bf1780fba619b8cfe4652178ab07af4c4750e3438ee0f6"
-        },
-        "artifact_name": "published-translation"
-      }
-    },
-    "/quality-gate": {
-      "workflow_id": "babel-translation",
-      "node_id": "quality-gate",
-      "kind": "switch",
-      "depth": 0,
-      "node": {
-        "kind": "switch",
-        "discriminant_field": "quality",
-        "branch_labels": [
-          "ship",
-          "polish"
-        ]
-      }
-    },
-    "/review-handoff": {
-      "workflow_id": "babel-translation",
-      "node_id": "review-handoff",
-      "kind": "handoff",
-      "depth": 0,
-      "node": {
-        "kind": "handoff",
-        "target_agent_id": "babel-reviewer",
-        "payload_schema_ref": {
-          "schema_id": "draft-translation",
-          "blake3": "b69876816677a21c56e09a8918636b565f6a975fee35467fc3ec04adfc5e7717"
-        },
-        "context_policy": {
-          "allowed_context_fields": [
-            "translation-task",
-            "draft"
-          ]
-        }
-      }
-    },
-    "/text-in": {
-      "workflow_id": "babel-translation",
-      "node_id": "text-in",
-      "kind": "input",
-      "depth": 0,
-      "node": {
-        "kind": "input",
-        "schema_ref": {
-          "schema_id": "source-text",
-          "blake3": "26221655fdcbee1c6ee5e64e07016d5197b20695fdb62487279fa5597570a0b4"
-        }
-      }
-    },
-    "/translator": {
-      "workflow_id": "babel-translation",
-      "node_id": "translator",
-      "kind": "agent.invoke",
-      "depth": 0,
-      "node": {
-        "kind": "agent.invoke",
-        "agent_id": "babel-translator",
-        "budget": {
-          "max_total_tokens": 250000,
-          "max_cost_micro_usd": 2500000,
-          "max_wall_clock_seconds": 1500,
-          "max_turns": 12
-        }
-      }
-    }
+  "compiler": {
+    "profile": "strict-v1",
+    "version": "1.1.0"
   },
   "edges": [
     {
@@ -351,75 +137,289 @@
       "/polish-rounds/bp-in"
     ]
   },
-  "human_gates": [],
-  "graph_semantic_digest": "6e430ac8c2ec5ca92dd41e5d096147e64c95d1ab8ec459dc777f84ef58650b37",
-  "scope_budgets": {
+  "error_policies": {
     "": {
-      "max_total_tokens": 1500000,
-      "max_cost_micro_usd": 15000000,
-      "max_wall_clock_seconds": 7200,
-      "max_turns": 80
+      "max_retries_per_node": 1,
+      "on_node_failure": "fail-workflow"
     },
     "/polish-rounds": {
-      "max_total_tokens": 80000,
-      "max_cost_micro_usd": 800000,
-      "max_wall_clock_seconds": 600,
-      "max_turns": 4
+      "max_retries_per_node": 1,
+      "on_node_failure": "fail-workflow"
     }
   },
+  "graph_semantic_digest": "6e430ac8c2ec5ca92dd41e5d096147e64c95d1ab8ec459dc777f84ef58650b37",
+  "human_gates": [],
   "node_budgets": {
     "/native-review": {
-      "max_total_tokens": 150000,
       "max_cost_micro_usd": 1500000,
-      "max_wall_clock_seconds": 900,
-      "max_turns": 8
+      "max_total_tokens": 150000,
+      "max_turns": 8,
+      "max_wall_clock_seconds": 900
     },
     "/polish-rounds/polish": {
-      "max_total_tokens": 60000,
       "max_cost_micro_usd": 600000,
-      "max_wall_clock_seconds": 300,
-      "max_turns": 2
+      "max_total_tokens": 60000,
+      "max_turns": 2,
+      "max_wall_clock_seconds": 300
     },
     "/translator": {
-      "max_total_tokens": 250000,
       "max_cost_micro_usd": 2500000,
-      "max_wall_clock_seconds": 1500,
-      "max_turns": 12
+      "max_total_tokens": 250000,
+      "max_turns": 12,
+      "max_wall_clock_seconds": 1500
     }
   },
+  "node_instances": {
+    "/await-community": {
+      "depth": 0,
+      "kind": "wait.signal",
+      "node": {
+        "kind": "wait.signal",
+        "payload_schema_ref": {
+          "blake3": "cef0bcf9ba559c851be65fca0201c2fe57ac59fac0cbb9023b9ca59fc8e46eb3",
+          "schema_id": "community-signal"
+        },
+        "signal_name": "community-review-complete"
+      },
+      "node_id": "await-community",
+      "workflow_id": "babel-translation"
+    },
+    "/native-review": {
+      "depth": 0,
+      "kind": "agent.invoke",
+      "node": {
+        "agent_id": "babel-reviewer",
+        "budget": {
+          "max_cost_micro_usd": 1500000,
+          "max_total_tokens": 150000,
+          "max_turns": 8,
+          "max_wall_clock_seconds": 900
+        },
+        "kind": "agent.invoke"
+      },
+      "node_id": "native-review",
+      "workflow_id": "babel-translation"
+    },
+    "/polish-rounds": {
+      "depth": 0,
+      "kind": "repeat",
+      "node": {
+        "body_subworkflow_ref": {
+          "blake3": "ceea508a1ae2d1c1e9eedbd9dba93d1b8034f6ffb6dd77658e90e4b0930dd7fc",
+          "workflow_id": "babel-polish-round"
+        },
+        "kind": "repeat",
+        "max_iterations": 3,
+        "until_output_flag": "quality_ok"
+      },
+      "node_id": "polish-rounds",
+      "workflow_id": "babel-translation"
+    },
+    "/polish-rounds/bp-in": {
+      "depth": 1,
+      "kind": "input",
+      "node": {
+        "kind": "input",
+        "schema_ref": {
+          "blake3": "639910df9c96ab0769a46cafe01f8d0a19673f600f45f9927ff33fc5b405d9fc",
+          "schema_id": "polish-input"
+        }
+      },
+      "node_id": "bp-in",
+      "workflow_id": "babel-polish-round"
+    },
+    "/polish-rounds/bp-out": {
+      "depth": 1,
+      "kind": "output",
+      "node": {
+        "artifact_name": "polish-report",
+        "kind": "output",
+        "schema_ref": {
+          "blake3": "5acb1908e9b16f5a1937f70c524c87cd571074e98cd29f7c73556cabdfc549b0",
+          "schema_id": "polish-report"
+        }
+      },
+      "node_id": "bp-out",
+      "workflow_id": "babel-polish-round"
+    },
+    "/polish-rounds/polish": {
+      "depth": 1,
+      "kind": "model.invoke",
+      "node": {
+        "budget": {
+          "max_cost_micro_usd": 600000,
+          "max_total_tokens": 60000,
+          "max_turns": 2,
+          "max_wall_clock_seconds": 300
+        },
+        "input_schema_ref": {
+          "blake3": "639910df9c96ab0769a46cafe01f8d0a19673f600f45f9927ff33fc5b405d9fc",
+          "schema_id": "polish-input"
+        },
+        "kind": "model.invoke",
+        "model_policy": {
+          "model_id": "qwen3:14b",
+          "provider_class": "local",
+          "require_structured_output": true
+        },
+        "output_schema_ref": {
+          "blake3": "5acb1908e9b16f5a1937f70c524c87cd571074e98cd29f7c73556cabdfc549b0",
+          "schema_id": "polish-report"
+        },
+        "prompt_ref": {
+          "blake3": "5d9fc1fd30c0c6ae6868fae2013e968c893fe09ae35d70400344e7188ff102e0",
+          "prompt_id": "polish"
+        }
+      },
+      "node_id": "polish",
+      "workflow_id": "babel-polish-round"
+    },
+    "/prepare": {
+      "depth": 0,
+      "kind": "transform",
+      "node": {
+        "field_map": {
+          "target_language": "target_language",
+          "text": "text"
+        },
+        "input_schema_ref": {
+          "blake3": "26221655fdcbee1c6ee5e64e07016d5197b20695fdb62487279fa5597570a0b4",
+          "schema_id": "source-text"
+        },
+        "kind": "transform",
+        "output_schema_ref": {
+          "blake3": "ae37c0779f1c885ad50fcbf82634d5d020499074990865a1e12e93a12449e442",
+          "schema_id": "translation-task"
+        }
+      },
+      "node_id": "prepare",
+      "workflow_id": "babel-translation"
+    },
+    "/publish": {
+      "depth": 0,
+      "kind": "capability.call",
+      "node": {
+        "args_schema_ref": {
+          "blake3": "d9378c4ddf85ec0b6edae0b24c246f1d3677d086f740ddb9a36dad448d8f1519",
+          "schema_id": "publish-args"
+        },
+        "capability_ref": "network.publish",
+        "kind": "capability.call",
+        "output_schema_ref": {
+          "blake3": "ea2db51ccf063aebc7bf1780fba619b8cfe4652178ab07af4c4750e3438ee0f6",
+          "schema_id": "publish-receipt"
+        }
+      },
+      "node_id": "publish",
+      "workflow_id": "babel-translation"
+    },
+    "/published-out": {
+      "depth": 0,
+      "kind": "output",
+      "node": {
+        "artifact_name": "published-translation",
+        "kind": "output",
+        "schema_ref": {
+          "blake3": "ea2db51ccf063aebc7bf1780fba619b8cfe4652178ab07af4c4750e3438ee0f6",
+          "schema_id": "publish-receipt"
+        }
+      },
+      "node_id": "published-out",
+      "workflow_id": "babel-translation"
+    },
+    "/quality-gate": {
+      "depth": 0,
+      "kind": "switch",
+      "node": {
+        "branch_labels": [
+          "ship",
+          "polish"
+        ],
+        "discriminant_field": "quality",
+        "kind": "switch"
+      },
+      "node_id": "quality-gate",
+      "workflow_id": "babel-translation"
+    },
+    "/review-handoff": {
+      "depth": 0,
+      "kind": "handoff",
+      "node": {
+        "context_policy": {
+          "allowed_context_fields": [
+            "translation-task",
+            "draft"
+          ]
+        },
+        "kind": "handoff",
+        "payload_schema_ref": {
+          "blake3": "b69876816677a21c56e09a8918636b565f6a975fee35467fc3ec04adfc5e7717",
+          "schema_id": "draft-translation"
+        },
+        "target_agent_id": "babel-reviewer"
+      },
+      "node_id": "review-handoff",
+      "workflow_id": "babel-translation"
+    },
+    "/text-in": {
+      "depth": 0,
+      "kind": "input",
+      "node": {
+        "kind": "input",
+        "schema_ref": {
+          "blake3": "26221655fdcbee1c6ee5e64e07016d5197b20695fdb62487279fa5597570a0b4",
+          "schema_id": "source-text"
+        }
+      },
+      "node_id": "text-in",
+      "workflow_id": "babel-translation"
+    },
+    "/translator": {
+      "depth": 0,
+      "kind": "agent.invoke",
+      "node": {
+        "agent_id": "babel-translator",
+        "budget": {
+          "max_cost_micro_usd": 2500000,
+          "max_total_tokens": 250000,
+          "max_turns": 12,
+          "max_wall_clock_seconds": 1500
+        },
+        "kind": "agent.invoke"
+      },
+      "node_id": "translator",
+      "workflow_id": "babel-translation"
+    }
+  },
+  "pack_digest": "da7083df0b620eff22729248cd2a11277d284543527f639d8db43b1c6c41cc6d",
+  "pack_name": "golden-babel",
+  "pack_revision": 1,
   "placement": {
     "default_class": "local-only"
   },
-  "error_policies": {
+  "root_workflow_id": "babel-translation",
+  "scope_budgets": {
     "": {
-      "on_node_failure": "fail-workflow",
-      "max_retries_per_node": 1
+      "max_cost_micro_usd": 15000000,
+      "max_total_tokens": 1500000,
+      "max_turns": 80,
+      "max_wall_clock_seconds": 7200
     },
     "/polish-rounds": {
-      "on_node_failure": "fail-workflow",
-      "max_retries_per_node": 1
+      "max_cost_micro_usd": 800000,
+      "max_total_tokens": 80000,
+      "max_turns": 4,
+      "max_wall_clock_seconds": 600
     }
   },
   "timeout_policies": {
     "": {
-      "workflow_timeout_seconds": 7200,
-      "default_node_timeout_seconds": 1800
+      "default_node_timeout_seconds": 1800,
+      "workflow_timeout_seconds": 7200
     },
     "/polish-rounds": {
-      "workflow_timeout_seconds": 600,
-      "default_node_timeout_seconds": 300
-    }
-  },
-  "cancellation_policies": {
-    "": {
-      "cancel_on_budget_exhausted": true,
-      "cancel_on_timeout": true,
-      "allow_host_operator_cancel": true
-    },
-    "/polish-rounds": {
-      "cancel_on_budget_exhausted": true,
-      "cancel_on_timeout": true,
-      "allow_host_operator_cancel": true
+      "default_node_timeout_seconds": 300,
+      "workflow_timeout_seconds": 600
     }
   }
 }

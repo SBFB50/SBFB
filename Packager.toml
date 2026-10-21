@@ -7,7 +7,7 @@
 
 name = "sbfb-nexus-grid"
 product-name = "SBFB Nexus Grid"
-version = "1.0.0"
+version = "1.1.0"
 identifier = "world.sbfb.nexus-grid"
 description = "Decentralized P2P compute network for apps"
 homepage = "https://sbfb.world"

@@ -78,15 +78,18 @@ impl OllamaBackend {
             reason: format!("ollama endpoint {}: {e}", cfg.endpoint),
         })?;
 
-        // `Ollama::new(host, port)` wants a scheme+host string
-        // and a port number separately.
+        // The ollama-rs builder wants a scheme+host string and a port
+        // number separately (`host` re-parses it, valid by construction).
         let host_with_scheme = format!(
             "{}://{}",
             url.scheme(),
             url.host_str().unwrap_or("localhost")
         );
         let port = url.port_or_known_default().unwrap_or(11434);
-        let inner = Ollama::new(host_with_scheme, port);
+        let inner = Ollama::builder()
+            .host(host_with_scheme.as_str())
+            .port(port)
+            .build();
 
         Ok(Self {
             endpoint: cfg.endpoint.clone(),

@@ -1,12 +1,4 @@
 {
-  "compiler": {
-    "version": "1.0.0",
-    "profile": "strict-v1"
-  },
-  "pack_digest": "27fb2d5b631d515f72049ff812b979e9098d3ee517489827f976b6b01c4dbf01",
-  "pack_name": "golden-conception",
-  "pack_revision": 1,
-  "root_workflow_id": "conception-studio",
   "artefact_digests": {
     "agents": {
       "conception-editor": "c9449df8f8b0d3b13ea9de93568c70df05d76311b41a032860ba19f1303d4270",
@@ -49,431 +41,36 @@
       "conception-variant": "b012df2320811594a576b3173bf854ab7e7be82e359cd4570b03a10174195688"
     }
   },
+  "cancellation_policies": {
+    "": {
+      "allow_host_operator_cancel": true,
+      "cancel_on_budget_exhausted": true,
+      "cancel_on_timeout": true
+    },
+    "/polish-rounds": {
+      "allow_host_operator_cancel": true,
+      "cancel_on_budget_exhausted": true,
+      "cancel_on_timeout": true
+    },
+    "/scaffold": {
+      "allow_host_operator_cancel": true,
+      "cancel_on_budget_exhausted": true,
+      "cancel_on_timeout": true
+    },
+    "/variant-fanout": {
+      "allow_host_operator_cancel": true,
+      "cancel_on_budget_exhausted": true,
+      "cancel_on_timeout": true
+    }
+  },
   "capability_closure": {
     "storage.set": [
       "/record-design"
     ]
   },
-  "node_instances": {
-    "/brief-in": {
-      "workflow_id": "conception-studio",
-      "node_id": "brief-in",
-      "kind": "input",
-      "depth": 0,
-      "node": {
-        "kind": "input",
-        "schema_ref": {
-          "schema_id": "design-brief",
-          "blake3": "d9ca7988b7e6597fb95a3d73ead13c7067fc99e1fbfd8dadcf99a1d74db9b771"
-        }
-      }
-    },
-    "/checks": {
-      "workflow_id": "conception-studio",
-      "node_id": "checks",
-      "kind": "parallel",
-      "depth": 0,
-      "node": {
-        "kind": "parallel",
-        "branch_labels": [
-          "docs",
-          "feasibility"
-        ]
-      }
-    },
-    "/checks-join": {
-      "workflow_id": "conception-studio",
-      "node_id": "checks-join",
-      "kind": "join",
-      "depth": 0,
-      "node": {
-        "kind": "join",
-        "policy": {
-          "mode": "all"
-        },
-        "source_node_ids": [
-          "docs-check",
-          "feasibility-check"
-        ]
-      }
-    },
-    "/design-out": {
-      "workflow_id": "conception-studio",
-      "node_id": "design-out",
-      "kind": "output",
-      "depth": 0,
-      "node": {
-        "kind": "output",
-        "schema_ref": {
-          "schema_id": "record-receipt",
-          "blake3": "9cb0aa90d8f99f853dd1deaa95eea2ba68805026b003dfbf0d302152edd7aeb1"
-        },
-        "artifact_name": "design-receipt"
-      }
-    },
-    "/docs-check": {
-      "workflow_id": "conception-studio",
-      "node_id": "docs-check",
-      "kind": "knowledge.query",
-      "depth": 0,
-      "node": {
-        "kind": "knowledge.query",
-        "corpus_ref": {
-          "corpus_id": "design-patterns",
-          "blake3": "899b65ff822ae201b5c7b2c9051f06dfba50e107f26da600c963c9192bdc6d5f"
-        },
-        "query_schema_ref": {
-          "schema_id": "design-brief",
-          "blake3": "d9ca7988b7e6597fb95a3d73ead13c7067fc99e1fbfd8dadcf99a1d74db9b771"
-        },
-        "output_schema_ref": {
-          "schema_id": "checks-report",
-          "blake3": "ca2f4ff02378c2174b885bf14dca9ef0b7a3f96e31eacee8478cadc5ac6cc511"
-        }
-      }
-    },
-    "/editor-handoff": {
-      "workflow_id": "conception-studio",
-      "node_id": "editor-handoff",
-      "kind": "handoff",
-      "depth": 0,
-      "node": {
-        "kind": "handoff",
-        "target_agent_id": "conception-editor",
-        "payload_schema_ref": {
-          "schema_id": "shortlist",
-          "blake3": "4547aeae2197c346378f9d2f41ab7932c62704a293efaba301687c76ef8a4ebd"
-        },
-        "context_policy": {
-          "allowed_context_fields": [
-            "shortlist",
-            "brief"
-          ]
-        }
-      }
-    },
-    "/editor-pass": {
-      "workflow_id": "conception-studio",
-      "node_id": "editor-pass",
-      "kind": "agent.invoke",
-      "depth": 0,
-      "node": {
-        "kind": "agent.invoke",
-        "agent_id": "conception-editor",
-        "budget": {
-          "max_total_tokens": 400000,
-          "max_cost_micro_usd": 4000000,
-          "max_wall_clock_seconds": 1800,
-          "max_turns": 20
-        }
-      }
-    },
-    "/expand": {
-      "workflow_id": "conception-studio",
-      "node_id": "expand",
-      "kind": "model.invoke",
-      "depth": 0,
-      "node": {
-        "kind": "model.invoke",
-        "prompt_ref": {
-          "prompt_id": "expand-brief",
-          "blake3": "9695b2d2275305e4b10550fd1e1673cbc69249f92fc5590e9ad69363c29e4fc1"
-        },
-        "input_schema_ref": {
-          "schema_id": "design-brief",
-          "blake3": "d9ca7988b7e6597fb95a3d73ead13c7067fc99e1fbfd8dadcf99a1d74db9b771"
-        },
-        "output_schema_ref": {
-          "schema_id": "angle-list",
-          "blake3": "dda5ace3b8a6de521768c300f163aec89eefb6cdc734dbbe77d516da4fa703bd"
-        },
-        "model_policy": {
-          "provider_class": "cloud",
-          "model_id": "claude-opus-4-8",
-          "require_structured_output": true
-        },
-        "budget": {
-          "max_total_tokens": 100000,
-          "max_cost_micro_usd": 1000000,
-          "max_wall_clock_seconds": 600,
-          "max_turns": 2
-        }
-      }
-    },
-    "/feasibility-check": {
-      "workflow_id": "conception-studio",
-      "node_id": "feasibility-check",
-      "kind": "model.invoke",
-      "depth": 0,
-      "node": {
-        "kind": "model.invoke",
-        "prompt_ref": {
-          "prompt_id": "feasibility",
-          "blake3": "0cbfee50643fcd6d230da98e43640188d0d40e83b9d07e4bdd2dba66da6aa8e1"
-        },
-        "input_schema_ref": {
-          "schema_id": "design-brief",
-          "blake3": "d9ca7988b7e6597fb95a3d73ead13c7067fc99e1fbfd8dadcf99a1d74db9b771"
-        },
-        "output_schema_ref": {
-          "schema_id": "checks-report",
-          "blake3": "ca2f4ff02378c2174b885bf14dca9ef0b7a3f96e31eacee8478cadc5ac6cc511"
-        },
-        "model_policy": {
-          "provider_class": "local",
-          "model_id": "qwen3:14b",
-          "require_structured_output": true
-        },
-        "budget": {
-          "max_total_tokens": 60000,
-          "max_cost_micro_usd": 600000,
-          "max_wall_clock_seconds": 300,
-          "max_turns": 2
-        }
-      }
-    },
-    "/judge": {
-      "workflow_id": "conception-studio",
-      "node_id": "judge",
-      "kind": "agent.invoke",
-      "depth": 0,
-      "node": {
-        "kind": "agent.invoke",
-        "agent_id": "conception-judge",
-        "budget": {
-          "max_total_tokens": 600000,
-          "max_cost_micro_usd": 6000000,
-          "max_wall_clock_seconds": 2700,
-          "max_turns": 25
-        }
-      }
-    },
-    "/polish-rounds": {
-      "workflow_id": "conception-studio",
-      "node_id": "polish-rounds",
-      "kind": "repeat",
-      "depth": 0,
-      "node": {
-        "kind": "repeat",
-        "max_iterations": 3,
-        "body_subworkflow_ref": {
-          "workflow_id": "conception-polish-round",
-          "blake3": "79ebbcb9191f0b59f2391aa0cae0009f3c8a201adf3d28d0eca60ee6ba842faa"
-        },
-        "until_output_flag": "approved"
-      }
-    },
-    "/polish-rounds/cp-in": {
-      "workflow_id": "conception-polish-round",
-      "node_id": "cp-in",
-      "kind": "input",
-      "depth": 1,
-      "node": {
-        "kind": "input",
-        "schema_ref": {
-          "schema_id": "draft",
-          "blake3": "33b74c7a94ef5f08791fb1235ebd5296fb6c49d1ea14bc76b4f4dcd77dff6a3d"
-        }
-      }
-    },
-    "/polish-rounds/cp-out": {
-      "workflow_id": "conception-polish-round",
-      "node_id": "cp-out",
-      "kind": "output",
-      "depth": 1,
-      "node": {
-        "kind": "output",
-        "schema_ref": {
-          "schema_id": "polished",
-          "blake3": "97d2d79555cd20285fdddbc4f25312619c9317dc29cc922d18d876d91d7780de"
-        },
-        "artifact_name": "polished"
-      }
-    },
-    "/polish-rounds/polish": {
-      "workflow_id": "conception-polish-round",
-      "node_id": "polish",
-      "kind": "model.invoke",
-      "depth": 1,
-      "node": {
-        "kind": "model.invoke",
-        "prompt_ref": {
-          "prompt_id": "polish",
-          "blake3": "d92f3aa076968a39cb2c8ca4a66d5c0f1050ce94991945f3cc15ae17fa3eb569"
-        },
-        "input_schema_ref": {
-          "schema_id": "draft",
-          "blake3": "33b74c7a94ef5f08791fb1235ebd5296fb6c49d1ea14bc76b4f4dcd77dff6a3d"
-        },
-        "output_schema_ref": {
-          "schema_id": "polished",
-          "blake3": "97d2d79555cd20285fdddbc4f25312619c9317dc29cc922d18d876d91d7780de"
-        },
-        "model_policy": {
-          "provider_class": "local",
-          "model_id": "qwen3:14b",
-          "require_structured_output": true
-        },
-        "budget": {
-          "max_total_tokens": 60000,
-          "max_cost_micro_usd": 600000,
-          "max_wall_clock_seconds": 300,
-          "max_turns": 2
-        }
-      }
-    },
-    "/record-design": {
-      "workflow_id": "conception-studio",
-      "node_id": "record-design",
-      "kind": "capability.call",
-      "depth": 0,
-      "node": {
-        "kind": "capability.call",
-        "capability_ref": "storage.set",
-        "args_schema_ref": {
-          "schema_id": "record-args",
-          "blake3": "c4183bc349dc317daf79813b220ac7418d886d8cdd7e835eacedc1e86b54a8f3"
-        },
-        "output_schema_ref": {
-          "schema_id": "record-receipt",
-          "blake3": "9cb0aa90d8f99f853dd1deaa95eea2ba68805026b003dfbf0d302152edd7aeb1"
-        }
-      }
-    },
-    "/scaffold": {
-      "workflow_id": "conception-studio",
-      "node_id": "scaffold",
-      "kind": "subworkflow",
-      "depth": 0,
-      "node": {
-        "kind": "subworkflow",
-        "subworkflow_ref": {
-          "workflow_id": "conception-scaffold",
-          "blake3": "c7b38558a7ef9ae3ff4a182512e078de867a7468e51ac0977d99f1053e730e25"
-        }
-      }
-    },
-    "/scaffold/cs-in": {
-      "workflow_id": "conception-scaffold",
-      "node_id": "cs-in",
-      "kind": "input",
-      "depth": 1,
-      "node": {
-        "kind": "input",
-        "schema_ref": {
-          "schema_id": "polished",
-          "blake3": "97d2d79555cd20285fdddbc4f25312619c9317dc29cc922d18d876d91d7780de"
-        }
-      }
-    },
-    "/scaffold/cs-out": {
-      "workflow_id": "conception-scaffold",
-      "node_id": "cs-out",
-      "kind": "output",
-      "depth": 1,
-      "node": {
-        "kind": "output",
-        "schema_ref": {
-          "schema_id": "design-record",
-          "blake3": "410f14d50e75dee2a30779f72bf7e041b7b9f35a633a3ab0f722e4507a27229d"
-        },
-        "artifact_name": "design-record"
-      }
-    },
-    "/scaffold/shape": {
-      "workflow_id": "conception-scaffold",
-      "node_id": "shape",
-      "kind": "transform",
-      "depth": 1,
-      "node": {
-        "kind": "transform",
-        "input_schema_ref": {
-          "schema_id": "polished",
-          "blake3": "97d2d79555cd20285fdddbc4f25312619c9317dc29cc922d18d876d91d7780de"
-        },
-        "output_schema_ref": {
-          "schema_id": "design-record",
-          "blake3": "410f14d50e75dee2a30779f72bf7e041b7b9f35a633a3ab0f722e4507a27229d"
-        },
-        "field_map": {
-          "design": "draft"
-        }
-      }
-    },
-    "/variant-fanout": {
-      "workflow_id": "conception-studio",
-      "node_id": "variant-fanout",
-      "kind": "map",
-      "depth": 0,
-      "node": {
-        "kind": "map",
-        "collection_field": "angles",
-        "max_cardinality": 4,
-        "body_subworkflow_ref": {
-          "workflow_id": "conception-variant",
-          "blake3": "b012df2320811594a576b3173bf854ab7e7be82e359cd4570b03a10174195688"
-        }
-      }
-    },
-    "/variant-fanout/cv-in": {
-      "workflow_id": "conception-variant",
-      "node_id": "cv-in",
-      "kind": "input",
-      "depth": 1,
-      "node": {
-        "kind": "input",
-        "schema_ref": {
-          "schema_id": "design-angle",
-          "blake3": "660f53c8aa528368826ccc5baba30448e9b0e9d79b810522168baa99bb9e069e"
-        }
-      }
-    },
-    "/variant-fanout/cv-out": {
-      "workflow_id": "conception-variant",
-      "node_id": "cv-out",
-      "kind": "output",
-      "depth": 1,
-      "node": {
-        "kind": "output",
-        "schema_ref": {
-          "schema_id": "variant",
-          "blake3": "1664e598453c1ea0fee0045d07e844f21f43776f5484890307bee8f5d013e64c"
-        },
-        "artifact_name": "variant"
-      }
-    },
-    "/variant-fanout/propose": {
-      "workflow_id": "conception-variant",
-      "node_id": "propose",
-      "kind": "model.invoke",
-      "depth": 1,
-      "node": {
-        "kind": "model.invoke",
-        "prompt_ref": {
-          "prompt_id": "design-variant",
-          "blake3": "49abe700fa4a4f5ad5dcf8996f85821b667071e6b8522880d481175c48542f57"
-        },
-        "input_schema_ref": {
-          "schema_id": "design-angle",
-          "blake3": "660f53c8aa528368826ccc5baba30448e9b0e9d79b810522168baa99bb9e069e"
-        },
-        "output_schema_ref": {
-          "schema_id": "variant",
-          "blake3": "1664e598453c1ea0fee0045d07e844f21f43776f5484890307bee8f5d013e64c"
-        },
-        "model_policy": {
-          "provider_class": "cloud",
-          "model_id": "claude-opus-4-8",
-          "require_structured_output": true
-        },
-        "budget": {
-          "max_total_tokens": 120000,
-          "max_cost_micro_usd": 1200000,
-          "max_wall_clock_seconds": 600,
-          "max_turns": 2
-        }
-      }
-    }
+  "compiler": {
+    "profile": "strict-v1",
+    "version": "1.1.0"
   },
   "edges": [
     {
@@ -617,131 +214,534 @@
       "/variant-fanout/cv-in"
     ]
   },
-  "human_gates": [],
-  "graph_semantic_digest": "80237f66c7b068ce703ff1463ef5fe44ccd808a5cf5ac0ddc198e16e47800010",
-  "scope_budgets": {
+  "error_policies": {
     "": {
-      "max_total_tokens": 3000000,
-      "max_cost_micro_usd": 30000000,
-      "max_wall_clock_seconds": 10800,
-      "max_turns": 120
+      "max_retries_per_node": 1,
+      "on_node_failure": "fail-workflow"
     },
     "/polish-rounds": {
-      "max_total_tokens": 80000,
-      "max_cost_micro_usd": 800000,
-      "max_wall_clock_seconds": 600,
-      "max_turns": 4
+      "max_retries_per_node": 1,
+      "on_node_failure": "fail-workflow"
     },
     "/scaffold": {
-      "max_total_tokens": 10000,
-      "max_cost_micro_usd": 100000,
-      "max_wall_clock_seconds": 300,
-      "max_turns": 1
+      "max_retries_per_node": 1,
+      "on_node_failure": "fail-workflow"
     },
     "/variant-fanout": {
-      "max_total_tokens": 150000,
-      "max_cost_micro_usd": 1500000,
-      "max_wall_clock_seconds": 900,
-      "max_turns": 4
+      "max_retries_per_node": 1,
+      "on_node_failure": "fail-workflow"
     }
   },
+  "graph_semantic_digest": "80237f66c7b068ce703ff1463ef5fe44ccd808a5cf5ac0ddc198e16e47800010",
+  "human_gates": [],
   "node_budgets": {
     "/editor-pass": {
-      "max_total_tokens": 400000,
       "max_cost_micro_usd": 4000000,
-      "max_wall_clock_seconds": 1800,
-      "max_turns": 20
+      "max_total_tokens": 400000,
+      "max_turns": 20,
+      "max_wall_clock_seconds": 1800
     },
     "/expand": {
-      "max_total_tokens": 100000,
       "max_cost_micro_usd": 1000000,
-      "max_wall_clock_seconds": 600,
-      "max_turns": 2
+      "max_total_tokens": 100000,
+      "max_turns": 2,
+      "max_wall_clock_seconds": 600
     },
     "/feasibility-check": {
-      "max_total_tokens": 60000,
       "max_cost_micro_usd": 600000,
-      "max_wall_clock_seconds": 300,
-      "max_turns": 2
+      "max_total_tokens": 60000,
+      "max_turns": 2,
+      "max_wall_clock_seconds": 300
     },
     "/judge": {
-      "max_total_tokens": 600000,
       "max_cost_micro_usd": 6000000,
-      "max_wall_clock_seconds": 2700,
-      "max_turns": 25
+      "max_total_tokens": 600000,
+      "max_turns": 25,
+      "max_wall_clock_seconds": 2700
     },
     "/polish-rounds/polish": {
-      "max_total_tokens": 60000,
       "max_cost_micro_usd": 600000,
-      "max_wall_clock_seconds": 300,
-      "max_turns": 2
+      "max_total_tokens": 60000,
+      "max_turns": 2,
+      "max_wall_clock_seconds": 300
     },
     "/variant-fanout/propose": {
-      "max_total_tokens": 120000,
       "max_cost_micro_usd": 1200000,
-      "max_wall_clock_seconds": 600,
-      "max_turns": 2
+      "max_total_tokens": 120000,
+      "max_turns": 2,
+      "max_wall_clock_seconds": 600
     }
   },
+  "node_instances": {
+    "/brief-in": {
+      "depth": 0,
+      "kind": "input",
+      "node": {
+        "kind": "input",
+        "schema_ref": {
+          "blake3": "d9ca7988b7e6597fb95a3d73ead13c7067fc99e1fbfd8dadcf99a1d74db9b771",
+          "schema_id": "design-brief"
+        }
+      },
+      "node_id": "brief-in",
+      "workflow_id": "conception-studio"
+    },
+    "/checks": {
+      "depth": 0,
+      "kind": "parallel",
+      "node": {
+        "branch_labels": [
+          "docs",
+          "feasibility"
+        ],
+        "kind": "parallel"
+      },
+      "node_id": "checks",
+      "workflow_id": "conception-studio"
+    },
+    "/checks-join": {
+      "depth": 0,
+      "kind": "join",
+      "node": {
+        "kind": "join",
+        "policy": {
+          "mode": "all"
+        },
+        "source_node_ids": [
+          "docs-check",
+          "feasibility-check"
+        ]
+      },
+      "node_id": "checks-join",
+      "workflow_id": "conception-studio"
+    },
+    "/design-out": {
+      "depth": 0,
+      "kind": "output",
+      "node": {
+        "artifact_name": "design-receipt",
+        "kind": "output",
+        "schema_ref": {
+          "blake3": "9cb0aa90d8f99f853dd1deaa95eea2ba68805026b003dfbf0d302152edd7aeb1",
+          "schema_id": "record-receipt"
+        }
+      },
+      "node_id": "design-out",
+      "workflow_id": "conception-studio"
+    },
+    "/docs-check": {
+      "depth": 0,
+      "kind": "knowledge.query",
+      "node": {
+        "corpus_ref": {
+          "blake3": "899b65ff822ae201b5c7b2c9051f06dfba50e107f26da600c963c9192bdc6d5f",
+          "corpus_id": "design-patterns"
+        },
+        "kind": "knowledge.query",
+        "output_schema_ref": {
+          "blake3": "ca2f4ff02378c2174b885bf14dca9ef0b7a3f96e31eacee8478cadc5ac6cc511",
+          "schema_id": "checks-report"
+        },
+        "query_schema_ref": {
+          "blake3": "d9ca7988b7e6597fb95a3d73ead13c7067fc99e1fbfd8dadcf99a1d74db9b771",
+          "schema_id": "design-brief"
+        }
+      },
+      "node_id": "docs-check",
+      "workflow_id": "conception-studio"
+    },
+    "/editor-handoff": {
+      "depth": 0,
+      "kind": "handoff",
+      "node": {
+        "context_policy": {
+          "allowed_context_fields": [
+            "shortlist",
+            "brief"
+          ]
+        },
+        "kind": "handoff",
+        "payload_schema_ref": {
+          "blake3": "4547aeae2197c346378f9d2f41ab7932c62704a293efaba301687c76ef8a4ebd",
+          "schema_id": "shortlist"
+        },
+        "target_agent_id": "conception-editor"
+      },
+      "node_id": "editor-handoff",
+      "workflow_id": "conception-studio"
+    },
+    "/editor-pass": {
+      "depth": 0,
+      "kind": "agent.invoke",
+      "node": {
+        "agent_id": "conception-editor",
+        "budget": {
+          "max_cost_micro_usd": 4000000,
+          "max_total_tokens": 400000,
+          "max_turns": 20,
+          "max_wall_clock_seconds": 1800
+        },
+        "kind": "agent.invoke"
+      },
+      "node_id": "editor-pass",
+      "workflow_id": "conception-studio"
+    },
+    "/expand": {
+      "depth": 0,
+      "kind": "model.invoke",
+      "node": {
+        "budget": {
+          "max_cost_micro_usd": 1000000,
+          "max_total_tokens": 100000,
+          "max_turns": 2,
+          "max_wall_clock_seconds": 600
+        },
+        "input_schema_ref": {
+          "blake3": "d9ca7988b7e6597fb95a3d73ead13c7067fc99e1fbfd8dadcf99a1d74db9b771",
+          "schema_id": "design-brief"
+        },
+        "kind": "model.invoke",
+        "model_policy": {
+          "model_id": "claude-opus-4-8",
+          "provider_class": "cloud",
+          "require_structured_output": true
+        },
+        "output_schema_ref": {
+          "blake3": "dda5ace3b8a6de521768c300f163aec89eefb6cdc734dbbe77d516da4fa703bd",
+          "schema_id": "angle-list"
+        },
+        "prompt_ref": {
+          "blake3": "9695b2d2275305e4b10550fd1e1673cbc69249f92fc5590e9ad69363c29e4fc1",
+          "prompt_id": "expand-brief"
+        }
+      },
+      "node_id": "expand",
+      "workflow_id": "conception-studio"
+    },
+    "/feasibility-check": {
+      "depth": 0,
+      "kind": "model.invoke",
+      "node": {
+        "budget": {
+          "max_cost_micro_usd": 600000,
+          "max_total_tokens": 60000,
+          "max_turns": 2,
+          "max_wall_clock_seconds": 300
+        },
+        "input_schema_ref": {
+          "blake3": "d9ca7988b7e6597fb95a3d73ead13c7067fc99e1fbfd8dadcf99a1d74db9b771",
+          "schema_id": "design-brief"
+        },
+        "kind": "model.invoke",
+        "model_policy": {
+          "model_id": "qwen3:14b",
+          "provider_class": "local",
+          "require_structured_output": true
+        },
+        "output_schema_ref": {
+          "blake3": "ca2f4ff02378c2174b885bf14dca9ef0b7a3f96e31eacee8478cadc5ac6cc511",
+          "schema_id": "checks-report"
+        },
+        "prompt_ref": {
+          "blake3": "0cbfee50643fcd6d230da98e43640188d0d40e83b9d07e4bdd2dba66da6aa8e1",
+          "prompt_id": "feasibility"
+        }
+      },
+      "node_id": "feasibility-check",
+      "workflow_id": "conception-studio"
+    },
+    "/judge": {
+      "depth": 0,
+      "kind": "agent.invoke",
+      "node": {
+        "agent_id": "conception-judge",
+        "budget": {
+          "max_cost_micro_usd": 6000000,
+          "max_total_tokens": 600000,
+          "max_turns": 25,
+          "max_wall_clock_seconds": 2700
+        },
+        "kind": "agent.invoke"
+      },
+      "node_id": "judge",
+      "workflow_id": "conception-studio"
+    },
+    "/polish-rounds": {
+      "depth": 0,
+      "kind": "repeat",
+      "node": {
+        "body_subworkflow_ref": {
+          "blake3": "79ebbcb9191f0b59f2391aa0cae0009f3c8a201adf3d28d0eca60ee6ba842faa",
+          "workflow_id": "conception-polish-round"
+        },
+        "kind": "repeat",
+        "max_iterations": 3,
+        "until_output_flag": "approved"
+      },
+      "node_id": "polish-rounds",
+      "workflow_id": "conception-studio"
+    },
+    "/polish-rounds/cp-in": {
+      "depth": 1,
+      "kind": "input",
+      "node": {
+        "kind": "input",
+        "schema_ref": {
+          "blake3": "33b74c7a94ef5f08791fb1235ebd5296fb6c49d1ea14bc76b4f4dcd77dff6a3d",
+          "schema_id": "draft"
+        }
+      },
+      "node_id": "cp-in",
+      "workflow_id": "conception-polish-round"
+    },
+    "/polish-rounds/cp-out": {
+      "depth": 1,
+      "kind": "output",
+      "node": {
+        "artifact_name": "polished",
+        "kind": "output",
+        "schema_ref": {
+          "blake3": "97d2d79555cd20285fdddbc4f25312619c9317dc29cc922d18d876d91d7780de",
+          "schema_id": "polished"
+        }
+      },
+      "node_id": "cp-out",
+      "workflow_id": "conception-polish-round"
+    },
+    "/polish-rounds/polish": {
+      "depth": 1,
+      "kind": "model.invoke",
+      "node": {
+        "budget": {
+          "max_cost_micro_usd": 600000,
+          "max_total_tokens": 60000,
+          "max_turns": 2,
+          "max_wall_clock_seconds": 300
+        },
+        "input_schema_ref": {
+          "blake3": "33b74c7a94ef5f08791fb1235ebd5296fb6c49d1ea14bc76b4f4dcd77dff6a3d",
+          "schema_id": "draft"
+        },
+        "kind": "model.invoke",
+        "model_policy": {
+          "model_id": "qwen3:14b",
+          "provider_class": "local",
+          "require_structured_output": true
+        },
+        "output_schema_ref": {
+          "blake3": "97d2d79555cd20285fdddbc4f25312619c9317dc29cc922d18d876d91d7780de",
+          "schema_id": "polished"
+        },
+        "prompt_ref": {
+          "blake3": "d92f3aa076968a39cb2c8ca4a66d5c0f1050ce94991945f3cc15ae17fa3eb569",
+          "prompt_id": "polish"
+        }
+      },
+      "node_id": "polish",
+      "workflow_id": "conception-polish-round"
+    },
+    "/record-design": {
+      "depth": 0,
+      "kind": "capability.call",
+      "node": {
+        "args_schema_ref": {
+          "blake3": "c4183bc349dc317daf79813b220ac7418d886d8cdd7e835eacedc1e86b54a8f3",
+          "schema_id": "record-args"
+        },
+        "capability_ref": "storage.set",
+        "kind": "capability.call",
+        "output_schema_ref": {
+          "blake3": "9cb0aa90d8f99f853dd1deaa95eea2ba68805026b003dfbf0d302152edd7aeb1",
+          "schema_id": "record-receipt"
+        }
+      },
+      "node_id": "record-design",
+      "workflow_id": "conception-studio"
+    },
+    "/scaffold": {
+      "depth": 0,
+      "kind": "subworkflow",
+      "node": {
+        "kind": "subworkflow",
+        "subworkflow_ref": {
+          "blake3": "c7b38558a7ef9ae3ff4a182512e078de867a7468e51ac0977d99f1053e730e25",
+          "workflow_id": "conception-scaffold"
+        }
+      },
+      "node_id": "scaffold",
+      "workflow_id": "conception-studio"
+    },
+    "/scaffold/cs-in": {
+      "depth": 1,
+      "kind": "input",
+      "node": {
+        "kind": "input",
+        "schema_ref": {
+          "blake3": "97d2d79555cd20285fdddbc4f25312619c9317dc29cc922d18d876d91d7780de",
+          "schema_id": "polished"
+        }
+      },
+      "node_id": "cs-in",
+      "workflow_id": "conception-scaffold"
+    },
+    "/scaffold/cs-out": {
+      "depth": 1,
+      "kind": "output",
+      "node": {
+        "artifact_name": "design-record",
+        "kind": "output",
+        "schema_ref": {
+          "blake3": "410f14d50e75dee2a30779f72bf7e041b7b9f35a633a3ab0f722e4507a27229d",
+          "schema_id": "design-record"
+        }
+      },
+      "node_id": "cs-out",
+      "workflow_id": "conception-scaffold"
+    },
+    "/scaffold/shape": {
+      "depth": 1,
+      "kind": "transform",
+      "node": {
+        "field_map": {
+          "design": "draft"
+        },
+        "input_schema_ref": {
+          "blake3": "97d2d79555cd20285fdddbc4f25312619c9317dc29cc922d18d876d91d7780de",
+          "schema_id": "polished"
+        },
+        "kind": "transform",
+        "output_schema_ref": {
+          "blake3": "410f14d50e75dee2a30779f72bf7e041b7b9f35a633a3ab0f722e4507a27229d",
+          "schema_id": "design-record"
+        }
+      },
+      "node_id": "shape",
+      "workflow_id": "conception-scaffold"
+    },
+    "/variant-fanout": {
+      "depth": 0,
+      "kind": "map",
+      "node": {
+        "body_subworkflow_ref": {
+          "blake3": "b012df2320811594a576b3173bf854ab7e7be82e359cd4570b03a10174195688",
+          "workflow_id": "conception-variant"
+        },
+        "collection_field": "angles",
+        "kind": "map",
+        "max_cardinality": 4
+      },
+      "node_id": "variant-fanout",
+      "workflow_id": "conception-studio"
+    },
+    "/variant-fanout/cv-in": {
+      "depth": 1,
+      "kind": "input",
+      "node": {
+        "kind": "input",
+        "schema_ref": {
+          "blake3": "660f53c8aa528368826ccc5baba30448e9b0e9d79b810522168baa99bb9e069e",
+          "schema_id": "design-angle"
+        }
+      },
+      "node_id": "cv-in",
+      "workflow_id": "conception-variant"
+    },
+    "/variant-fanout/cv-out": {
+      "depth": 1,
+      "kind": "output",
+      "node": {
+        "artifact_name": "variant",
+        "kind": "output",
+        "schema_ref": {
+          "blake3": "1664e598453c1ea0fee0045d07e844f21f43776f5484890307bee8f5d013e64c",
+          "schema_id": "variant"
+        }
+      },
+      "node_id": "cv-out",
+      "workflow_id": "conception-variant"
+    },
+    "/variant-fanout/propose": {
+      "depth": 1,
+      "kind": "model.invoke",
+      "node": {
+        "budget": {
+          "max_cost_micro_usd": 1200000,
+          "max_total_tokens": 120000,
+          "max_turns": 2,
+          "max_wall_clock_seconds": 600
+        },
+        "input_schema_ref": {
+          "blake3": "660f53c8aa528368826ccc5baba30448e9b0e9d79b810522168baa99bb9e069e",
+          "schema_id": "design-angle"
+        },
+        "kind": "model.invoke",
+        "model_policy": {
+          "model_id": "claude-opus-4-8",
+          "provider_class": "cloud",
+          "require_structured_output": true
+        },
+        "output_schema_ref": {
+          "blake3": "1664e598453c1ea0fee0045d07e844f21f43776f5484890307bee8f5d013e64c",
+          "schema_id": "variant"
+        },
+        "prompt_ref": {
+          "blake3": "49abe700fa4a4f5ad5dcf8996f85821b667071e6b8522880d481175c48542f57",
+          "prompt_id": "design-variant"
+        }
+      },
+      "node_id": "propose",
+      "workflow_id": "conception-variant"
+    }
+  },
+  "pack_digest": "27fb2d5b631d515f72049ff812b979e9098d3ee517489827f976b6b01c4dbf01",
+  "pack_name": "golden-conception",
+  "pack_revision": 1,
   "placement": {
     "default_class": "local-only"
   },
-  "error_policies": {
+  "root_workflow_id": "conception-studio",
+  "scope_budgets": {
     "": {
-      "on_node_failure": "fail-workflow",
-      "max_retries_per_node": 1
+      "max_cost_micro_usd": 30000000,
+      "max_total_tokens": 3000000,
+      "max_turns": 120,
+      "max_wall_clock_seconds": 10800
     },
     "/polish-rounds": {
-      "on_node_failure": "fail-workflow",
-      "max_retries_per_node": 1
+      "max_cost_micro_usd": 800000,
+      "max_total_tokens": 80000,
+      "max_turns": 4,
+      "max_wall_clock_seconds": 600
     },
     "/scaffold": {
-      "on_node_failure": "fail-workflow",
-      "max_retries_per_node": 1
+      "max_cost_micro_usd": 100000,
+      "max_total_tokens": 10000,
+      "max_turns": 1,
+      "max_wall_clock_seconds": 300
     },
     "/variant-fanout": {
-      "on_node_failure": "fail-workflow",
-      "max_retries_per_node": 1
+      "max_cost_micro_usd": 1500000,
+      "max_total_tokens": 150000,
+      "max_turns": 4,
+      "max_wall_clock_seconds": 900
     }
   },
   "timeout_policies": {
     "": {
-      "workflow_timeout_seconds": 10800,
-      "default_node_timeout_seconds": 2700
+      "default_node_timeout_seconds": 2700,
+      "workflow_timeout_seconds": 10800
     },
     "/polish-rounds": {
-      "workflow_timeout_seconds": 600,
-      "default_node_timeout_seconds": 300
+      "default_node_timeout_seconds": 300,
+      "workflow_timeout_seconds": 600
     },
     "/scaffold": {
-      "workflow_timeout_seconds": 300,
-      "default_node_timeout_seconds": 120
+      "default_node_timeout_seconds": 120,
+      "workflow_timeout_seconds": 300
     },
     "/variant-fanout": {
-      "workflow_timeout_seconds": 900,
-      "default_node_timeout_seconds": 600
-    }
-  },
-  "cancellation_policies": {
-    "": {
-      "cancel_on_budget_exhausted": true,
-      "cancel_on_timeout": true,
-      "allow_host_operator_cancel": true
-    },
-    "/polish-rounds": {
-      "cancel_on_budget_exhausted": true,
-      "cancel_on_timeout": true,
-      "allow_host_operator_cancel": true
-    },
-    "/scaffold": {
-      "cancel_on_budget_exhausted": true,
-      "cancel_on_timeout": true,
-      "allow_host_operator_cancel": true
-    },
-    "/variant-fanout": {
-      "cancel_on_budget_exhausted": true,
-      "cancel_on_timeout": true,
-      "allow_host_operator_cancel": true
+      "default_node_timeout_seconds": 600,
+      "workflow_timeout_seconds": 900
     }
   }
 }

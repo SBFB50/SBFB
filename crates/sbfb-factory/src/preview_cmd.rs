@@ -97,7 +97,10 @@ mod tests {
 
         let cursor = std::io::Cursor::new(bytes);
         let archive = zip::ZipArchive::new(cursor).unwrap();
-        let names: Vec<String> = archive.file_names().map(String::from).collect();
+        let names: Vec<String> = archive
+            .file_names()
+            .map(|n| n.unwrap().into_owned())
+            .collect();
         assert!(names.contains(&"index.html".to_string()));
         assert!(names.contains(&"css/style.css".to_string()));
     }

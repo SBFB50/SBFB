@@ -269,7 +269,10 @@ mod tests {
 
         let zip = zip_workspace(&ws).unwrap();
         let archive = zip::ZipArchive::new(std::io::Cursor::new(zip)).unwrap();
-        let names: Vec<String> = archive.file_names().map(String::from).collect();
+        let names: Vec<String> = archive
+            .file_names()
+            .map(|n| n.unwrap().into_owned())
+            .collect();
         assert!(names.contains(&"index.html".to_string()));
         assert!(names.contains(&"assets/a.js".to_string()));
         assert!(

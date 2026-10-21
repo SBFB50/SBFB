@@ -107,7 +107,15 @@ impl BlobServeCache {
 
         for i in 0..archive.len() {
             let mut entry = archive.by_index(i)?;
-            let name = entry.name().to_string();
+            // zip 9: a non-UTF-8 entry name is an error; treat it as an unsafe path.
+            let name = entry
+                .name()
+                .map_err(|_| {
+                    BlobServeError::UnsafePath(
+                        String::from_utf8_lossy(entry.name_raw()).into_owned(),
+                    )
+                })?
+                .into_owned();
 
             // Skip directories.
             if entry.is_dir() {

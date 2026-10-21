@@ -956,7 +956,7 @@ fn add_to_zip(zip_bytes: &[u8], name: &str, content: &str) -> Result<Vec<u8>, io
 fn strip_zip_member(zip_bytes: &[u8], name: &str) -> Result<Vec<u8>, io::Error> {
     let reader = io::Cursor::new(zip_bytes.to_vec());
     let mut archive = zip::ZipArchive::new(reader).map_err(io::Error::other)?;
-    if !archive.file_names().any(|n| n == name) {
+    if !archive.file_names().any(|n| n.is_ok_and(|n| n == name)) {
         return Ok(zip_bytes.to_vec());
     }
     let mut buf = io::Cursor::new(Vec::new());
@@ -964,7 +964,7 @@ fn strip_zip_member(zip_bytes: &[u8], name: &str) -> Result<Vec<u8>, io::Error> 
         let mut zw = zip::ZipWriter::new(&mut buf);
         for i in 0..archive.len() {
             let file = archive.by_index_raw(i).map_err(io::Error::other)?;
-            if file.name() == name {
+            if file.name().is_ok_and(|n| n == name) {
                 continue;
             }
             zw.raw_copy_file(file).map_err(io::Error::other)?;
@@ -1004,8 +1004,10 @@ fn walkdir(path: &Path) -> Result<Vec<u64>, io::Error> {
 fn validate_zip(data: &[u8]) -> Result<(), String> {
     let reader = io::Cursor::new(data);
     let archive = zip::ZipArchive::new(reader).map_err(|e| format!("invalid zip archive: {e}"))?;
-    let names: Vec<&str> = archive.file_names().collect();
-    if !names.contains(&"index.html") {
+    if !archive
+        .file_names()
+        .any(|n| n.is_ok_and(|n| n == "index.html"))
+    {
         return Err("zip archive must contain an index.html at the root".into());
     }
     Ok(())
@@ -1071,9 +1073,12 @@ mod tests {
         let zip_bytes = add_to_zip(&zip_bytes, "provenance.json", r#"{"test": true}"#).unwrap();
         let reader = io::Cursor::new(&zip_bytes);
         let archive = zip::ZipArchive::new(reader).unwrap();
-        let names: Vec<&str> = archive.file_names().collect();
-        assert!(names.contains(&"index.html"));
-        assert!(names.contains(&"provenance.json"));
+        let names: Vec<String> = archive
+            .file_names()
+            .map(|n| n.unwrap().into_owned())
+            .collect();
+        assert!(names.iter().any(|n| n == "index.html"));
+        assert!(names.iter().any(|n| n == "provenance.json"));
     }
 
     #[test]
@@ -1103,7 +1108,7 @@ mod tests {
         let mut archive = zip::ZipArchive::new(reader).unwrap();
         let count = archive
             .file_names()
-            .filter(|n| *n == "provenance.json")
+            .filter(|n| n.as_deref().is_ok_and(|n| n == "provenance.json"))
             .count();
         assert_eq!(count, 1, "exactly one provenance.json after strip+inject");
         let mut surviving = String::new();
@@ -1204,10 +1209,13 @@ mod tests {
             add_to_zip(&zip_bytes, "provenance.json", r#"{"builder": "test"}"#).unwrap();
         let reader = io::Cursor::new(&zip_bytes);
         let archive = zip::ZipArchive::new(reader).unwrap();
-        let names: Vec<&str> = archive.file_names().collect();
-        assert!(names.contains(&"index.html"));
-        assert!(names.contains(&"SBFB.json"));
-        assert!(names.contains(&"provenance.json"));
+        let names: Vec<String> = archive
+            .file_names()
+            .map(|n| n.unwrap().into_owned())
+            .collect();
+        assert!(names.iter().any(|n| n == "index.html"));
+        assert!(names.iter().any(|n| n == "SBFB.json"));
+        assert!(names.iter().any(|n| n == "provenance.json"));
     }
 
     #[test]
@@ -1220,7 +1228,10 @@ mod tests {
         let zip_bytes = zip_directory(tmp.path()).unwrap();
         let reader = io::Cursor::new(&zip_bytes);
         let archive = zip::ZipArchive::new(reader).unwrap();
-        let names: Vec<String> = archive.file_names().map(String::from).collect();
+        let names: Vec<String> = archive
+            .file_names()
+            .map(|n| n.unwrap().into_owned())
+            .collect();
         assert!(names.contains(&"index.html".to_string()));
         assert!(!names.iter().any(|n| n.starts_with(".git")));
     }

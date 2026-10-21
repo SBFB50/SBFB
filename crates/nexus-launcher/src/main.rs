@@ -260,10 +260,12 @@ fn spawn_daemon() -> std::io::Result<std::process::Child> {
     // Look for the daemon binary next to the launcher first,
     // then fall back to PATH.
     let exe = std::env::current_exe().ok();
-    let sibling = exe
-        .as_ref()
-        .and_then(|p| p.parent())
-        .map(|dir| dir.join("nexus-shell-daemon"));
+    let sibling = exe.as_ref().and_then(|p| p.parent()).map(|dir| {
+        dir.join(format!(
+            "nexus-shell-daemon{}",
+            std::env::consts::EXE_SUFFIX
+        ))
+    });
 
     let program = match &sibling {
         Some(p) if p.exists() => p.as_os_str().to_owned(),

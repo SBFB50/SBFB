@@ -16,7 +16,9 @@
 //! covers both directions). Ops runbook :
 //! `docs/release/IROH_SELFHOST_OPS.md`.
 //!
-//! `presets::N0` **stays the default** — this module only ADDS an
+//! `presets::N0` stays the LIBRARY default — shipped binaries install
+//! [`SBFB_PUBLIC_NETWORK`] via [`install_network_defaults`] (n0 EOL) ;
+//! otherwise this module only ADDS an
 //! opt-in mode, resolved from the environment into a validated
 //! [`DiscoveryPlan`] that `node.rs` applies on a `presets::Minimal`
 //! base (a base that wires nothing n0-related, so there is nothing
@@ -54,8 +56,9 @@
 //!   discovery backend is active.
 
 use std::env;
+use std::sync::OnceLock;
 
-use iroh::RelayMap;
+use iroh::{RelayConfig, RelayMap};
 use url::Url;
 
 use crate::error::{NexusError, Result};
@@ -131,7 +134,12 @@ pub struct DiscoveryPlan {
 pub fn load_discovery_override() -> Result<Option<DiscoveryPlan>> {
     let raw = match env::var(ZERO_N0_ENV) {
         Ok(v) => v,
-        Err(_) => return Ok(None),
+        Err(_) => {
+            return match BUILTIN_NETWORK.get() {
+                Some(defaults) => plan_from_builtin(defaults).map(Some),
+                None => Ok(None),
+            };
+        }
     };
     let trimmed = raw.trim();
     let enabled = if trimmed.is_empty() || trimmed == "0" || trimmed.eq_ignore_ascii_case("false") {
@@ -184,6 +192,76 @@ pub fn load_discovery_override() -> Result<Option<DiscoveryPlan>> {
         pkarr_relays,
         relay_map,
     }))
+}
+
+/// Self-hosted relay + pkarr endpoints a shipped binary falls back to
+/// when [`ZERO_N0_ENV`] is unset.
+///
+/// The n0 fleet is EOL (2026-09-30) : a fresh install with no config
+/// left on `presets::N0` boots isolated. Shipped binaries therefore
+/// call [`install_network_defaults`] with [`SBFB_PUBLIC_NETWORK`] at
+/// startup ; library callers (tests, embedders) that never install
+/// defaults keep the previous `presets::N0` behaviour byte-identically,
+/// so no test run publishes its address to the public pkarr relay.
+#[derive(Debug, Clone, Copy)]
+pub struct NetworkDefaults {
+    /// Pkarr relay URLs (publish + resolve), used unless
+    /// [`ZERO_N0_PKARR_RELAYS_ENV`] carries a list.
+    pub pkarr_relays: &'static [&'static str],
+    /// Relay URLs, used unless [`CUSTOM_RELAYS_ENV`] / `relays.json`
+    /// configure one.
+    pub relays: &'static [&'static str],
+}
+
+/// The public SBFB network (Topology B anchor, IROH_SELFHOST_OPS §4.4).
+/// Hostnames, not IPs : re-homing the anchor is a DNS change.
+pub const SBFB_PUBLIC_NETWORK: NetworkDefaults = NetworkDefaults {
+    pkarr_relays: &["https://pkarr1.sbfb.world/pkarr"],
+    relays: &["https://relay1.sbfb.world"],
+};
+
+static BUILTIN_NETWORK: OnceLock<NetworkDefaults> = OnceLock::new();
+
+/// Install the network defaults used when [`ZERO_N0_ENV`] is unset.
+/// First call wins ; call it once at the top of a binary's `main`.
+/// `SBFB_ZERO_N0=0` still opts a node back onto `presets::N0`.
+pub fn install_network_defaults(defaults: NetworkDefaults) {
+    let _ = BUILTIN_NETWORK.set(defaults);
+}
+
+/// Build the plan from installed defaults, letting each operator knob
+/// override its half independently (env pkarr list, env / file relays).
+fn plan_from_builtin(defaults: &NetworkDefaults) -> Result<DiscoveryPlan> {
+    let pkarr_env = env::var(ZERO_N0_PKARR_RELAYS_ENV).unwrap_or_default();
+    let pkarr_src: Vec<&str> = pkarr_env
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect();
+    let pkarr_src = if pkarr_src.is_empty() {
+        defaults.pkarr_relays.to_vec()
+    } else {
+        pkarr_src
+    };
+    let pkarr_relays = pkarr_src
+        .into_iter()
+        .map(validate_zero_n0_pkarr_url)
+        .collect::<Result<Vec<_>>>()?;
+
+    let relay_map = match crate::relay_config::load_relay_map()? {
+        Some(map) => map,
+        None => RelayMap::from_iter(
+            defaults
+                .relays
+                .iter()
+                .map(|u| crate::relay_config::validate_relay_url(u).map(RelayConfig::from))
+                .collect::<Result<Vec<_>>>()?,
+        ),
+    };
+    Ok(DiscoveryPlan {
+        pkarr_relays,
+        relay_map,
+    })
 }
 
 /// Validate one self-hosted pkarr relay URL against the same policy
@@ -381,6 +459,39 @@ mod tests {
                 "{ZERO_N0_ENV}={on:?} must enable the override"
             );
         }
+    }
+
+    #[test]
+    fn builtin_defaults_build_plan_and_env_overrides_each_half() {
+        let _g = ENV_GUARD.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        let _snap = EnvSnapshot::capture(ALL_KEYS);
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe { env::set_var(crate::relay_config::SBFB_HOME_ENV, tmp.path()) };
+
+        // The shipped defaults pass the URL policy as-is.
+        let plan = plan_from_builtin(&SBFB_PUBLIC_NETWORK).expect("public defaults must validate");
+        assert_eq!(plan.pkarr_relays[0].host_str(), Some("pkarr1.sbfb.world"));
+        assert_eq!(plan.relay_map.len(), 1);
+
+        // Each operator knob overrides its own half only.
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe { env::set_var(ZERO_N0_PKARR_RELAYS_ENV, "https://pkarr.example.org/pkarr") };
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe {
+            env::set_var(
+                CUSTOM_RELAYS_ENV,
+                "https://r1.example.org,https://r2.example.org",
+            )
+        };
+        let plan = plan_from_builtin(&SBFB_PUBLIC_NETWORK).unwrap();
+        assert_eq!(plan.pkarr_relays[0].host_str(), Some("pkarr.example.org"));
+        assert_eq!(plan.relay_map.len(), 2);
+
+        // A bad override still fails loud instead of falling back.
+        // SAFETY: test-only; nextest runs each test in its own process.
+        unsafe { env::set_var(ZERO_N0_PKARR_RELAYS_ENV, "http://pkarr.example.org/pkarr") };
+        assert!(plan_from_builtin(&SBFB_PUBLIC_NETWORK).is_err());
     }
 
     #[test]

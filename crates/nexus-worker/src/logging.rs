@@ -114,11 +114,18 @@ fn terminal_filter(level: &str, verbose: u8) -> Result<EnvFilter> {
     if let Ok(filter) = EnvFilter::try_from_default_env() {
         return Ok(filter);
     }
-    let directive = match verbose {
-        0 => level.to_string(),
-        1 => "info".to_string(),
-        2 => "debug".to_string(),
-        _ => "trace".to_string(),
+    let base = match verbose {
+        0 => level,
+        1 => "info",
+        2 => "debug",
+        _ => "trace",
+    };
+    // iroh >= 1.4 opens an INFO span per packet send in iroh::socket ;
+    // with FmtSpan::CLOSE every close floods stdout / journald.
+    let directive = if verbose >= 2 {
+        base.to_string()
+    } else {
+        format!("{base},iroh::socket=warn")
     };
     EnvFilter::try_new(&directive)
         .with_context(|| format!("invalid tracing filter directive: {directive:?}"))

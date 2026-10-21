@@ -41,6 +41,9 @@ use cli::{Cli, Command, ConfigCommand, ProjectsCommand};
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+    // n0 relays are EOL : a config-less install must join the public
+    // SBFB network (env knobs still override, SBFB_ZERO_N0=0 opts out).
+    nexus_core_rs::install_network_defaults(nexus_core_rs::SBFB_PUBLIC_NETWORK);
 
     // Every subcommand that touches disk state needs the resolved
     // WorkerPaths. Computing it once here keeps the `--config`

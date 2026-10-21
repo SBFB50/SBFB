@@ -59,7 +59,7 @@ async fn main() -> std::io::Result<()> {
             );
             let port = url.port_or_known_default().unwrap_or(11434);
             info!(endpoint = %endpoint, "ollama backend configured");
-            Ok::<_, std::io::Error>(Ollama::new(host, port))
+            Ok::<_, std::io::Error>(Ollama::builder().host(host).port(port).build())
         })
         .transpose()?;
 

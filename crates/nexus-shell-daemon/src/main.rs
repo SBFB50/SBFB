@@ -90,6 +90,9 @@ use runtime::{DaemonRuntime, DaemonStartOptions};
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+    // n0 relays are EOL : a config-less install must join the public
+    // SBFB network (env knobs still override, SBFB_ZERO_N0=0 opts out).
+    nexus_core_rs::install_network_defaults(nexus_core_rs::SBFB_PUBLIC_NETWORK);
 
     let paths = ShellDaemonPaths::resolve(cli.config.clone())
         .context("could not resolve shell-daemon paths for this platform")?;
@@ -577,8 +580,20 @@ async fn handle_start(
 ) -> Result<()> {
     // Load the config to pick up any user-tuned bind host / port.
     // A missing file is fine — Phase A defaults to 127.0.0.1:0.
-    let cfg = ShellDaemonConfig::load(&paths.config_file)
+    let first_boot = !paths.config_file.exists();
+    let mut cfg = ShellDaemonConfig::load(&paths.config_file)
         .context("failed to load shell-daemon config")?;
+    if first_boot {
+        // PO 2026-10-21 : a fresh install subscribes to the public
+        // anchor so Browse is not empty. Written to disk so the user
+        // sees it and can remove it ; existing configs are untouched.
+        cfg.curator.default_curators = nexus_shell_daemon_core::config::PUBLIC_DEFAULT_CURATORS
+            .iter()
+            .map(|k| k.to_string())
+            .collect();
+        cfg.save(&paths.config_file)
+            .context("failed to write first-boot shell-daemon config")?;
+    }
 
     println!("nexus-shell-daemon v{}", env!("CARGO_PKG_VERSION"));
     println!("  core version: {}", nexus_shell_daemon_core::VERSION);

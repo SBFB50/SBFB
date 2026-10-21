@@ -230,7 +230,10 @@ fn extract_zip(zip_bytes: &[u8], dest: &Path, max_decompressed: u64) -> Result<(
         let mut file = archive
             .by_index(i)
             .map_err(|e| ForkError::Zip(e.to_string()))?;
-        let name = file.name().to_string();
+        let name = file
+            .name()
+            .map_err(|e| ForkError::Zip(e.to_string()))?
+            .into_owned();
 
         // Skip directory entries (created lazily for files below).
         if name.ends_with('/') {

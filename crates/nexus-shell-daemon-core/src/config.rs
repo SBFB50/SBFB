@@ -236,6 +236,15 @@ impl Default for NetworkConfig {
     }
 }
 
+/// Curators the shipped daemon writes into a FIRST-BOOT `config.toml`
+/// (PO 2026-10-21, launch). Not a compiled `Default` : verrou 3 still
+/// holds for every existing config and for library callers ; the user
+/// can delete the entry from the persisted file.
+pub const PUBLIC_DEFAULT_CURATORS: &[&str] = &[
+    // sbfb-eu anchor (Hetzner hel1, 2026-10-21).
+    "d7c32e295f8c1cfab42dd0629beced31bab3f45114425b80bc6fdc1edb42c174",
+];
+
 /// `[curator]` section: default curator auto-subscription.
 ///
 /// Sprint 11 Phase B. When the daemon boots, it auto-subscribes

@@ -21,7 +21,7 @@ members = [
 
 # Shared package metadata. Individual crates override name/description.
 [workspace.package]
-version = "1.0.0"
+version = "1.1.0"
 edition = "2024"
 rust-version = "1.91"
 license = "AGPL-3.0-or-later"
@@ -47,10 +47,10 @@ readme = "README.md"
 # its default `redb-v2-migration` feature (validated on a store COPY
 # in Phase F) — do NOT disable default features.
 [workspace.dependencies]
-iroh = "=1.0.1"
+iroh = "=1.4.1"
 iroh-docs = "=0.101.0"
 iroh-gossip = "=0.101.0"
-iroh-blobs = "=0.103.0"
+iroh-blobs = "=0.103.1"
 
 # Async runtime
 tokio = { version = "1.40", features = ["full"] }
@@ -203,7 +203,7 @@ dashmap = "6"
 
 # Sprint 12 Phase A: zip archive decompression for blob-serve.
 # Read-only safe, deflate-only to minimize binary size.
-zip = { version = "8.5", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 walkdir = "2"
 dunce = "1.0"
 

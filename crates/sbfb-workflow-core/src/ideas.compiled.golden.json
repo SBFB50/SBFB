@@ -1,12 +1,4 @@
 {
-  "compiler": {
-    "version": "1.0.0",
-    "profile": "strict-v1"
-  },
-  "pack_digest": "f618fb38ce9d3d6fab2996061814e29065b096cdc3d54535f4f49061ea087b11",
-  "pack_name": "golden-ideas",
-  "pack_revision": 1,
-  "root_workflow_id": "ideas-hub-intake",
   "artefact_digests": {
     "agents": {
       "ideas-champion": "2c1cae823d92331cb6966391a9850c2bdba0d36f4a4388a48614fa049c423dbe",
@@ -41,356 +33,26 @@
       "ideas-refine-round": "8451efa51373bbc374af323989907a907d60402de3ecbb35fd5ba3d543cadde7"
     }
   },
+  "cancellation_policies": {
+    "": {
+      "allow_host_operator_cancel": true,
+      "cancel_on_budget_exhausted": true,
+      "cancel_on_timeout": true
+    },
+    "/refine-rounds": {
+      "allow_host_operator_cancel": true,
+      "cancel_on_budget_exhausted": true,
+      "cancel_on_timeout": true
+    }
+  },
   "capability_closure": {
     "storage.set": [
       "/store-idea"
     ]
   },
-  "node_instances": {
-    "/champion-handoff": {
-      "workflow_id": "ideas-hub-intake",
-      "node_id": "champion-handoff",
-      "kind": "handoff",
-      "depth": 0,
-      "node": {
-        "kind": "handoff",
-        "target_agent_id": "ideas-champion",
-        "payload_schema_ref": {
-          "schema_id": "champion-payload",
-          "blake3": "826065b844aec82a80de3de8adcc0aaa9c7797a3335c5fd62bb34b990074a623"
-        },
-        "context_policy": {
-          "allowed_context_fields": [
-            "idea",
-            "research-summary"
-          ]
-        }
-      }
-    },
-    "/champion-review": {
-      "workflow_id": "ideas-hub-intake",
-      "node_id": "champion-review",
-      "kind": "agent.invoke",
-      "depth": 0,
-      "node": {
-        "kind": "agent.invoke",
-        "agent_id": "ideas-champion",
-        "budget": {
-          "max_total_tokens": 400000,
-          "max_cost_micro_usd": 4000000,
-          "max_wall_clock_seconds": 1800,
-          "max_turns": 20
-        }
-      }
-    },
-    "/collect": {
-      "workflow_id": "ideas-hub-intake",
-      "node_id": "collect",
-      "kind": "join",
-      "depth": 0,
-      "node": {
-        "kind": "join",
-        "policy": {
-          "mode": "any"
-        },
-        "source_node_ids": [
-          "normalise-refined",
-          "synthesise",
-          "vision-note"
-        ]
-      }
-    },
-    "/deep-research": {
-      "workflow_id": "ideas-hub-intake",
-      "node_id": "deep-research",
-      "kind": "agent.invoke",
-      "depth": 0,
-      "node": {
-        "kind": "agent.invoke",
-        "agent_id": "ideas-researcher",
-        "budget": {
-          "max_total_tokens": 600000,
-          "max_cost_micro_usd": 6000000,
-          "max_wall_clock_seconds": 2700,
-          "max_turns": 30
-        }
-      }
-    },
-    "/idea-in": {
-      "workflow_id": "ideas-hub-intake",
-      "node_id": "idea-in",
-      "kind": "input",
-      "depth": 0,
-      "node": {
-        "kind": "input",
-        "schema_ref": {
-          "schema_id": "idea-submission",
-          "blake3": "c83d6adba55681acfe5eb3a1fecbaab01351f5e69e1d0fc1f4a8a86bf3f8ce4d"
-        }
-      }
-    },
-    "/normalise-refined": {
-      "workflow_id": "ideas-hub-intake",
-      "node_id": "normalise-refined",
-      "kind": "transform",
-      "depth": 0,
-      "node": {
-        "kind": "transform",
-        "input_schema_ref": {
-          "schema_id": "refine-report",
-          "blake3": "e615e53ebbc4fa6c0fe19b2e52d14d76bab4f89aff3c459e297c744a05306ea3"
-        },
-        "output_schema_ref": {
-          "schema_id": "idea-note",
-          "blake3": "44769d1b9cb5449f033ec75f3dab88b76be1bbebe8fa3b19ccb719c1b2347f77"
-        },
-        "field_map": {
-          "summary": "draft"
-        }
-      }
-    },
-    "/private-note": {
-      "workflow_id": "ideas-hub-intake",
-      "node_id": "private-note",
-      "kind": "output",
-      "depth": 0,
-      "node": {
-        "kind": "output",
-        "schema_ref": {
-          "schema_id": "idea-note",
-          "blake3": "44769d1b9cb5449f033ec75f3dab88b76be1bbebe8fa3b19ccb719c1b2347f77"
-        },
-        "artifact_name": "private-idea"
-      }
-    },
-    "/publish-decision": {
-      "workflow_id": "ideas-hub-intake",
-      "node_id": "publish-decision",
-      "kind": "human.review",
-      "depth": 0,
-      "node": {
-        "kind": "human.review",
-        "payload_schema_ref": {
-          "schema_id": "idea-note",
-          "blake3": "44769d1b9cb5449f033ec75f3dab88b76be1bbebe8fa3b19ccb719c1b2347f77"
-        },
-        "decision_labels": [
-          "publish",
-          "keep-private"
-        ]
-      }
-    },
-    "/published": {
-      "workflow_id": "ideas-hub-intake",
-      "node_id": "published",
-      "kind": "output",
-      "depth": 0,
-      "node": {
-        "kind": "output",
-        "schema_ref": {
-          "schema_id": "store-receipt",
-          "blake3": "9cb0aa90d8f99f853dd1deaa95eea2ba68805026b003dfbf0d302152edd7aeb1"
-        },
-        "artifact_name": "published-idea"
-      }
-    },
-    "/refine-rounds": {
-      "workflow_id": "ideas-hub-intake",
-      "node_id": "refine-rounds",
-      "kind": "repeat",
-      "depth": 0,
-      "node": {
-        "kind": "repeat",
-        "max_iterations": 3,
-        "body_subworkflow_ref": {
-          "workflow_id": "ideas-refine-round",
-          "blake3": "8451efa51373bbc374af323989907a907d60402de3ecbb35fd5ba3d543cadde7"
-        },
-        "until_output_flag": "ready"
-      }
-    },
-    "/refine-rounds/polish": {
-      "workflow_id": "ideas-refine-round",
-      "node_id": "polish",
-      "kind": "model.invoke",
-      "depth": 1,
-      "node": {
-        "kind": "model.invoke",
-        "prompt_ref": {
-          "prompt_id": "refine",
-          "blake3": "94f399ea24649f4c17a60337c5511be79b59ee4422cda75386a3f13f280c3426"
-        },
-        "input_schema_ref": {
-          "schema_id": "refine-input",
-          "blake3": "d1262b4b5029466a503d7af62bb160a6f3a28fc89fdd7102d030863299e0312b"
-        },
-        "output_schema_ref": {
-          "schema_id": "refine-report",
-          "blake3": "e615e53ebbc4fa6c0fe19b2e52d14d76bab4f89aff3c459e297c744a05306ea3"
-        },
-        "model_policy": {
-          "provider_class": "local",
-          "model_id": "qwen3:14b",
-          "require_structured_output": true
-        },
-        "budget": {
-          "max_total_tokens": 60000,
-          "max_cost_micro_usd": 600000,
-          "max_wall_clock_seconds": 300,
-          "max_turns": 2
-        }
-      }
-    },
-    "/refine-rounds/rr-in": {
-      "workflow_id": "ideas-refine-round",
-      "node_id": "rr-in",
-      "kind": "input",
-      "depth": 1,
-      "node": {
-        "kind": "input",
-        "schema_ref": {
-          "schema_id": "refine-input",
-          "blake3": "d1262b4b5029466a503d7af62bb160a6f3a28fc89fdd7102d030863299e0312b"
-        }
-      }
-    },
-    "/refine-rounds/rr-out": {
-      "workflow_id": "ideas-refine-round",
-      "node_id": "rr-out",
-      "kind": "output",
-      "depth": 1,
-      "node": {
-        "kind": "output",
-        "schema_ref": {
-          "schema_id": "refine-report",
-          "blake3": "e615e53ebbc4fa6c0fe19b2e52d14d76bab4f89aff3c459e297c744a05306ea3"
-        },
-        "artifact_name": "refine-report"
-      }
-    },
-    "/repro-check": {
-      "workflow_id": "ideas-hub-intake",
-      "node_id": "repro-check",
-      "kind": "agent.as_tool",
-      "depth": 0,
-      "node": {
-        "kind": "agent.as_tool",
-        "agent_id": "ideas-triage-helper",
-        "input_schema_ref": {
-          "schema_id": "idea-submission",
-          "blake3": "c83d6adba55681acfe5eb3a1fecbaab01351f5e69e1d0fc1f4a8a86bf3f8ce4d"
-        },
-        "output_schema_ref": {
-          "schema_id": "repro-report",
-          "blake3": "28325dbaca5df579398127bb692f364e35b7b723befc5fb2a1d2d6051430c010"
-        },
-        "budget": {
-          "max_total_tokens": 150000,
-          "max_cost_micro_usd": 1500000,
-          "max_wall_clock_seconds": 900,
-          "max_turns": 8
-        }
-      }
-    },
-    "/store-idea": {
-      "workflow_id": "ideas-hub-intake",
-      "node_id": "store-idea",
-      "kind": "capability.call",
-      "depth": 0,
-      "node": {
-        "kind": "capability.call",
-        "capability_ref": "storage.set",
-        "args_schema_ref": {
-          "schema_id": "store-args",
-          "blake3": "c4183bc349dc317daf79813b220ac7418d886d8cdd7e835eacedc1e86b54a8f3"
-        },
-        "output_schema_ref": {
-          "schema_id": "store-receipt",
-          "blake3": "9cb0aa90d8f99f853dd1deaa95eea2ba68805026b003dfbf0d302152edd7aeb1"
-        }
-      }
-    },
-    "/synthesise": {
-      "workflow_id": "ideas-hub-intake",
-      "node_id": "synthesise",
-      "kind": "model.invoke",
-      "depth": 0,
-      "node": {
-        "kind": "model.invoke",
-        "prompt_ref": {
-          "prompt_id": "synthesis",
-          "blake3": "542fee8d1125e71e42034eca9fe3ca524c9e0ed1fce9e65f5d10be8502a4c669"
-        },
-        "input_schema_ref": {
-          "schema_id": "repro-report",
-          "blake3": "28325dbaca5df579398127bb692f364e35b7b723befc5fb2a1d2d6051430c010"
-        },
-        "output_schema_ref": {
-          "schema_id": "idea-note",
-          "blake3": "44769d1b9cb5449f033ec75f3dab88b76be1bbebe8fa3b19ccb719c1b2347f77"
-        },
-        "model_policy": {
-          "provider_class": "local",
-          "model_id": "qwen3:14b",
-          "require_structured_output": true
-        },
-        "budget": {
-          "max_total_tokens": 80000,
-          "max_cost_micro_usd": 800000,
-          "max_wall_clock_seconds": 600,
-          "max_turns": 2
-        }
-      }
-    },
-    "/triage": {
-      "workflow_id": "ideas-hub-intake",
-      "node_id": "triage",
-      "kind": "classifier",
-      "depth": 0,
-      "node": {
-        "kind": "classifier",
-        "prompt_ref": {
-          "prompt_id": "triage",
-          "blake3": "abc7c68be7f23f3ac78f3f66570cd83fdbdc1a8a881f1ad272c486d6bea84f38"
-        },
-        "model_policy": {
-          "provider_class": "local",
-          "model_id": "qwen3:14b",
-          "require_structured_output": true
-        },
-        "branch_labels": [
-          "feature",
-          "bug",
-          "vision"
-        ],
-        "budget": {
-          "max_total_tokens": 50000,
-          "max_cost_micro_usd": 500000,
-          "max_wall_clock_seconds": 300,
-          "max_turns": 2
-        }
-      }
-    },
-    "/vision-note": {
-      "workflow_id": "ideas-hub-intake",
-      "node_id": "vision-note",
-      "kind": "transform",
-      "depth": 0,
-      "node": {
-        "kind": "transform",
-        "input_schema_ref": {
-          "schema_id": "idea-submission",
-          "blake3": "c83d6adba55681acfe5eb3a1fecbaab01351f5e69e1d0fc1f4a8a86bf3f8ce4d"
-        },
-        "output_schema_ref": {
-          "schema_id": "idea-note",
-          "blake3": "44769d1b9cb5449f033ec75f3dab88b76be1bbebe8fa3b19ccb719c1b2347f77"
-        },
-        "field_map": {
-          "summary": "idea"
-        }
-      }
-    }
+  "compiler": {
+    "profile": "strict-v1",
+    "version": "1.1.0"
   },
   "edges": [
     {
@@ -516,95 +178,433 @@
       "/refine-rounds/rr-in"
     ]
   },
+  "error_policies": {
+    "": {
+      "max_retries_per_node": 1,
+      "on_node_failure": "fail-workflow"
+    },
+    "/refine-rounds": {
+      "max_retries_per_node": 1,
+      "on_node_failure": "fail-workflow"
+    }
+  },
+  "graph_semantic_digest": "161648848c0086406155e67f45235242f9b49ab2c200fcbc284fdb831ee135bb",
   "human_gates": [
     "/publish-decision"
   ],
-  "graph_semantic_digest": "161648848c0086406155e67f45235242f9b49ab2c200fcbc284fdb831ee135bb",
-  "scope_budgets": {
-    "": {
-      "max_total_tokens": 2000000,
-      "max_cost_micro_usd": 20000000,
-      "max_wall_clock_seconds": 7200,
-      "max_turns": 100
-    },
-    "/refine-rounds": {
-      "max_total_tokens": 80000,
-      "max_cost_micro_usd": 800000,
-      "max_wall_clock_seconds": 600,
-      "max_turns": 4
-    }
-  },
   "node_budgets": {
     "/champion-review": {
-      "max_total_tokens": 400000,
       "max_cost_micro_usd": 4000000,
-      "max_wall_clock_seconds": 1800,
-      "max_turns": 20
+      "max_total_tokens": 400000,
+      "max_turns": 20,
+      "max_wall_clock_seconds": 1800
     },
     "/deep-research": {
-      "max_total_tokens": 600000,
       "max_cost_micro_usd": 6000000,
-      "max_wall_clock_seconds": 2700,
-      "max_turns": 30
+      "max_total_tokens": 600000,
+      "max_turns": 30,
+      "max_wall_clock_seconds": 2700
     },
     "/refine-rounds/polish": {
-      "max_total_tokens": 60000,
       "max_cost_micro_usd": 600000,
-      "max_wall_clock_seconds": 300,
-      "max_turns": 2
+      "max_total_tokens": 60000,
+      "max_turns": 2,
+      "max_wall_clock_seconds": 300
     },
     "/repro-check": {
-      "max_total_tokens": 150000,
       "max_cost_micro_usd": 1500000,
-      "max_wall_clock_seconds": 900,
-      "max_turns": 8
+      "max_total_tokens": 150000,
+      "max_turns": 8,
+      "max_wall_clock_seconds": 900
     },
     "/synthesise": {
-      "max_total_tokens": 80000,
       "max_cost_micro_usd": 800000,
-      "max_wall_clock_seconds": 600,
-      "max_turns": 2
+      "max_total_tokens": 80000,
+      "max_turns": 2,
+      "max_wall_clock_seconds": 600
     },
     "/triage": {
-      "max_total_tokens": 50000,
       "max_cost_micro_usd": 500000,
-      "max_wall_clock_seconds": 300,
-      "max_turns": 2
+      "max_total_tokens": 50000,
+      "max_turns": 2,
+      "max_wall_clock_seconds": 300
     }
   },
+  "node_instances": {
+    "/champion-handoff": {
+      "depth": 0,
+      "kind": "handoff",
+      "node": {
+        "context_policy": {
+          "allowed_context_fields": [
+            "idea",
+            "research-summary"
+          ]
+        },
+        "kind": "handoff",
+        "payload_schema_ref": {
+          "blake3": "826065b844aec82a80de3de8adcc0aaa9c7797a3335c5fd62bb34b990074a623",
+          "schema_id": "champion-payload"
+        },
+        "target_agent_id": "ideas-champion"
+      },
+      "node_id": "champion-handoff",
+      "workflow_id": "ideas-hub-intake"
+    },
+    "/champion-review": {
+      "depth": 0,
+      "kind": "agent.invoke",
+      "node": {
+        "agent_id": "ideas-champion",
+        "budget": {
+          "max_cost_micro_usd": 4000000,
+          "max_total_tokens": 400000,
+          "max_turns": 20,
+          "max_wall_clock_seconds": 1800
+        },
+        "kind": "agent.invoke"
+      },
+      "node_id": "champion-review",
+      "workflow_id": "ideas-hub-intake"
+    },
+    "/collect": {
+      "depth": 0,
+      "kind": "join",
+      "node": {
+        "kind": "join",
+        "policy": {
+          "mode": "any"
+        },
+        "source_node_ids": [
+          "normalise-refined",
+          "synthesise",
+          "vision-note"
+        ]
+      },
+      "node_id": "collect",
+      "workflow_id": "ideas-hub-intake"
+    },
+    "/deep-research": {
+      "depth": 0,
+      "kind": "agent.invoke",
+      "node": {
+        "agent_id": "ideas-researcher",
+        "budget": {
+          "max_cost_micro_usd": 6000000,
+          "max_total_tokens": 600000,
+          "max_turns": 30,
+          "max_wall_clock_seconds": 2700
+        },
+        "kind": "agent.invoke"
+      },
+      "node_id": "deep-research",
+      "workflow_id": "ideas-hub-intake"
+    },
+    "/idea-in": {
+      "depth": 0,
+      "kind": "input",
+      "node": {
+        "kind": "input",
+        "schema_ref": {
+          "blake3": "c83d6adba55681acfe5eb3a1fecbaab01351f5e69e1d0fc1f4a8a86bf3f8ce4d",
+          "schema_id": "idea-submission"
+        }
+      },
+      "node_id": "idea-in",
+      "workflow_id": "ideas-hub-intake"
+    },
+    "/normalise-refined": {
+      "depth": 0,
+      "kind": "transform",
+      "node": {
+        "field_map": {
+          "summary": "draft"
+        },
+        "input_schema_ref": {
+          "blake3": "e615e53ebbc4fa6c0fe19b2e52d14d76bab4f89aff3c459e297c744a05306ea3",
+          "schema_id": "refine-report"
+        },
+        "kind": "transform",
+        "output_schema_ref": {
+          "blake3": "44769d1b9cb5449f033ec75f3dab88b76be1bbebe8fa3b19ccb719c1b2347f77",
+          "schema_id": "idea-note"
+        }
+      },
+      "node_id": "normalise-refined",
+      "workflow_id": "ideas-hub-intake"
+    },
+    "/private-note": {
+      "depth": 0,
+      "kind": "output",
+      "node": {
+        "artifact_name": "private-idea",
+        "kind": "output",
+        "schema_ref": {
+          "blake3": "44769d1b9cb5449f033ec75f3dab88b76be1bbebe8fa3b19ccb719c1b2347f77",
+          "schema_id": "idea-note"
+        }
+      },
+      "node_id": "private-note",
+      "workflow_id": "ideas-hub-intake"
+    },
+    "/publish-decision": {
+      "depth": 0,
+      "kind": "human.review",
+      "node": {
+        "decision_labels": [
+          "publish",
+          "keep-private"
+        ],
+        "kind": "human.review",
+        "payload_schema_ref": {
+          "blake3": "44769d1b9cb5449f033ec75f3dab88b76be1bbebe8fa3b19ccb719c1b2347f77",
+          "schema_id": "idea-note"
+        }
+      },
+      "node_id": "publish-decision",
+      "workflow_id": "ideas-hub-intake"
+    },
+    "/published": {
+      "depth": 0,
+      "kind": "output",
+      "node": {
+        "artifact_name": "published-idea",
+        "kind": "output",
+        "schema_ref": {
+          "blake3": "9cb0aa90d8f99f853dd1deaa95eea2ba68805026b003dfbf0d302152edd7aeb1",
+          "schema_id": "store-receipt"
+        }
+      },
+      "node_id": "published",
+      "workflow_id": "ideas-hub-intake"
+    },
+    "/refine-rounds": {
+      "depth": 0,
+      "kind": "repeat",
+      "node": {
+        "body_subworkflow_ref": {
+          "blake3": "8451efa51373bbc374af323989907a907d60402de3ecbb35fd5ba3d543cadde7",
+          "workflow_id": "ideas-refine-round"
+        },
+        "kind": "repeat",
+        "max_iterations": 3,
+        "until_output_flag": "ready"
+      },
+      "node_id": "refine-rounds",
+      "workflow_id": "ideas-hub-intake"
+    },
+    "/refine-rounds/polish": {
+      "depth": 1,
+      "kind": "model.invoke",
+      "node": {
+        "budget": {
+          "max_cost_micro_usd": 600000,
+          "max_total_tokens": 60000,
+          "max_turns": 2,
+          "max_wall_clock_seconds": 300
+        },
+        "input_schema_ref": {
+          "blake3": "d1262b4b5029466a503d7af62bb160a6f3a28fc89fdd7102d030863299e0312b",
+          "schema_id": "refine-input"
+        },
+        "kind": "model.invoke",
+        "model_policy": {
+          "model_id": "qwen3:14b",
+          "provider_class": "local",
+          "require_structured_output": true
+        },
+        "output_schema_ref": {
+          "blake3": "e615e53ebbc4fa6c0fe19b2e52d14d76bab4f89aff3c459e297c744a05306ea3",
+          "schema_id": "refine-report"
+        },
+        "prompt_ref": {
+          "blake3": "94f399ea24649f4c17a60337c5511be79b59ee4422cda75386a3f13f280c3426",
+          "prompt_id": "refine"
+        }
+      },
+      "node_id": "polish",
+      "workflow_id": "ideas-refine-round"
+    },
+    "/refine-rounds/rr-in": {
+      "depth": 1,
+      "kind": "input",
+      "node": {
+        "kind": "input",
+        "schema_ref": {
+          "blake3": "d1262b4b5029466a503d7af62bb160a6f3a28fc89fdd7102d030863299e0312b",
+          "schema_id": "refine-input"
+        }
+      },
+      "node_id": "rr-in",
+      "workflow_id": "ideas-refine-round"
+    },
+    "/refine-rounds/rr-out": {
+      "depth": 1,
+      "kind": "output",
+      "node": {
+        "artifact_name": "refine-report",
+        "kind": "output",
+        "schema_ref": {
+          "blake3": "e615e53ebbc4fa6c0fe19b2e52d14d76bab4f89aff3c459e297c744a05306ea3",
+          "schema_id": "refine-report"
+        }
+      },
+      "node_id": "rr-out",
+      "workflow_id": "ideas-refine-round"
+    },
+    "/repro-check": {
+      "depth": 0,
+      "kind": "agent.as_tool",
+      "node": {
+        "agent_id": "ideas-triage-helper",
+        "budget": {
+          "max_cost_micro_usd": 1500000,
+          "max_total_tokens": 150000,
+          "max_turns": 8,
+          "max_wall_clock_seconds": 900
+        },
+        "input_schema_ref": {
+          "blake3": "c83d6adba55681acfe5eb3a1fecbaab01351f5e69e1d0fc1f4a8a86bf3f8ce4d",
+          "schema_id": "idea-submission"
+        },
+        "kind": "agent.as_tool",
+        "output_schema_ref": {
+          "blake3": "28325dbaca5df579398127bb692f364e35b7b723befc5fb2a1d2d6051430c010",
+          "schema_id": "repro-report"
+        }
+      },
+      "node_id": "repro-check",
+      "workflow_id": "ideas-hub-intake"
+    },
+    "/store-idea": {
+      "depth": 0,
+      "kind": "capability.call",
+      "node": {
+        "args_schema_ref": {
+          "blake3": "c4183bc349dc317daf79813b220ac7418d886d8cdd7e835eacedc1e86b54a8f3",
+          "schema_id": "store-args"
+        },
+        "capability_ref": "storage.set",
+        "kind": "capability.call",
+        "output_schema_ref": {
+          "blake3": "9cb0aa90d8f99f853dd1deaa95eea2ba68805026b003dfbf0d302152edd7aeb1",
+          "schema_id": "store-receipt"
+        }
+      },
+      "node_id": "store-idea",
+      "workflow_id": "ideas-hub-intake"
+    },
+    "/synthesise": {
+      "depth": 0,
+      "kind": "model.invoke",
+      "node": {
+        "budget": {
+          "max_cost_micro_usd": 800000,
+          "max_total_tokens": 80000,
+          "max_turns": 2,
+          "max_wall_clock_seconds": 600
+        },
+        "input_schema_ref": {
+          "blake3": "28325dbaca5df579398127bb692f364e35b7b723befc5fb2a1d2d6051430c010",
+          "schema_id": "repro-report"
+        },
+        "kind": "model.invoke",
+        "model_policy": {
+          "model_id": "qwen3:14b",
+          "provider_class": "local",
+          "require_structured_output": true
+        },
+        "output_schema_ref": {
+          "blake3": "44769d1b9cb5449f033ec75f3dab88b76be1bbebe8fa3b19ccb719c1b2347f77",
+          "schema_id": "idea-note"
+        },
+        "prompt_ref": {
+          "blake3": "542fee8d1125e71e42034eca9fe3ca524c9e0ed1fce9e65f5d10be8502a4c669",
+          "prompt_id": "synthesis"
+        }
+      },
+      "node_id": "synthesise",
+      "workflow_id": "ideas-hub-intake"
+    },
+    "/triage": {
+      "depth": 0,
+      "kind": "classifier",
+      "node": {
+        "branch_labels": [
+          "feature",
+          "bug",
+          "vision"
+        ],
+        "budget": {
+          "max_cost_micro_usd": 500000,
+          "max_total_tokens": 50000,
+          "max_turns": 2,
+          "max_wall_clock_seconds": 300
+        },
+        "kind": "classifier",
+        "model_policy": {
+          "model_id": "qwen3:14b",
+          "provider_class": "local",
+          "require_structured_output": true
+        },
+        "prompt_ref": {
+          "blake3": "abc7c68be7f23f3ac78f3f66570cd83fdbdc1a8a881f1ad272c486d6bea84f38",
+          "prompt_id": "triage"
+        }
+      },
+      "node_id": "triage",
+      "workflow_id": "ideas-hub-intake"
+    },
+    "/vision-note": {
+      "depth": 0,
+      "kind": "transform",
+      "node": {
+        "field_map": {
+          "summary": "idea"
+        },
+        "input_schema_ref": {
+          "blake3": "c83d6adba55681acfe5eb3a1fecbaab01351f5e69e1d0fc1f4a8a86bf3f8ce4d",
+          "schema_id": "idea-submission"
+        },
+        "kind": "transform",
+        "output_schema_ref": {
+          "blake3": "44769d1b9cb5449f033ec75f3dab88b76be1bbebe8fa3b19ccb719c1b2347f77",
+          "schema_id": "idea-note"
+        }
+      },
+      "node_id": "vision-note",
+      "workflow_id": "ideas-hub-intake"
+    }
+  },
+  "pack_digest": "f618fb38ce9d3d6fab2996061814e29065b096cdc3d54535f4f49061ea087b11",
+  "pack_name": "golden-ideas",
+  "pack_revision": 1,
   "placement": {
     "default_class": "local-only"
   },
-  "error_policies": {
+  "root_workflow_id": "ideas-hub-intake",
+  "scope_budgets": {
     "": {
-      "on_node_failure": "fail-workflow",
-      "max_retries_per_node": 1
+      "max_cost_micro_usd": 20000000,
+      "max_total_tokens": 2000000,
+      "max_turns": 100,
+      "max_wall_clock_seconds": 7200
     },
     "/refine-rounds": {
-      "on_node_failure": "fail-workflow",
-      "max_retries_per_node": 1
+      "max_cost_micro_usd": 800000,
+      "max_total_tokens": 80000,
+      "max_turns": 4,
+      "max_wall_clock_seconds": 600
     }
   },
   "timeout_policies": {
     "": {
-      "workflow_timeout_seconds": 7200,
-      "default_node_timeout_seconds": 2700
+      "default_node_timeout_seconds": 2700,
+      "workflow_timeout_seconds": 7200
     },
     "/refine-rounds": {
-      "workflow_timeout_seconds": 600,
-      "default_node_timeout_seconds": 300
-    }
-  },
-  "cancellation_policies": {
-    "": {
-      "cancel_on_budget_exhausted": true,
-      "cancel_on_timeout": true,
-      "allow_host_operator_cancel": true
-    },
-    "/refine-rounds": {
-      "cancel_on_budget_exhausted": true,
-      "cancel_on_timeout": true,
-      "allow_host_operator_cancel": true
+      "default_node_timeout_seconds": 300,
+      "workflow_timeout_seconds": 600
     }
   }
 }

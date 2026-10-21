@@ -88,7 +88,10 @@ mod tests {
             stream.write_all(resp.as_bytes()).await.unwrap();
         });
 
-        let ollama = Ollama::new("http://127.0.0.1", port);
+        let ollama = Ollama::builder()
+            .host("http://127.0.0.1")
+            .port(port)
+            .build();
         let result = execute_task(&test_params(), Some(&ollama)).await.unwrap();
         assert_eq!(result.output, "42 is the answer");
         assert_eq!(result.model_used, "mock-7b");
@@ -120,7 +123,10 @@ mod tests {
             stream.write_all(resp.as_bytes()).await.unwrap();
         });
 
-        let ollama = Ollama::new("http://127.0.0.1", port);
+        let ollama = Ollama::builder()
+            .host("http://127.0.0.1")
+            .port(port)
+            .build();
         let mut params = test_params();
         params.max_tokens = 256;
         let _ = execute_task(&params, Some(&ollama)).await.unwrap();
@@ -132,7 +138,7 @@ mod tests {
 
     #[tokio::test]
     async fn execute_task_error_when_unreachable() {
-        let ollama = Ollama::new("http://127.0.0.1", 1);
+        let ollama = Ollama::builder().host("http://127.0.0.1").port(1).build();
         let result = execute_task(&test_params(), Some(&ollama)).await;
         assert!(result.is_err());
     }

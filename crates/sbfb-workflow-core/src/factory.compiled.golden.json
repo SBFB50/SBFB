@@ -1,12 +1,4 @@
 {
-  "compiler": {
-    "version": "1.0.0",
-    "profile": "strict-v1"
-  },
-  "pack_digest": "9d16d8e81e100e599953d0cb94af5dfba6c040d7079b6384efd60c8bcb6c4cf5",
-  "pack_name": "golden-factory",
-  "pack_revision": 1,
-  "root_workflow_id": "factory-phase",
   "artefact_digests": {
     "agents": {
       "factory-codex-verifier": "303cfdbdca24399ec3b8a209b6a41356eea5dbc8ef20ce5698dd166c86934497",
@@ -52,6 +44,18 @@
       "factory-phase": "b726cba976b672dabcd83fbed1ce0650b4f4198ba625415d04a72875dc13e930"
     }
   },
+  "cancellation_policies": {
+    "": {
+      "allow_host_operator_cancel": true,
+      "cancel_on_budget_exhausted": true,
+      "cancel_on_timeout": true
+    },
+    "/codex-rounds": {
+      "allow_host_operator_cancel": true,
+      "cancel_on_budget_exhausted": true,
+      "cancel_on_timeout": true
+    }
+  },
   "capability_closure": {
     "process.git_commit": [
       "/commit-phase"
@@ -60,337 +64,9 @@
       "/run-suites"
     ]
   },
-  "node_instances": {
-    "/codex-rounds": {
-      "workflow_id": "factory-phase",
-      "node_id": "codex-rounds",
-      "kind": "repeat",
-      "depth": 0,
-      "node": {
-        "kind": "repeat",
-        "max_iterations": 5,
-        "body_subworkflow_ref": {
-          "workflow_id": "factory-codex-round",
-          "blake3": "617579dd618b3951a43653ae0d100d5f2826c659c8b10f6e35966cf3f716ffe9"
-        },
-        "until_output_flag": "clean"
-      }
-    },
-    "/codex-rounds/codex-verify": {
-      "workflow_id": "factory-codex-round",
-      "node_id": "codex-verify",
-      "kind": "agent.invoke",
-      "depth": 1,
-      "node": {
-        "kind": "agent.invoke",
-        "agent_id": "factory-codex-verifier",
-        "budget": {
-          "max_total_tokens": 600000,
-          "max_cost_micro_usd": 6000000,
-          "max_wall_clock_seconds": 2700,
-          "max_turns": 30
-        }
-      }
-    },
-    "/codex-rounds/round-in": {
-      "workflow_id": "factory-codex-round",
-      "node_id": "round-in",
-      "kind": "input",
-      "depth": 1,
-      "node": {
-        "kind": "input",
-        "schema_ref": {
-          "schema_id": "round-input",
-          "blake3": "02ddfcc915bf870726e28f1266789373569ab3abb9c2e17ea3c79c57cb758acd"
-        }
-      }
-    },
-    "/codex-rounds/round-out": {
-      "workflow_id": "factory-codex-round",
-      "node_id": "round-out",
-      "kind": "output",
-      "depth": 1,
-      "node": {
-        "kind": "output",
-        "schema_ref": {
-          "schema_id": "round-report",
-          "blake3": "c785c6039ff3399f49cb28b8607ae4c8bf13f58a6536815c03fe5fa16dabce20"
-        },
-        "artifact_name": "round-report"
-      }
-    },
-    "/commit-phase": {
-      "workflow_id": "factory-phase",
-      "node_id": "commit-phase",
-      "kind": "capability.call",
-      "depth": 0,
-      "node": {
-        "kind": "capability.call",
-        "capability_ref": "process.git_commit",
-        "args_schema_ref": {
-          "schema_id": "commit-args",
-          "blake3": "33f8dace84563971ba2c1b4f8a61567cbb77137d6fc1eb750173ee06e171de13"
-        },
-        "output_schema_ref": {
-          "schema_id": "commit-result",
-          "blake3": "4c84df06529b4c39b83f2c42eeea3e0b3b56ccbe8ad65c801824680c0d41d108"
-        }
-      }
-    },
-    "/drive-implementation": {
-      "workflow_id": "factory-phase",
-      "node_id": "drive-implementation",
-      "kind": "agent.invoke",
-      "depth": 0,
-      "node": {
-        "kind": "agent.invoke",
-        "agent_id": "factory-driver",
-        "budget": {
-          "max_total_tokens": 1500000,
-          "max_cost_micro_usd": 15000000,
-          "max_wall_clock_seconds": 5400,
-          "max_turns": 60
-        }
-      }
-    },
-    "/handoff-to-review": {
-      "workflow_id": "factory-phase",
-      "node_id": "handoff-to-review",
-      "kind": "handoff",
-      "depth": 0,
-      "node": {
-        "kind": "handoff",
-        "target_agent_id": "factory-reviewer",
-        "payload_schema_ref": {
-          "schema_id": "review-payload",
-          "blake3": "007c4f9ba6165f91480ff61091fe089531540d9bd9a9e0ca1b2ea6b58f299c58"
-        },
-        "context_policy": {
-          "allowed_context_fields": [
-            "phase-task",
-            "diff-summary",
-            "suites-report"
-          ]
-        }
-      }
-    },
-    "/independent-review": {
-      "workflow_id": "factory-phase",
-      "node_id": "independent-review",
-      "kind": "agent.invoke",
-      "depth": 0,
-      "node": {
-        "kind": "agent.invoke",
-        "agent_id": "factory-reviewer",
-        "budget": {
-          "max_total_tokens": 800000,
-          "max_cost_micro_usd": 8000000,
-          "max_wall_clock_seconds": 3600,
-          "max_turns": 40
-        }
-      }
-    },
-    "/normalise-brief": {
-      "workflow_id": "factory-phase",
-      "node_id": "normalise-brief",
-      "kind": "transform",
-      "depth": 0,
-      "node": {
-        "kind": "transform",
-        "input_schema_ref": {
-          "schema_id": "phase-brief",
-          "blake3": "7d1a5407ce34439ff5bb1da8806c5116949ba46e2c2c8c97667df2ae9765e0ca"
-        },
-        "output_schema_ref": {
-          "schema_id": "phase-task",
-          "blake3": "f02ab2ab4a748822927c2680e5f74d4895f0c072e3584f129c53dffb93f5dd50"
-        },
-        "field_map": {
-          "task": "objective"
-        }
-      }
-    },
-    "/phase-brief": {
-      "workflow_id": "factory-phase",
-      "node_id": "phase-brief",
-      "kind": "input",
-      "depth": 0,
-      "node": {
-        "kind": "input",
-        "schema_ref": {
-          "schema_id": "phase-brief",
-          "blake3": "7d1a5407ce34439ff5bb1da8806c5116949ba46e2c2c8c97667df2ae9765e0ca"
-        }
-      }
-    },
-    "/phase-record": {
-      "workflow_id": "factory-phase",
-      "node_id": "phase-record",
-      "kind": "output",
-      "depth": 0,
-      "node": {
-        "kind": "output",
-        "schema_ref": {
-          "schema_id": "phase-record",
-          "blake3": "c1a6ca92244f1df96cc7dcccb627904f3caeafd1904e5546ab497b90d2b3b28e"
-        },
-        "artifact_name": "phase-record"
-      }
-    },
-    "/po-ratification": {
-      "workflow_id": "factory-phase",
-      "node_id": "po-ratification",
-      "kind": "human.review",
-      "depth": 0,
-      "node": {
-        "kind": "human.review",
-        "payload_schema_ref": {
-          "schema_id": "review-verdict",
-          "blake3": "e00b2fe0f51312de3021d74b72b647789bdb50049737ad488c99c7d100546ae5"
-        },
-        "decision_labels": [
-          "approve",
-          "reject"
-        ]
-      }
-    },
-    "/preflight-join": {
-      "workflow_id": "factory-phase",
-      "node_id": "preflight-join",
-      "kind": "join",
-      "depth": 0,
-      "node": {
-        "kind": "join",
-        "policy": {
-          "mode": "all"
-        },
-        "source_node_ids": [
-          "scan-prior-art",
-          "scan-decisions",
-          "scan-threat"
-        ]
-      }
-    },
-    "/preflight-scans": {
-      "workflow_id": "factory-phase",
-      "node_id": "preflight-scans",
-      "kind": "parallel",
-      "depth": 0,
-      "node": {
-        "kind": "parallel",
-        "branch_labels": [
-          "prior-art",
-          "decisions",
-          "threat"
-        ]
-      }
-    },
-    "/rejection-record": {
-      "workflow_id": "factory-phase",
-      "node_id": "rejection-record",
-      "kind": "output",
-      "depth": 0,
-      "node": {
-        "kind": "output",
-        "schema_ref": {
-          "schema_id": "review-verdict",
-          "blake3": "e00b2fe0f51312de3021d74b72b647789bdb50049737ad488c99c7d100546ae5"
-        },
-        "artifact_name": "rejection-record"
-      }
-    },
-    "/run-suites": {
-      "workflow_id": "factory-phase",
-      "node_id": "run-suites",
-      "kind": "capability.call",
-      "depth": 0,
-      "node": {
-        "kind": "capability.call",
-        "capability_ref": "process.run_tests",
-        "args_schema_ref": {
-          "schema_id": "suites-args",
-          "blake3": "373ae525387255d29d51ec88e72427deaef1b3c225e8daef0f3f2f2e7f25c324"
-        },
-        "output_schema_ref": {
-          "schema_id": "suites-report",
-          "blake3": "39a6757da658fb533a81ccf17bc5c88bacf65a72cfb63253128c0c60e5cff541"
-        }
-      }
-    },
-    "/scan-decisions": {
-      "workflow_id": "factory-phase",
-      "node_id": "scan-decisions",
-      "kind": "knowledge.query",
-      "depth": 0,
-      "node": {
-        "kind": "knowledge.query",
-        "corpus_ref": {
-          "corpus_id": "repo-decisions",
-          "blake3": "a8b4929ab5fc1c429c8a2edab0ca41d433cb5cefe76d632b80ae442c254ad661"
-        },
-        "query_schema_ref": {
-          "schema_id": "phase-task",
-          "blake3": "f02ab2ab4a748822927c2680e5f74d4895f0c072e3584f129c53dffb93f5dd50"
-        },
-        "output_schema_ref": {
-          "schema_id": "scan-finding",
-          "blake3": "78317205fa6b76db5d45072db785cc165f429f002386419971d093e80c8e8d37"
-        }
-      }
-    },
-    "/scan-prior-art": {
-      "workflow_id": "factory-phase",
-      "node_id": "scan-prior-art",
-      "kind": "knowledge.query",
-      "depth": 0,
-      "node": {
-        "kind": "knowledge.query",
-        "corpus_ref": {
-          "corpus_id": "oss-prior-art",
-          "blake3": "b6626a95c764eadc992ae92d4e91a8a6129125b348aa1bfea30bf5a2fc193ca0"
-        },
-        "query_schema_ref": {
-          "schema_id": "phase-task",
-          "blake3": "f02ab2ab4a748822927c2680e5f74d4895f0c072e3584f129c53dffb93f5dd50"
-        },
-        "output_schema_ref": {
-          "schema_id": "scan-finding",
-          "blake3": "78317205fa6b76db5d45072db785cc165f429f002386419971d093e80c8e8d37"
-        }
-      }
-    },
-    "/scan-threat": {
-      "workflow_id": "factory-phase",
-      "node_id": "scan-threat",
-      "kind": "model.invoke",
-      "depth": 0,
-      "node": {
-        "kind": "model.invoke",
-        "prompt_ref": {
-          "prompt_id": "threat-scan",
-          "blake3": "8a38829e6fb5837a1d8e5feec7066dae3eb3e060c1f125c1c17fbde2b3e71473"
-        },
-        "input_schema_ref": {
-          "schema_id": "phase-task",
-          "blake3": "f02ab2ab4a748822927c2680e5f74d4895f0c072e3584f129c53dffb93f5dd50"
-        },
-        "output_schema_ref": {
-          "schema_id": "scan-finding",
-          "blake3": "78317205fa6b76db5d45072db785cc165f429f002386419971d093e80c8e8d37"
-        },
-        "model_policy": {
-          "provider_class": "local",
-          "model_id": "qwen3:14b",
-          "require_structured_output": true
-        },
-        "budget": {
-          "max_total_tokens": 100000,
-          "max_cost_micro_usd": 1000000,
-          "max_wall_clock_seconds": 600,
-          "max_turns": 4
-        }
-      }
-    }
+  "compiler": {
+    "profile": "strict-v1",
+    "version": "1.1.0"
   },
   "edges": [
     {
@@ -516,83 +192,407 @@
       "/codex-rounds/round-in"
     ]
   },
+  "error_policies": {
+    "": {
+      "max_retries_per_node": 1,
+      "on_node_failure": "fail-workflow"
+    },
+    "/codex-rounds": {
+      "max_retries_per_node": 1,
+      "on_node_failure": "fail-workflow"
+    }
+  },
+  "graph_semantic_digest": "f8378a97c12adad389e36c9b0bb043fa62ed93dab5f995a863df83dab7055146",
   "human_gates": [
     "/po-ratification"
   ],
-  "graph_semantic_digest": "f8378a97c12adad389e36c9b0bb043fa62ed93dab5f995a863df83dab7055146",
-  "scope_budgets": {
-    "": {
-      "max_total_tokens": 4000000,
-      "max_cost_micro_usd": 40000000,
-      "max_wall_clock_seconds": 14400,
-      "max_turns": 200
-    },
-    "/codex-rounds": {
-      "max_total_tokens": 700000,
-      "max_cost_micro_usd": 7000000,
-      "max_wall_clock_seconds": 3000,
-      "max_turns": 35
-    }
-  },
   "node_budgets": {
     "/codex-rounds/codex-verify": {
-      "max_total_tokens": 600000,
       "max_cost_micro_usd": 6000000,
-      "max_wall_clock_seconds": 2700,
-      "max_turns": 30
+      "max_total_tokens": 600000,
+      "max_turns": 30,
+      "max_wall_clock_seconds": 2700
     },
     "/drive-implementation": {
-      "max_total_tokens": 1500000,
       "max_cost_micro_usd": 15000000,
-      "max_wall_clock_seconds": 5400,
-      "max_turns": 60
+      "max_total_tokens": 1500000,
+      "max_turns": 60,
+      "max_wall_clock_seconds": 5400
     },
     "/independent-review": {
-      "max_total_tokens": 800000,
       "max_cost_micro_usd": 8000000,
-      "max_wall_clock_seconds": 3600,
-      "max_turns": 40
+      "max_total_tokens": 800000,
+      "max_turns": 40,
+      "max_wall_clock_seconds": 3600
     },
     "/scan-threat": {
-      "max_total_tokens": 100000,
       "max_cost_micro_usd": 1000000,
-      "max_wall_clock_seconds": 600,
-      "max_turns": 4
+      "max_total_tokens": 100000,
+      "max_turns": 4,
+      "max_wall_clock_seconds": 600
     }
   },
+  "node_instances": {
+    "/codex-rounds": {
+      "depth": 0,
+      "kind": "repeat",
+      "node": {
+        "body_subworkflow_ref": {
+          "blake3": "617579dd618b3951a43653ae0d100d5f2826c659c8b10f6e35966cf3f716ffe9",
+          "workflow_id": "factory-codex-round"
+        },
+        "kind": "repeat",
+        "max_iterations": 5,
+        "until_output_flag": "clean"
+      },
+      "node_id": "codex-rounds",
+      "workflow_id": "factory-phase"
+    },
+    "/codex-rounds/codex-verify": {
+      "depth": 1,
+      "kind": "agent.invoke",
+      "node": {
+        "agent_id": "factory-codex-verifier",
+        "budget": {
+          "max_cost_micro_usd": 6000000,
+          "max_total_tokens": 600000,
+          "max_turns": 30,
+          "max_wall_clock_seconds": 2700
+        },
+        "kind": "agent.invoke"
+      },
+      "node_id": "codex-verify",
+      "workflow_id": "factory-codex-round"
+    },
+    "/codex-rounds/round-in": {
+      "depth": 1,
+      "kind": "input",
+      "node": {
+        "kind": "input",
+        "schema_ref": {
+          "blake3": "02ddfcc915bf870726e28f1266789373569ab3abb9c2e17ea3c79c57cb758acd",
+          "schema_id": "round-input"
+        }
+      },
+      "node_id": "round-in",
+      "workflow_id": "factory-codex-round"
+    },
+    "/codex-rounds/round-out": {
+      "depth": 1,
+      "kind": "output",
+      "node": {
+        "artifact_name": "round-report",
+        "kind": "output",
+        "schema_ref": {
+          "blake3": "c785c6039ff3399f49cb28b8607ae4c8bf13f58a6536815c03fe5fa16dabce20",
+          "schema_id": "round-report"
+        }
+      },
+      "node_id": "round-out",
+      "workflow_id": "factory-codex-round"
+    },
+    "/commit-phase": {
+      "depth": 0,
+      "kind": "capability.call",
+      "node": {
+        "args_schema_ref": {
+          "blake3": "33f8dace84563971ba2c1b4f8a61567cbb77137d6fc1eb750173ee06e171de13",
+          "schema_id": "commit-args"
+        },
+        "capability_ref": "process.git_commit",
+        "kind": "capability.call",
+        "output_schema_ref": {
+          "blake3": "4c84df06529b4c39b83f2c42eeea3e0b3b56ccbe8ad65c801824680c0d41d108",
+          "schema_id": "commit-result"
+        }
+      },
+      "node_id": "commit-phase",
+      "workflow_id": "factory-phase"
+    },
+    "/drive-implementation": {
+      "depth": 0,
+      "kind": "agent.invoke",
+      "node": {
+        "agent_id": "factory-driver",
+        "budget": {
+          "max_cost_micro_usd": 15000000,
+          "max_total_tokens": 1500000,
+          "max_turns": 60,
+          "max_wall_clock_seconds": 5400
+        },
+        "kind": "agent.invoke"
+      },
+      "node_id": "drive-implementation",
+      "workflow_id": "factory-phase"
+    },
+    "/handoff-to-review": {
+      "depth": 0,
+      "kind": "handoff",
+      "node": {
+        "context_policy": {
+          "allowed_context_fields": [
+            "phase-task",
+            "diff-summary",
+            "suites-report"
+          ]
+        },
+        "kind": "handoff",
+        "payload_schema_ref": {
+          "blake3": "007c4f9ba6165f91480ff61091fe089531540d9bd9a9e0ca1b2ea6b58f299c58",
+          "schema_id": "review-payload"
+        },
+        "target_agent_id": "factory-reviewer"
+      },
+      "node_id": "handoff-to-review",
+      "workflow_id": "factory-phase"
+    },
+    "/independent-review": {
+      "depth": 0,
+      "kind": "agent.invoke",
+      "node": {
+        "agent_id": "factory-reviewer",
+        "budget": {
+          "max_cost_micro_usd": 8000000,
+          "max_total_tokens": 800000,
+          "max_turns": 40,
+          "max_wall_clock_seconds": 3600
+        },
+        "kind": "agent.invoke"
+      },
+      "node_id": "independent-review",
+      "workflow_id": "factory-phase"
+    },
+    "/normalise-brief": {
+      "depth": 0,
+      "kind": "transform",
+      "node": {
+        "field_map": {
+          "task": "objective"
+        },
+        "input_schema_ref": {
+          "blake3": "7d1a5407ce34439ff5bb1da8806c5116949ba46e2c2c8c97667df2ae9765e0ca",
+          "schema_id": "phase-brief"
+        },
+        "kind": "transform",
+        "output_schema_ref": {
+          "blake3": "f02ab2ab4a748822927c2680e5f74d4895f0c072e3584f129c53dffb93f5dd50",
+          "schema_id": "phase-task"
+        }
+      },
+      "node_id": "normalise-brief",
+      "workflow_id": "factory-phase"
+    },
+    "/phase-brief": {
+      "depth": 0,
+      "kind": "input",
+      "node": {
+        "kind": "input",
+        "schema_ref": {
+          "blake3": "7d1a5407ce34439ff5bb1da8806c5116949ba46e2c2c8c97667df2ae9765e0ca",
+          "schema_id": "phase-brief"
+        }
+      },
+      "node_id": "phase-brief",
+      "workflow_id": "factory-phase"
+    },
+    "/phase-record": {
+      "depth": 0,
+      "kind": "output",
+      "node": {
+        "artifact_name": "phase-record",
+        "kind": "output",
+        "schema_ref": {
+          "blake3": "c1a6ca92244f1df96cc7dcccb627904f3caeafd1904e5546ab497b90d2b3b28e",
+          "schema_id": "phase-record"
+        }
+      },
+      "node_id": "phase-record",
+      "workflow_id": "factory-phase"
+    },
+    "/po-ratification": {
+      "depth": 0,
+      "kind": "human.review",
+      "node": {
+        "decision_labels": [
+          "approve",
+          "reject"
+        ],
+        "kind": "human.review",
+        "payload_schema_ref": {
+          "blake3": "e00b2fe0f51312de3021d74b72b647789bdb50049737ad488c99c7d100546ae5",
+          "schema_id": "review-verdict"
+        }
+      },
+      "node_id": "po-ratification",
+      "workflow_id": "factory-phase"
+    },
+    "/preflight-join": {
+      "depth": 0,
+      "kind": "join",
+      "node": {
+        "kind": "join",
+        "policy": {
+          "mode": "all"
+        },
+        "source_node_ids": [
+          "scan-prior-art",
+          "scan-decisions",
+          "scan-threat"
+        ]
+      },
+      "node_id": "preflight-join",
+      "workflow_id": "factory-phase"
+    },
+    "/preflight-scans": {
+      "depth": 0,
+      "kind": "parallel",
+      "node": {
+        "branch_labels": [
+          "prior-art",
+          "decisions",
+          "threat"
+        ],
+        "kind": "parallel"
+      },
+      "node_id": "preflight-scans",
+      "workflow_id": "factory-phase"
+    },
+    "/rejection-record": {
+      "depth": 0,
+      "kind": "output",
+      "node": {
+        "artifact_name": "rejection-record",
+        "kind": "output",
+        "schema_ref": {
+          "blake3": "e00b2fe0f51312de3021d74b72b647789bdb50049737ad488c99c7d100546ae5",
+          "schema_id": "review-verdict"
+        }
+      },
+      "node_id": "rejection-record",
+      "workflow_id": "factory-phase"
+    },
+    "/run-suites": {
+      "depth": 0,
+      "kind": "capability.call",
+      "node": {
+        "args_schema_ref": {
+          "blake3": "373ae525387255d29d51ec88e72427deaef1b3c225e8daef0f3f2f2e7f25c324",
+          "schema_id": "suites-args"
+        },
+        "capability_ref": "process.run_tests",
+        "kind": "capability.call",
+        "output_schema_ref": {
+          "blake3": "39a6757da658fb533a81ccf17bc5c88bacf65a72cfb63253128c0c60e5cff541",
+          "schema_id": "suites-report"
+        }
+      },
+      "node_id": "run-suites",
+      "workflow_id": "factory-phase"
+    },
+    "/scan-decisions": {
+      "depth": 0,
+      "kind": "knowledge.query",
+      "node": {
+        "corpus_ref": {
+          "blake3": "a8b4929ab5fc1c429c8a2edab0ca41d433cb5cefe76d632b80ae442c254ad661",
+          "corpus_id": "repo-decisions"
+        },
+        "kind": "knowledge.query",
+        "output_schema_ref": {
+          "blake3": "78317205fa6b76db5d45072db785cc165f429f002386419971d093e80c8e8d37",
+          "schema_id": "scan-finding"
+        },
+        "query_schema_ref": {
+          "blake3": "f02ab2ab4a748822927c2680e5f74d4895f0c072e3584f129c53dffb93f5dd50",
+          "schema_id": "phase-task"
+        }
+      },
+      "node_id": "scan-decisions",
+      "workflow_id": "factory-phase"
+    },
+    "/scan-prior-art": {
+      "depth": 0,
+      "kind": "knowledge.query",
+      "node": {
+        "corpus_ref": {
+          "blake3": "b6626a95c764eadc992ae92d4e91a8a6129125b348aa1bfea30bf5a2fc193ca0",
+          "corpus_id": "oss-prior-art"
+        },
+        "kind": "knowledge.query",
+        "output_schema_ref": {
+          "blake3": "78317205fa6b76db5d45072db785cc165f429f002386419971d093e80c8e8d37",
+          "schema_id": "scan-finding"
+        },
+        "query_schema_ref": {
+          "blake3": "f02ab2ab4a748822927c2680e5f74d4895f0c072e3584f129c53dffb93f5dd50",
+          "schema_id": "phase-task"
+        }
+      },
+      "node_id": "scan-prior-art",
+      "workflow_id": "factory-phase"
+    },
+    "/scan-threat": {
+      "depth": 0,
+      "kind": "model.invoke",
+      "node": {
+        "budget": {
+          "max_cost_micro_usd": 1000000,
+          "max_total_tokens": 100000,
+          "max_turns": 4,
+          "max_wall_clock_seconds": 600
+        },
+        "input_schema_ref": {
+          "blake3": "f02ab2ab4a748822927c2680e5f74d4895f0c072e3584f129c53dffb93f5dd50",
+          "schema_id": "phase-task"
+        },
+        "kind": "model.invoke",
+        "model_policy": {
+          "model_id": "qwen3:14b",
+          "provider_class": "local",
+          "require_structured_output": true
+        },
+        "output_schema_ref": {
+          "blake3": "78317205fa6b76db5d45072db785cc165f429f002386419971d093e80c8e8d37",
+          "schema_id": "scan-finding"
+        },
+        "prompt_ref": {
+          "blake3": "8a38829e6fb5837a1d8e5feec7066dae3eb3e060c1f125c1c17fbde2b3e71473",
+          "prompt_id": "threat-scan"
+        }
+      },
+      "node_id": "scan-threat",
+      "workflow_id": "factory-phase"
+    }
+  },
+  "pack_digest": "9d16d8e81e100e599953d0cb94af5dfba6c040d7079b6384efd60c8bcb6c4cf5",
+  "pack_name": "golden-factory",
+  "pack_revision": 1,
   "placement": {
     "default_class": "local-only"
   },
-  "error_policies": {
+  "root_workflow_id": "factory-phase",
+  "scope_budgets": {
     "": {
-      "on_node_failure": "fail-workflow",
-      "max_retries_per_node": 1
+      "max_cost_micro_usd": 40000000,
+      "max_total_tokens": 4000000,
+      "max_turns": 200,
+      "max_wall_clock_seconds": 14400
     },
     "/codex-rounds": {
-      "on_node_failure": "fail-workflow",
-      "max_retries_per_node": 1
+      "max_cost_micro_usd": 7000000,
+      "max_total_tokens": 700000,
+      "max_turns": 35,
+      "max_wall_clock_seconds": 3000
     }
   },
   "timeout_policies": {
     "": {
-      "workflow_timeout_seconds": 14400,
-      "default_node_timeout_seconds": 5400
+      "default_node_timeout_seconds": 5400,
+      "workflow_timeout_seconds": 14400
     },
     "/codex-rounds": {
-      "workflow_timeout_seconds": 3000,
-      "default_node_timeout_seconds": 2700
-    }
-  },
-  "cancellation_policies": {
-    "": {
-      "cancel_on_budget_exhausted": true,
-      "cancel_on_timeout": true,
-      "allow_host_operator_cancel": true
-    },
-    "/codex-rounds": {
-      "cancel_on_budget_exhausted": true,
-      "cancel_on_timeout": true,
-      "allow_host_operator_cancel": true
+      "default_node_timeout_seconds": 2700,
+      "workflow_timeout_seconds": 3000
     }
   }
 }

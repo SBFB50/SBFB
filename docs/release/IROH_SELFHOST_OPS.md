@@ -37,7 +37,7 @@ services self-hosted remplacent la flotte n0 :
 
 > **Statut 2026-07-05 (nuit) : INFRA LIVE + ACCEPTANCE PASS.** La
 > Topologie B (§4.4) est **déployée et en service** sur l'ancre
-> (`sbfb-eu`, 135.181.42.188) : DNS `relay1`/`pkarr1.sbfb.world` posés
+> (`sbfb-eu`, 2.29.12.249) : DNS `relay1`/`pkarr1.sbfb.world` posés
 > chez Porkbun, `iroh-relay` 1.0.1 + `iroh-dns-server` 1.0.1 actifs
 > sous leurs units durcies (`deploy/*.service`), Caddy route + certs
 > auto. **Palier T2 `zero_n0_live_convergence` = PASS le jour même**
@@ -202,8 +202,8 @@ sur `:80`/`:443` (sert `ci.sbfb.world` → Woodpecker Docker loopback
 (`*.ns.porkbun.com`).
 
 **Prérequis DNS (action opérateur, une fois)** — chez Porkbun, zone
-`sbfb.world`, 2 enregistrements A : `relay1` → `135.181.42.188` et
-`pkarr1` → `135.181.42.188`.
+`sbfb.world`, 2 enregistrements A : `relay1` → `2.29.12.249` et
+`pkarr1` → `2.29.12.249`.
 
 **Relais — config sans bloc `[tls]`** (voie supportée upstream : « TLS
 is disabled if not present and the Relay server will serve all
@@ -240,7 +240,7 @@ bind_addr = "127.0.0.1"
 default_soa = "dns1.pkarr1.sbfb.world hostmaster.sbfb.world 0 10800 3600 604800 3600"
 default_ttl = 30
 origins = ["pkarr1.sbfb.world", "."]
-rr_a = "135.181.42.188"
+rr_a = "2.29.12.249"
 rr_ns = "ns1.pkarr1.sbfb.world."
 
 [mainline]
@@ -275,9 +275,22 @@ entière (THREAT_MODEL §15.x, carry Phase G).
 
 ## 5. Configuration client (chaque nœud SBFB)
 
-Le mode zéro-n0 est **opt-in par nœud** et **fail-loud** : toute config
-partielle refuse de booter (jamais de retombée silencieuse sur n0).
-`presets::N0` reste le défaut quand `SBFB_ZERO_N0` est absent.
+**Depuis la release v1.1.0 (2026-10-21), le zéro-n0 est le DÉFAUT des
+binaires livrés** (`nexus-shell-daemon`, `nexus-worker`) : sans
+`SBFB_ZERO_N0`, ils installent `SBFB_PUBLIC_NETWORK`
+(`https://relay1.sbfb.world` + `https://pkarr1.sbfb.world/pkarr`,
+`discovery_override.rs`). Chaque variable ci-dessous surcharge sa
+moitié ; `SBFB_ZERO_N0=0` ramène sur `presets::N0` (flotte n0 EOL).
+`SBFB_ZERO_N0=1` garde le mode strict **fail-loud** : toute config
+partielle refuse de booter. Les appelants bibliothèque (tests) restent
+sur `presets::N0` tant qu'ils n'appellent pas `install_network_defaults`.
+
+Ancre de référence : `sbfb-eu` = 2.29.12.249 (Hetzner hel1, recréée le
+2026-10-21 après perte de l'ancien compte ; l'ancienne IP 135.181.42.188
+appartient désormais à un tiers). Node id
+`d7c32e295f8c1cfab42dd0629beced31bab3f45114425b80bc6fdc1edb42c174`,
+curateur par défaut écrit au premier boot (`PUBLIC_DEFAULT_CURATORS`).
+Annuaire republié toutes les 10 min (`sbfb-directory-republish.timer`).
 
 ```bash
 # Gate (1/true = on ; 0/false/absent = off ; toute autre valeur = refus de boot)
