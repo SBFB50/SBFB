@@ -2468,7 +2468,39 @@ Palier T2 WA-T2.6 (joindre les sorties dans un `ArtifactRef` type) et WA-T5.5
 (consommer l'artefact depuis une autre app) appartient a la Phase Y ; WA-T5.6
 (mutation de chaque classe de digest/receipt/lineage) a la Phase M1.
 
-## 20. Revue et evolution
+## 20. Surface messagerie v1 (chat iroh E2E, 2026-10-21)
+
+Plan PO 2026-10-21 (hors cycle sprint) ; ADR
+`docs/architecture/ADR_CHAT_V1.md`. Spike A GO : crypto
+`crates/nexus-messaging-core/tests/spike_olm_megolm.rs`, transport
+`crates/nexus-core-rs/tests/chat_docs_spike.rs`.
+
+**Composants** : `nexus-messaging-core` (vodozemac Olm/Megolm, enveloppes
+signees, sans I/O) ; daemon local (cles, chiffrement, 1 document iroh-docs
+par conversation) ; verbes bridge `msg_*` (classe sensible, consentement
+explicite) ; boite aux lettres sur l'ancre (ALPN `sbfb/mailbox/0`, ticket
+LECTURE seulement, opt-in, TTL 21 j, quotas).
+
+**Protege** : contenu (relais, ancre, autres noeuds, autres apps SBFB) ;
+authenticite (Megolm signe + MAC, enveloppes signees) ; messages
+posterieurs au retrait d'un membre (rotation de session + nouveau document,
+le ticket d'ecriture iroh-docs n'etant pas revocable) ; l'ancre ne peut pas
+forger d'entree (replique en lecture, prouve par le spike).
+
+**Non protege en v1 (dit dans l'app)** : metadonnees reseau — les membres
+voient `node_id`/IP les uns des autres, le relais voit qui joint qui,
+l'ancre (si opt-in) voit quels noeuds partagent un document et quand.
+L'anonymat est la v2 (plan Tor/SimpleX du 2026-10-19).
+
+**Base de confiance** : l'appareil ; le daemon local (voit le clair) ;
+l'editeur de l'app (affiche le clair, mitige par epinglage de version).
+
+**Limites** : Megolm = securite post-compromission faible (rotation
+periodique des sessions) ; vodozemac est audite (Least Authority), le
+protocole SBFB au-dessus ne l'est pas => statut « experimental » affiche
+jusqu'a audit externe.
+
+## 21. Revue et evolution
 
 Ce document est vivant. Chaque sprint qui livre une mitigation
 ou deplace un residual doit :
@@ -2811,6 +2843,9 @@ Historique versions :
   INCHANGE, 0 bump wire, 0 dep runtime neuve (dep intra-workspace
   engine→core seule). Re-coupe B6 : routes daemon + D7 + golden_http +
   clôture docs-contrat = Phase I1.
+- **v30 (chat v1 Phase 0, 2026-10-21)** : ajout **§20 Surface messagerie
+  v1** (iroh E2E, vodozemac daemon-side, boite aux lettres ancre en
+  lecture seule), renommage §20→§21.
 - **v29 (Sprint 83 Phase M, 2026-07-28)** : ajout **§19.5 Surface artefacts,
   mode de publication et ACL de lecture** + asset **A16** (artefact durable de
   run, ligne ajoutee dans §2 comme l'impose §20 item 3). **6 rows neuves** —
