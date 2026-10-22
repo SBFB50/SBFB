@@ -5331,7 +5331,7 @@ dependencies = [
 
 [[package]]
 name = "nexus-coordinator-rs"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "blake3",
  "chrono",
@@ -5358,7 +5358,7 @@ dependencies = [
 
 [[package]]
 name = "nexus-core-rs"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -5406,7 +5406,7 @@ dependencies = [
 
 [[package]]
 name = "nexus-events-core"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "chrono",
  "libsystemd",
@@ -5420,7 +5420,7 @@ dependencies = [
 
 [[package]]
 name = "nexus-executor"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "clap",
  "nexus-trace-core",
@@ -5436,7 +5436,7 @@ dependencies = [
 
 [[package]]
 name = "nexus-launcher"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -5464,7 +5464,7 @@ dependencies = [
 
 [[package]]
 name = "nexus-messaging-core"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "base64 0.22.1",
  "nexus-core-rs",
@@ -5476,7 +5476,7 @@ dependencies = [
 
 [[package]]
 name = "nexus-shell-daemon"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5522,7 +5522,7 @@ dependencies = [
 
 [[package]]
 name = "nexus-shell-daemon-core"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5561,7 +5561,7 @@ dependencies = [
 
 [[package]]
 name = "nexus-test-harness"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "anyhow",
  "libc",
@@ -5576,7 +5576,7 @@ dependencies = [
 
 [[package]]
 name = "nexus-trace-core"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "ed25519-dalek 2.2.0",
  "hex",
@@ -5591,7 +5591,7 @@ dependencies = [
 
 [[package]]
 name = "nexus-worker"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -5611,7 +5611,7 @@ dependencies = [
 
 [[package]]
 name = "nexus-worker-core"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -7821,7 +7821,7 @@ checksum = "b63583a1dd0647d1484228529ab4ecaa874048d2956f117362aa5f5826456230"
 
 [[package]]
 name = "sbfb-factory"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "async-stream",
  "axum",
@@ -7852,7 +7852,7 @@ dependencies = [
 
 [[package]]
 name = "sbfb-manifest"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -7861,7 +7861,7 @@ dependencies = [
 
 [[package]]
 name = "sbfb-workflow-core"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "blake3",
  "ed25519-dalek 2.2.0",
@@ -7873,7 +7873,7 @@ dependencies = [
 
 [[package]]
 name = "sbfb-workflow-engine"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "blake3",
  "libc",

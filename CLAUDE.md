@@ -209,6 +209,23 @@ Runtime isolation roadmap dans
 [`docs/security/RUNTIME_ISOLATION.md`](docs/security/RUNTIME_ISOLATION.md).
 
 ## Etat actuel
+- **Releases hors cycle sprint (directive PO 2026-10-21, process allégé)** :
+  **v1.1.0** (réseau public par défaut, iroh 1.4.1, ancre sbfb-eu
+  2.29.12.249) puis **v1.2.0** (2026-10-22) = **messagerie v1 « iroh
+  E2E »** (ADR `docs/architecture/ADR_CHAT_V1.md`, plan
+  `~/.claude/plans/swift-snacking-thompson.md`) : crate
+  `nexus-messaging-core` (vodozemac Olm/Megolm), service chat du démon
+  (`chat_api.rs`, 1 doc iroh-docs par conversation), verbes bridge
+  `chat_*` (classe sensible, consentement), boîte aux lettres hors ligne
+  sur l'ancre (`sbfb/mailbox/0`, `[mailbox] serve`), app
+  `examples/sbfb-chat` publiée sur l'ancre, **défaut discret** (phase I :
+  aucune IP publique avant connexion, `[transport] advertise_ip`, ancre =
+  true) avec **iroh-gossip VENDORÉ + patché** (`vendor/iroh-gossip`,
+  `patches/iroh-gossip-addr-filter.patch` — à reporter à chaque montée).
+  T2 live PC+ancre : 4 PASS + groupe RIG-ABSENT
+  (`.planning/research/chat_v1/`). Suite du plan : phase Contacts (QR,
+  invitation chiffrée : le ticket d'écriture est encore en clair dans
+  l'invitation v1), puis J/K/L/M, paliers 3-4 (anonymat).
 - **Sprints 0-77 CLOSED + S79-S82 DONE** (S78 différé Factory-first puis
   **ABSORBÉ par S81 Phases I/J**) (Arc 3.5 Factory Complete Vision
   **6/6 COMPLET** ; S77 = **sharding pipeline** LIVRE — coeur teste
