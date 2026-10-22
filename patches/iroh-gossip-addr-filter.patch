@@ -1,0 +1,93 @@
+--- a/src/net.rs
++++ b/src/net.rs
+@@ -11,6 +11,7 @@
+ use bytes::Bytes;
+ use futures_concurrency::stream::{stream_group, StreamGroup};
+ use iroh::{
++    address_lookup::AddrFilter, // SBFB patch (addr filter)
+     endpoint::Connection,
+     protocol::{AcceptError, ProtocolHandler},
+     Endpoint, EndpointAddr, EndpointId, PublicKey, RelayUrl, Watcher,
+@@ -146,6 +147,8 @@
+ pub struct Builder {
+     config: proto::Config,
+     alpn: Option<Bytes>,
++    // SBFB patch (addr filter): see `Builder::addr_filter`.
++    addr_filter: AddrFilter,
+ }
+ 
+ impl Builder {
+@@ -180,6 +183,18 @@
+         self
+     }
+ 
++    /// Sets the filter applied to this endpoint's addresses before they are
++    /// sent to other peers as peer data.
++    ///
++    /// Peer data travels beyond direct neighbors (join forwarding, shuffles),
++    /// so it reaches nodes this endpoint never connected to. By default every
++    /// address is sent, as with [`AddrFilter::unfiltered`].
++    // SBFB patch (addr filter): mirrors `iroh::endpoint::Builder::addr_filter`.
++    pub fn addr_filter(mut self, filter: AddrFilter) -> Self {
++        self.addr_filter = filter;
++        self
++    }
++
+     /// Spawn a gossip actor and get a handle for it
+     pub fn spawn(self, endpoint: Endpoint) -> Gossip {
+         let metrics = Arc::new(Metrics::default());
+@@ -193,13 +208,14 @@
+         if let Ok(endpoint_addr_lookup) = endpoint.address_lookup().as_ref() {
+             endpoint_addr_lookup.add(address_lookup.clone());
+         }
+-        let (actor, rpc_tx, local_tx) = Actor::new(
++        let (mut actor, rpc_tx, local_tx) = Actor::new(
+             endpoint,
+             self.config,
+             metrics.clone(),
+             self.alpn,
+             address_lookup,
+         );
++        actor.addr_filter = self.addr_filter; // SBFB patch (addr filter)
+         let me = actor.endpoint.id().fmt_short();
+         let max_message_size = actor.state.max_message_size();
+ 
+@@ -226,6 +242,7 @@
+         Builder {
+             config: Default::default(),
+             alpn: None,
++            addr_filter: AddrFilter::default(), // SBFB patch (addr filter)
+         }
+     }
+ 
+@@ -302,6 +319,9 @@
+     metrics: Arc<Metrics>,
+     topic_event_forwarders: JoinSet<TopicId>,
+     address_lookup: GossipAddressLookup,
++    /// SBFB patch (addr filter): applied to our own address before it is
++    /// encoded as peer data.
++    addr_filter: AddrFilter,
+ }
+ 
+ impl Actor {
+@@ -346,6 +366,7 @@
+             local_rx,
+             topic_event_forwarders: Default::default(),
+             address_lookup,
++            addr_filter: AddrFilter::default(), // SBFB patch (addr filter)
+         };
+ 
+         (actor, rpc_tx, local_tx)
+@@ -483,6 +504,12 @@
+ 
+     async fn handle_addr_update(&mut self, endpoint_addr: EndpointAddr) {
+         // let peer_data = our_peer_data(&self.endpoint, current_addresses);
++        // SBFB patch (addr filter): peers only learn what the filter keeps.
++        let addrs: Vec<_> = endpoint_addr.addrs.iter().cloned().collect();
++        let endpoint_addr = EndpointAddr {
++            id: endpoint_addr.id,
++            addrs: self.addr_filter.apply(&addrs).iter().cloned().collect(),
++        };
+         let peer_data = encode_peer_data(&endpoint_addr.into());
+         self.handle_in_event(InEvent::UpdatePeerData(peer_data), Instant::now())
+             .await

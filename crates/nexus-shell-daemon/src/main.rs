@@ -662,6 +662,7 @@ async fn handle_start(
         curator: cfg.curator.clone(),
         seed: cfg.seed.clone(),
         mailbox: cfg.mailbox.clone(),
+        transport: cfg.transport.clone(),
         sbfb_home: None,
         identity_mode,
         cors_origins,

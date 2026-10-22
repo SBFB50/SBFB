@@ -64,3 +64,14 @@ ttl_days = 21
 max_docs = 256
 max_docs_per_node = 16
 max_doc_mib = 16
+
+[transport]
+# What this node reveals of its network position. A desktop node keeps
+# the compiled defaults (both false): the tickets and announcements it
+# hands out name its relay and private addresses only, never its public
+# IP, and it asks the home router to open nothing. An anchor on a VPS
+# has a public address worth publishing: peers then dial it directly
+# instead of going through the relay first.
+advertise_ip = true
+# UPnP / PCP / NAT-PMP port mapping. Pointless on a VPS (no NAT).
+portmapper = false

@@ -260,7 +260,12 @@ pkarr1.sbfb.world {
 }
 ```
 
-Puis `systemctl reload caddy`. Les units systemd §4.3 restent
+Puis `systemctl reload caddy`. **Jamais de directive `log`** dans ces
+deux blocs : Caddy n'écrit pas de journal d'accès par défaut, et en
+ajouter un consignerait l'IP de chaque nœud qui joint le relais ou
+publie son adresse (plan messagerie, phase I). Contrôle :
+`grep -cE '^\s*log' /etc/caddy/Caddyfile` doit rendre `0`.
+Les units systemd §4.3 restent
 utilisables telles quelles (les binds loopback > 1024 n'utilisent pas
 `CAP_NET_BIND_SERVICE`, qui reste sans effet nocif ; en Topologie B le
 `[dns]` est déplacé sur `5353` loopback — le DNS autoritaire public
@@ -422,3 +427,41 @@ dossier `iroh/` de l'ancre ; le plafond des documents VIVANTS reste
 journalctl -u nexus-shell-daemon | grep -E "mailbox server ready|mailbox document above"
 jq '.docs | length' /var/lib/nexus-grid/shell-daemon/mailbox.json   # $NEXUS_GRID_ROOT/shell-daemon
 ```
+
+## 10. Posture réseau de l'ancre (plan messagerie, phase I, 2026-10-22)
+
+Depuis la phase I, un nœud est **discret par défaut** : les tickets et
+annonces qu'il remet (invitations, dépôts de boîte aux lettres, tickets de
+blob diffusés par gossip, tickets de stockage) et les données de pair du
+gossip ne nomment que son relais et ses adresses privées, jamais son IP
+publique ; il ne demande aucune ouverture de port à la box (UPnP/PCP/NAT-PMP
+coupé) ; ses journaux ne consignent plus les adresses des pairs ni la
+sienne (cibles iroh concernées à `error`, y compris sous `RUST_LOG` qui ne
+cible pas `iroh`). Détail et résiduels : THREAT_MODEL §20.2.
+
+**Sur l'ancre** (IP publique, aucun NAT), l'IP publique est précisément ce
+qu'on veut publier. **À faire en même temps que le déploiement d'un
+binaire ≥ phase I**, sinon l'ancre devient discrète elle aussi et ses
+pairs passent d'abord par le relais :
+
+```toml
+[transport]
+advertise_ip = true
+portmapper = false
+```
+
+Au boot, le daemon journalise sa posture : `network posture
+advertise_ip=true portmapper=false`. `advertise_ip` ne change rien à pkarr,
+qui reste « relais seul ».
+
+**Contrôler les journaux** (PC ou ancre) — compte les IP non loopback d'un
+`daemon.log` sans jamais les recopier ; `global` > 0 = `BLOCK` :
+
+```bash
+scripts/check-no-ip-in-logs.sh --json /tmp/ip-logs.json <dossier des logs>
+journalctl -u nexus-shell-daemon --since today | scripts/check-no-ip-in-logs.sh -
+journalctl -u caddy --since today | scripts/check-no-ip-in-logs.sh -
+```
+
+Le dernier contrôle couvre le journal d'erreurs HTTP de Caddy, qui peut
+porter l'IP d'un client quand un amont (relais, pkarr) échoue.

@@ -192,6 +192,24 @@ pub struct ShellDaemonConfig {
     pub seed: SeedConfig,
     #[serde(default)]
     pub mailbox: MailboxConfig,
+    #[serde(default)]
+    pub transport: TransportConfig,
+}
+
+/// `[transport]` section: what this node reveals of its network
+/// position (chat plan, Phase I). Both off by default.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct TransportConfig {
+    /// Put this node's public IP addresses in the tickets and
+    /// announcements it hands out. Off: they carry the relay URL and
+    /// private / loopback addresses only, and peers reach the node
+    /// through the relay first. Turn on for an always-on node with a
+    /// public address (an anchor).
+    #[serde(default)]
+    pub advertise_ip: bool,
+    /// Ask the local router to open a port (UPnP / PCP / NAT-PMP).
+    #[serde(default)]
+    pub portmapper: bool,
 }
 
 /// `[logging]` section: tracing-subscriber filter directive.
@@ -798,6 +816,21 @@ keep_online_projects = ["not-a-project-id", "{valid}", "deadbeef", "{uppercase}"
             ShellDaemonConfig::load(&path).unwrap().mailbox,
             MailboxConfig::default()
         );
+    }
+
+    /// Chat plan Phase I: discreet unless the operator says otherwise.
+    #[test]
+    fn transport_section_defaults_discreet_and_parses() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("no-transport.toml");
+        std::fs::write(&path, "[logging]\nlevel = \"debug\"\n").unwrap();
+        let cfg = ShellDaemonConfig::load(&path).unwrap();
+        assert!(!cfg.transport.advertise_ip);
+        assert!(!cfg.transport.portmapper);
+        std::fs::write(&path, "[transport]\nadvertise_ip = true\n").unwrap();
+        let cfg = ShellDaemonConfig::load(&path).unwrap();
+        assert!(cfg.transport.advertise_ip);
+        assert!(!cfg.transport.portmapper);
     }
 
     #[test]

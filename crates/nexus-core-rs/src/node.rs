@@ -42,7 +42,7 @@ use std::path::PathBuf;
 
 use iroh::address_lookup::memory::MemoryLookup;
 use iroh::address_lookup::{PkarrPublisher, PkarrResolver};
-use iroh::endpoint::presets;
+use iroh::endpoint::{PortmapperConfig, presets};
 use iroh::protocol::{DynProtocolHandler, Router};
 use iroh::{Endpoint, RelayMode, SecretKey};
 use iroh_blobs::api::Store;
@@ -56,6 +56,7 @@ use iroh_gossip::net::Gossip;
 use tracing::{debug, info, warn};
 
 use crate::crypto::SECRET_KEY_BYTES;
+use crate::discovery::AddrPolicy;
 use crate::discovery_override::DiscoveryPlan;
 use crate::error::{NexusError, Result};
 
@@ -132,6 +133,17 @@ pub struct NodeConfig {
     /// reboot flow (same author id + same namespace id across
     /// process restarts).
     pub data_dir: Option<PathBuf>,
+
+    /// What the tickets this node hands out may say about its
+    /// addresses ([`Node::addr_policy`]). Discreet by default: no
+    /// public IP is published.
+    pub addr_policy: AddrPolicy,
+
+    /// Ask the local router to open a port (UPnP / PCP / NAT-PMP).
+    /// Off by default: probing the gateway multicasts on the LAN and
+    /// an opened port makes the node directly reachable at its public
+    /// address by anyone. Costs some direct connections behind NAT.
+    pub portmapper: bool,
 }
 
 impl NodeConfig {
@@ -149,6 +161,18 @@ impl NodeConfig {
     /// and every reboot produces fresh author / namespace ids.
     pub fn with_data_dir(mut self, path: impl Into<PathBuf>) -> Self {
         self.data_dir = Some(path.into());
+        self
+    }
+
+    /// See [`NodeConfig::addr_policy`].
+    pub fn with_addr_policy(mut self, policy: AddrPolicy) -> Self {
+        self.addr_policy = policy;
+        self
+    }
+
+    /// See [`NodeConfig::portmapper`].
+    pub fn with_portmapper(mut self, enabled: bool) -> Self {
+        self.portmapper = enabled;
         self
     }
 }
@@ -188,9 +212,19 @@ pub struct Node {
     blobs_store: BlobStore,
     router: Router,
     memory_lookup: MemoryLookup,
+    addr_policy: AddrPolicy,
 }
 
 impl Node {
+    /// The address policy this node was booted with
+    /// ([`NodeConfig::addr_policy`]): pass it to
+    /// [`crate::DocHandle::share_write_with`] and
+    /// [`crate::discovery::discreet_addr`] wherever an address leaves
+    /// the node.
+    pub fn addr_policy(&self) -> AddrPolicy {
+        self.addr_policy
+    }
+
     /// Return the short textual form of this node's Ed25519
     /// public key as 64 hex chars.
     pub fn node_id(&self) -> String {
@@ -402,6 +436,7 @@ pub async fn create_node_with_protocols(
         let sk = SecretKey::from_bytes(&sk_bytes);
         builder = builder.secret_key(sk);
     }
+    builder = builder.portmapper_config(portmapper_config(cfg.portmapper));
 
     let endpoint = builder
         .bind()
@@ -433,7 +468,12 @@ pub async fn create_node_with_protocols(
         }
         None => BlobStore::Mem(MemStore::default()),
     };
-    let gossip = Gossip::builder().spawn(endpoint.clone());
+    // The peer data gossip sends about this node reaches nodes it never
+    // connected to (chat plan, Phase I) — `addr_filter` is the vendored
+    // patch of iroh-gossip (`patches/iroh-gossip-addr-filter.patch`).
+    let gossip = Gossip::builder()
+        .addr_filter(cfg.addr_policy.gossip_filter())
+        .spawn(endpoint.clone());
     let docs_builder = match &cfg.data_dir {
         Some(path) => {
             std::fs::create_dir_all(path).map_err(|e| {
@@ -472,7 +512,17 @@ pub async fn create_node_with_protocols(
         blobs_store,
         router,
         memory_lookup,
+        addr_policy: cfg.addr_policy,
     })
+}
+
+/// iroh enables the portmapper unless told otherwise.
+fn portmapper_config(enabled: bool) -> PortmapperConfig {
+    if enabled {
+        PortmapperConfig::default()
+    } else {
+        PortmapperConfig::Disabled
+    }
 }
 
 /// Apply a validated zero-n0 [`DiscoveryPlan`] to an endpoint
@@ -932,5 +982,83 @@ mod tests {
         accept_task.abort();
         ep1.close().await;
         ep2.close().await;
+    }
+
+    #[tokio::test]
+    async fn pkarr_publisher_stays_relay_only() {
+        // An endpoint that KNOWS a public address of its own (as a node
+        // behind a port-forward or on a VPS would) publishes, through the
+        // production assembly, a record naming its relay and nothing else:
+        // a pkarr server is a third party any node can query.
+        use std::time::Duration;
+
+        use iroh::test_utils::run_relay_server;
+        use iroh::tls::CaTlsConfig;
+
+        use crate::discovery_override::DiscoveryPlan;
+
+        const PUBLIC: &str = "198.51.100.7:4433";
+        let (pkarr_url, pkarr_store, _pkarr_task) = run_fake_pkarr_relay().await;
+        let (relay_map, _relay_url, _relay_guard) = run_relay_server()
+            .await
+            .expect("in-process iroh relay boots");
+        let plan = DiscoveryPlan {
+            pkarr_relays: vec![pkarr_url],
+            relay_map,
+        };
+        let ep = apply_zero_n0_discovery(
+            Endpoint::builder(presets::Minimal),
+            &plan,
+            &MemoryLookup::new(),
+        )
+        .ca_tls_config(CaTlsConfig::insecure_skip_verify())
+        .external_addr(PUBLIC.parse().unwrap())
+        .bind()
+        .await
+        .expect("endpoint binds under the zero-n0 assembly");
+        assert!(
+            ep.addr().ip_addrs().any(|a| a.to_string() == PUBLIC),
+            "the endpoint itself must know the public address, or the check below is vacuous"
+        );
+
+        // Wait for a record that names the relay: the first publish may
+        // predate the home relay.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+        let record = loop {
+            let published = pkarr_store.lock().await.values().next().cloned();
+            if let Some(bytes) = published
+                && bytes.windows(6).any(|w| w == b"relay=")
+            {
+                break bytes;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "no relay-bearing record reached the pkarr server"
+            );
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        };
+        let text = String::from_utf8_lossy(&record);
+        assert!(
+            !text.contains("198.51.100.7"),
+            "public IP published to pkarr"
+        );
+        assert!(
+            !text.contains("addr="),
+            "a direct address was published to pkarr"
+        );
+        ep.close().await;
+    }
+
+    #[test]
+    fn portmapper_is_off_unless_asked() {
+        assert!(!NodeConfig::default().portmapper);
+        assert!(matches!(
+            portmapper_config(false),
+            PortmapperConfig::Disabled
+        ));
+        assert!(!matches!(
+            portmapper_config(true),
+            PortmapperConfig::Disabled
+        ));
     }
 }

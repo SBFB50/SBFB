@@ -311,7 +311,7 @@ impl ChatService {
         }
         let dir = self.app_dir(app);
         std::fs::create_dir_all(dir.join("conv")).map_err(internal)?;
-        let docs = DocsClient::new(self.node.docs());
+        let docs = DocsClient::for_node(&self.node);
 
         let app_file = dir.join("app.json");
         let state = if let Ok(raw) = std::fs::read_to_string(&app_file) {
@@ -416,7 +416,7 @@ impl ChatService {
     /// Ingest every new document entry of every conversation of `app`.
     async fn pump(self: &Arc<Self>, app: &Arc<AppChat>) {
         let blobs = BlobsClient::new(self.node.blobs_store());
-        let docs = DocsClient::new(self.node.docs());
+        let docs = DocsClient::for_node(&self.node);
         let mut guard = app.state.lock().await;
         let AppState {
             identity,
@@ -859,7 +859,7 @@ pub async fn chat_create(
     let svc = &state.chat;
     let a = svc.app(&app).await?;
     let title = clean_text(&body.title, MAX_TITLE_CHARS, "title")?;
-    let docs = DocsClient::new(svc.node.docs());
+    let docs = DocsClient::for_node(&svc.node);
     let doc = docs.create_doc().await.map_err(internal)?;
     let id = doc.id().to_string();
     let mut st = a.state.lock().await;
@@ -928,7 +928,7 @@ pub async fn chat_accept(
     let svc = &state.chat;
     let a = svc.app(&app).await?;
     let inv = Invitation::decode(&body.invite, now()).map_err(bad)?;
-    let docs = DocsClient::new(svc.node.docs());
+    let docs = DocsClient::for_node(&svc.node);
     let doc = import_doc(&docs, &inv.body.doc_ticket).await?;
     let id = doc.id().to_string();
     let mut st = a.state.lock().await;
@@ -1044,7 +1044,7 @@ pub async fn chat_remove(
 ) -> Result<Json<serde_json::Value>, ChatApiError> {
     let svc = &state.chat;
     let a = svc.app(&app).await?;
-    let docs = DocsClient::new(svc.node.docs());
+    let docs = DocsClient::for_node(&svc.node);
     let mut guard = a.state.lock().await;
     let AppState {
         identity,
@@ -1647,6 +1647,60 @@ mod tests {
             Arc::new(svc).app("x").await,
             Err(ChatApiError::Unavailable)
         ));
+    }
+
+    /// Chat plan Phase I: an invitation travels as a link or a QR code to
+    /// whoever the user hands it to; it names the inviter's relay and
+    /// private addresses, never a public IP the node knows of itself.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn chat_invite_ticket_has_no_global_ip() {
+        const PUBLIC: &str = "198.51.100.7:4433";
+        let alice = mk_state().await;
+        alice
+            .node
+            .endpoint()
+            .add_external_addr(PUBLIC.parse().unwrap())
+            .await;
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        while !alice
+            .node
+            .endpoint()
+            .addr()
+            .ip_addrs()
+            .any(|a| a.to_string() == PUBLIC)
+        {
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "external address never advertised"
+            );
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        let app = "/app/chat-test/chat";
+        let (_, v) = call(
+            &alice,
+            Method::POST,
+            &format!("{app}/conversations"),
+            serde_json::json!({"title": "Lien"}),
+        )
+        .await;
+        let conv = v["id"].as_str().unwrap().to_owned();
+        let (s, v) = call(
+            &alice,
+            Method::POST,
+            &format!("{app}/conversations/{conv}/invite"),
+            serde_json::json!({}),
+        )
+        .await;
+        assert_eq!(s, StatusCode::OK, "{v}");
+        let inv = Invitation::decode(v["invite"].as_str().unwrap(), now()).unwrap();
+        let ticket = DocsTicket::from_str(&inv.body.doc_ticket).unwrap();
+        assert!(!ticket.nodes.is_empty(), "the inviter is named");
+        for node in &ticket.nodes {
+            assert!(
+                !node.ip_addrs().any(|a| a.to_string() == PUBLIC),
+                "public IP in the invitation: {node:?}"
+            );
+        }
     }
 
     #[tokio::test]

@@ -113,7 +113,7 @@ pub use curator::{
     ContributorRegistry, CuratorList, CuratorListEntry, CuratorProjectRef,
 };
 pub use dht_quorum::{QuorumError, QuorumRecord, QuorumResolver, redundant_resolve};
-pub use discovery::{DiscoveryClient, NodeAddrInfo};
+pub use discovery::{AddrPolicy, DiscoveryClient, NodeAddrInfo, discreet_addr};
 pub use discovery_override::{
     DiscoveryPlan, NetworkDefaults, SBFB_PUBLIC_NETWORK, ZERO_N0_ENV, ZERO_N0_PKARR_RELAYS_ENV,
     install_network_defaults, load_discovery_override, validate_zero_n0_pkarr_url,
