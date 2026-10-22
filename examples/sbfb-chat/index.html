@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SBFB Chat</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <a class="skip-link" href="#composer-text">Aller à la saisie du message</a>
+
+  <header class="top-bar">
+    <h1 class="logo">SBFB Chat</h1>
+    <span class="badge badge-warn" title="Le protocole SBFB au-dessus de vodozemac n'a pas encore été audité">expérimental</span>
+    <div class="identity" id="identity">
+      <span class="identity-dot" id="identity-dot" aria-hidden="true"></span>
+      <span id="identity-label">Connexion…</span>
+    </div>
+  </header>
+
+  <div class="notice" id="notice" role="status" aria-live="polite"></div>
+
+  <!-- First launch: choose the name shown to contacts. -->
+  <section class="panel onboarding" id="onboarding" hidden aria-labelledby="onboarding-title">
+    <h2 id="onboarding-title">Bienvenue</h2>
+    <p>
+      Vos messages sont chiffrés de bout en bout par votre nœud : ni le
+      réseau, ni les relais, ni les autres apps ne peuvent les lire.
+      Choisissez le nom que verront vos contacts.
+    </p>
+    <div class="row">
+      <label class="sr-only" for="profile-name">Votre nom</label>
+      <input type="text" id="profile-name" class="input" maxlength="64"
+             placeholder="Votre nom" autocomplete="nickname">
+      <button type="button" class="btn btn-primary" id="profile-save">Continuer</button>
+    </div>
+  </section>
+
+  <main class="layout" id="layout" hidden>
+    <aside class="sidebar" aria-label="Conversations">
+      <section class="panel" aria-labelledby="new-title">
+        <h2 id="new-title">Nouvelle conversation</h2>
+        <div class="row">
+          <label class="sr-only" for="new-conv-title">Titre</label>
+          <input type="text" id="new-conv-title" class="input" maxlength="120" placeholder="Titre">
+          <button type="button" class="btn btn-primary" id="new-conv-btn">Créer</button>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="join-title">
+        <h2 id="join-title">Rejoindre</h2>
+        <label class="sr-only" for="join-link">Lien d'invitation</label>
+        <textarea id="join-link" class="input textarea mono" rows="2"
+                  placeholder="Collez un lien sbfb-chat:…"></textarea>
+        <button type="button" class="btn" id="join-btn">Rejoindre</button>
+      </section>
+
+      <nav class="panel" aria-labelledby="convs-title">
+        <h2 id="convs-title">Conversations</h2>
+        <ul class="conv-list" id="conv-list"></ul>
+      </nav>
+
+      <section class="panel" aria-labelledby="mailbox-title">
+        <h2 id="mailbox-title">Boîte aux lettres</h2>
+        <p class="muted small">
+          Désactivée par défaut. Activée, un nœud toujours allumé garde vos
+          conversations <strong>chiffrées</strong> pour que vos contacts
+          reçoivent vos messages même quand vous n'êtes pas en ligne en même
+          temps. Ce nœud voit quels nœuds partagent une conversation et quand,
+          jamais le contenu.
+        </p>
+        <div class="row">
+          <button type="button" class="btn" id="mailbox-btn" aria-pressed="false">Activer</button>
+          <span class="small" id="mailbox-state"></span>
+        </div>
+      </section>
+    </aside>
+
+    <section class="chat" id="chat" aria-labelledby="chat-title">
+      <div class="empty" id="chat-empty">
+        <p>Choisissez une conversation, ou créez-en une puis invitez quelqu'un.</p>
+      </div>
+
+      <div class="chat-inner" id="chat-inner" hidden>
+        <header class="chat-header">
+          <h2 id="chat-title"></h2>
+          <button type="button" class="btn" id="invite-btn">Inviter</button>
+        </header>
+
+        <div class="invite-box" id="invite-box" hidden>
+          <p class="small">
+            Lien à usage unique : il permet à son détenteur de rejoindre la
+            conversation. Envoyez-le uniquement à la personne invitée, puis
+            comparez vos empreintes de sécurité de vive voix.
+          </p>
+          <label class="sr-only" for="invite-link">Lien d'invitation</label>
+          <textarea id="invite-link" class="input textarea mono" rows="3" readonly></textarea>
+          <div class="row">
+            <button type="button" class="btn" id="invite-copy">Copier</button>
+            <span class="small muted" id="invite-expiry"></span>
+          </div>
+        </div>
+
+        <details class="members">
+          <summary id="members-summary">Membres</summary>
+          <ul class="member-list" id="member-list"></ul>
+        </details>
+
+        <ol class="messages" id="messages" aria-live="polite" aria-label="Messages"></ol>
+
+        <div class="composer">
+          <label class="sr-only" for="composer-text">Message</label>
+          <textarea id="composer-text" class="input textarea" rows="2" maxlength="16384"
+                    placeholder="Écrire un message (Entrée pour envoyer, Maj+Entrée pour aller à la ligne)"></textarea>
+          <button type="button" class="btn btn-primary" id="send-btn">Envoyer</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <p class="small muted">
+      Ce qui est protégé : le contenu des messages. Ce qui ne l'est pas :
+      les membres d'une conversation voient l'adresse réseau des autres, et
+      les relais voient qui se connecte à qui.
+      <a href="https://github.com/SBFB50/SBFB/tree/master/examples/sbfb-chat/" target="_blank" rel="noopener">Code source</a>.
+    </p>
+  </footer>
+
+  <script src="sbfb-bridge.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
