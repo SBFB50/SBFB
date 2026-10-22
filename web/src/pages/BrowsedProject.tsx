@@ -714,6 +714,10 @@ function FullScreenApp({
 
         {hasArchive ? (
           <iframe
+            // A consent decision changes what the app may reach: remount it so
+            // it boots under its new authority instead of staying stuck on the
+            // refusals it met before the user answered.
+            key={chatConsent ?? "undecided"}
             src={blobServeUrl(
               daemonBaseUrlFromInfo(daemonInfo!),
               entry.archive_hash!,

@@ -225,6 +225,33 @@ describe("BrowsedProject", () => {
     );
   });
 
+  it("chat consent remounts the app so it boots under the granted authority", async () => {
+    // Found by hand (chat v1 Phase F): an app loaded BEFORE the user answered
+    // met refusals at boot and stayed stuck after "Autoriser".
+    localStorage.clear();
+    mockFetch({
+      "/api/daemon/browse": {
+        entries: [
+          makeBrowseEntry({
+            project_id: REMOTE_NODE_ID,
+            archive_ticket: "blobticket_abc123",
+            archive_hash: "cd".repeat(32),
+          }),
+        ],
+      },
+      "/api/daemon/info": makeDaemonInfo(),
+      "/SBFB.json": { bridge: { methods: ["chat_identity"] } },
+    });
+    renderPage(REMOTE_NODE_ID);
+    await waitFor(() => expect(screen.getByTestId("chat-consent")).toBeInTheDocument());
+    const before = screen.getByTestId("remote-iframe-element");
+    await userEvent.click(screen.getByTestId("chat-consent-grant"));
+    await waitFor(() => expect(screen.queryByTestId("chat-consent")).not.toBeInTheDocument());
+    const after = screen.getByTestId("remote-iframe-element");
+    expect(after).not.toBe(before);
+    expect(before.isConnected).toBe(false);
+  });
+
   it("renders sandbox label in top bar for iframe content", async () => {
     mockFetch({
       "/api/daemon/browse": {
