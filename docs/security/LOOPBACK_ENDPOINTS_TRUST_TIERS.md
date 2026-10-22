@@ -108,6 +108,8 @@ confiance OS. Sa couverture threat model est tracée séparément en §8.1.
 | `POST /app/{name}/chat/conversations/{id}/invite` | Chat v1 Phase C | T0 | **T1** | Mint une invitation signée qui embarque le ticket ÉCRITURE du document : la donner = faire entrer quelqu'un. Action d'autorité ⇒ candidat T1 ; côté bridge, verbe de la classe sensible (consentement explicite, Phase D). |
 | `POST /app/{name}/chat/accept` | Chat v1 Phase C | T0 | **T1** | Importe le document d'une invitation et rejoint la conversation (le nœud se met à synchroniser avec des pairs nommés par un tiers). Candidat T1 ; classe sensible côté bridge. |
 | `POST /app/{name}/chat/conversations/{id}/remove` | Chat v1 Phase C | T0 | T0 | Admin seulement : rotation des clés + nouveau document, le retiré ne lit plus rien de nouveau (prouvé par la copie « espion » de `conversation_flow.rs`). |
+| `GET /app/{name}/chat/mailbox` | Chat v1 Phase E (2026-10-21) | T0 | T0 | Lecture seule : opt-in de la boîte aux lettres pour l'app, serveurs configurés, état de dépôt par conversation (`pending`/`kept`/`failed`). Duress : 503. |
+| `POST /app/{name}/chat/mailbox` | Chat v1 Phase E | T0 | **T1** | `{"enabled": bool}` (champs inconnus refusés). Activer = confier le ticket LECTURE de chaque conversation aux nœuds `[mailbox] servers` (métadonnées visibles par l'ancre, jamais le contenu — THREAT_MODEL §20.1) ; désactiver = retrait. Choix de l'utilisateur ⇒ candidat T1 ; côté bridge, verbe `chat_mailbox` de la classe sensible. 400 si aucun serveur n'est configuré. Duress : 503. |
 
 ## 3.1 Serveur Operator (sbfb-factory, port `:3001`) — surface write + spawn
 

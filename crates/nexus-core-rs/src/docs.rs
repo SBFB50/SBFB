@@ -460,8 +460,8 @@ impl DocHandle {
 // downstream callers don't need to add iroh-docs as a direct dep.
 pub use iroh_docs::engine::LiveEvent as DocsLiveEvent;
 pub use iroh_docs::{
-    AuthorId as DocsAuthorId, DocTicket as DocsTicket, Entry as DocsEntry,
-    NamespaceId as DocsNamespaceId,
+    AuthorId as DocsAuthorId, Capability as DocsCapability, DocTicket as DocsTicket,
+    Entry as DocsEntry, NamespaceId as DocsNamespaceId,
 };
 
 #[cfg(test)]

@@ -66,8 +66,8 @@ pub enum ManifestError {
 ///     grants a sandbox escape — the CSP iframe sandbox is orthogonal.
 ///
 /// Sprint 76 Phase B (B10, BRIDGE-ALLOWLIST-DRIFT): this list MUST mirror the host
-/// dispatch schema `BridgeMethodSchema` in `web/src/bridge/protocol.ts` (25 methods;
-/// S76-H added `task_result`, chat v1 the 9 `chat_*` verbs). Pre-B10 it carried only 10, so a manifest declaring a
+/// dispatch schema `BridgeMethodSchema` in `web/src/bridge/protocol.ts` (26 methods;
+/// S76-H added `task_result`, chat v1 the 10 `chat_*` verbs). Pre-B10 it carried only 10, so a manifest declaring a
 /// genuinely host-dispatched method (`pii_redact`, `storage_version`, `provenance_get`,
 /// `provenance_verify`, `feed_cursor_get`) was wrongly rejected. As of S83 Phase C the
 /// parity is a SECURITY invariant (a drift lets a release declare a method the host
@@ -109,6 +109,7 @@ const BRIDGE_METHOD_ALLOWLIST: &[&str] = &[
     "chat_send",
     "chat_messages",
     "chat_remove",
+    "chat_mailbox",
 ];
 
 /// Chat v1 sensitive class: methods a release may DECLARE but that are never part
@@ -125,6 +126,7 @@ pub const SENSITIVE_BRIDGE_METHODS: &[&str] = &[
     "chat_send",
     "chat_messages",
     "chat_remove",
+    "chat_mailbox",
 ];
 
 impl SbfbManifest {
@@ -225,7 +227,7 @@ mod tests {
     /// Sprint 76 Phase B (B10, BRIDGE-ALLOWLIST-DRIFT): the declarative manifest
     /// allowlist MUST mirror the host dispatch schema `BridgeMethodSchema` in
     /// `web/src/bridge/protocol.ts`. This `EXPECTED` list is the canonical mirror
-    /// of that TS enum (25 methods); if either side adds/removes a method, this
+    /// of that TS enum (26 methods); if either side adds/removes a method, this
     /// test fails until both are updated. The allowlist is DECLARATIVE manifest
     /// validation, not the sandbox/dispatch boundary — a method present here is a
     /// method an app may legitimately DECLARE, never a sandbox escape.
@@ -258,6 +260,7 @@ mod tests {
             "chat_send",
             "chat_messages",
             "chat_remove",
+            "chat_mailbox",
         ];
         let actual: std::collections::BTreeSet<&str> =
             BRIDGE_METHOD_ALLOWLIST.iter().copied().collect();

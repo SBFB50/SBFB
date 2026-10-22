@@ -2500,6 +2500,40 @@ periodique des sessions) ; vodozemac est audite (Least Authority), le
 protocole SBFB au-dessus ne l'est pas => statut « experimental » affiche
 jusqu'a audit externe.
 
+### 20.1 Boite aux lettres hors ligne (Phase E, 2026-10-21)
+
+Code : `crates/nexus-messaging-core/src/mailbox.rs` (format + registre de
+quotas, pur) ; `crates/nexus-shell-daemon/src/mailbox_protocol.rs`
+(serveur ALPN `sbfb/mailbox/0` + client) ; `chat_api.rs` (opt-in par app,
+depot, rafraichissement). Le serveur n'existe que si `[mailbox] serve =
+true` (ancre), jamais sous identite de contrainte ; le client ne depose
+rien tant que l'utilisateur de l'app n'a pas active la boite (verbe
+`chat_mailbox`, classe sensible).
+
+| Menace | Mitigation | Preuve |
+|---|---|---|
+| **T-MAILBOX-FORGE** — le serveur ecrit dans une conversation | Ticket LECTURE seulement : un ticket d'ecriture est refuse avant tout stockage (le secret du namespace n'atteint jamais le serveur) ; une replique en lecture ne peut pas signer d'entree. Ajoute aux signatures d'enveloppe de §20. | `write_tickets_and_malformed_requests_store_nothing`, `deposited_history_outlives_the_depositor_and_the_replica_cannot_write` |
+| **T-MAILBOX-READ** — le serveur lit le contenu | Il ne recoit que des enveloppes chiffrees (Megolm/Olm). | meme test (contenu opaque) + `returning_member_catches_up_through_the_mailbox_alone` (aucun clair dans la replique) |
+| **T-MAILBOX-ATTRIBUTION** — deposer/retirer au nom d'un autre | Toute inscription est indexee par l'identite QUIC authentifiee du dialeur (`conn.remote_id()`), jamais par un champ de la requete ; une requete ne porte donc ni signature ni domaine (pas de famille `DOMAIN_*` ajoutee, census inchange). | `per_node_quota_then_withdraw_frees_and_drops_the_replica` (retrait = inscription du dialeur seulement) |
+| **T-MAILBOX-SSRF** — faire composer au serveur des pairs arbitraires | Le ticket importe est reconstruit avec le dialeur comme SEUL pair ; toute autre adresse listee est ecartee. | `ticket_peers_are_reduced_to_the_dialer` |
+| **T-MAILBOX-DOS** — remplir le disque de l'ancre | Plafonds par noeud et global (refus `quota` avant toute mutation), TTL depuis le dernier depot, eviction au-dela de `max_doc_mib` au balayage (10 min). Borne des documents VIVANTS = `max_docs x max_doc_mib`. | `mailbox::tests::*` (registre), `sweep_drops_expired_and_oversize_documents_and_registry_persists` |
+| **T-MAILBOX-STRANDED** — un membre hors ligne perd la trace d'une conversation deplacee | Une rotation de document (retrait d'un membre) ne retire PAS l'ancien depot : il porte l'entree `Moved` ; il expire a son TTL faute de rafraichissement. Seul l'opt-out retire. | revue de code (`rotate_mailbox`) |
+
+**Residuels (assumes)** :
+- **Metadonnees** : l'ancre voit quels noeuds deposent quel document, quand,
+  et le volume/rythme des entrees (deja dit en §20, ici concret).
+- **Blobs orphelins** : abandonner une replique supprime le namespace et ses
+  entrees, pas les blobs de contenu — le GC iroh-blobs n'est pas active sur
+  les noeuds SBFB (l'activer impose de proteger tout blob non tague dont le
+  daemon depend). Le disque des documents ABANDONNES n'est donc pas borne ;
+  a surveiller cote operateur (`IROH_SELFHOST_OPS.md` §9) jusqu'a ce chantier.
+- **Course opt-out / depot en vol** : un depot qui aboutit apres l'opt-out est
+  retire par la tache elle-meme ; un opt-out puis opt-in en quelques
+  secondes peut laisser une inscription retiree jusqu'au rafraichissement
+  suivant (24 h) — sans fuite, seulement une livraison hors ligne retardee.
+- **Point unique** : une seule ancre configuree par defaut ; plusieurs
+  `servers` sont supportes (depot a chacun).
+
 ## 21. Revue et evolution
 
 Ce document est vivant. Chaque sprint qui livre une mitigation
@@ -2843,6 +2877,9 @@ Historique versions :
   INCHANGE, 0 bump wire, 0 dep runtime neuve (dep intra-workspace
   engine→core seule). Re-coupe B6 : routes daemon + D7 + golden_http +
   clôture docs-contrat = Phase I1.
+- **v31 (chat v1 Phase E, 2026-10-21)** : ajout **§20.1 Boite aux lettres
+  hors ligne** — 6 menaces T-MAILBOX-* avec leurs tests, residuels
+  (metadonnees, blobs orphelins sans GC, course opt-out, point unique).
 - **v30 (chat v1 Phase 0, 2026-10-21)** : ajout **§20 Surface messagerie
   v1** (iroh E2E, vodozemac daemon-side, boite aux lettres ancre en
   lecture seule), renommage §20→§21.

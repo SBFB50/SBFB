@@ -58,6 +58,7 @@ export const BridgeMethodSchema = z.enum([
   "chat_send",
   "chat_messages",
   "chat_remove",
+  "chat_mailbox",
 ]);
 
 export type BridgeMethod = z.infer<typeof BridgeMethodSchema>;
@@ -86,6 +87,7 @@ export const CHAT_METHODS: ReadonlySet<BridgeMethod> = new Set<BridgeMethod>([
   "chat_send",
   "chat_messages",
   "chat_remove",
+  "chat_mailbox",
 ]);
 
 /** Name of the push event carrying chat updates (host → iframe). */

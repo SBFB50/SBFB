@@ -565,6 +565,7 @@ mod tests {
                 chat_root,
                 [7u8; 32],
                 true,
+                Vec::new(),
             )),
         });
         let app = build_test_router(state);

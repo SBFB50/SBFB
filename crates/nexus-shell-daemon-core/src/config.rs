@@ -190,6 +190,8 @@ pub struct ShellDaemonConfig {
     pub curator: CuratorConfig,
     #[serde(default)]
     pub seed: SeedConfig,
+    #[serde(default)]
+    pub mailbox: MailboxConfig,
 }
 
 /// `[logging]` section: tracing-subscriber filter directive.
@@ -291,6 +293,74 @@ pub struct SeedConfig {
     pub keep_online_projects: Vec<String>,
 }
 
+/// Mailboxes the shipped daemon writes into a FIRST-BOOT `config.toml`
+/// (chat v1 plan Phase E), same rule as [`PUBLIC_DEFAULT_CURATORS`]: not
+/// a compiled default, visible and removable in the persisted file. A
+/// listed server is only ever contacted for an app whose user turned the
+/// mailbox on.
+pub const PUBLIC_DEFAULT_MAILBOXES: &[&str] = &[
+    // sbfb-eu anchor (Hetzner hel1, 2026-10-21).
+    "d7c32e295f8c1cfab42dd0629beced31bab3f45114425b80bc6fdc1edb42c174",
+];
+
+/// `[mailbox]` section: chat v1 offline mailbox (ADR_CHAT_V1 decision 5).
+///
+/// Two independent roles:
+/// - **client** — `servers` lists the node ids this daemon may hand a
+///   READ ticket of a conversation to. Nothing is sent unless the user
+///   turned the mailbox on for that app (opt-in per app, bridge verb
+///   `chat_mailbox`).
+/// - **server** — `serve = true` registers the `sbfb/mailbox/0` ALPN and
+///   keeps read-only replicas within the limits below. Off by default;
+///   the operator turns it on for an always-on anchor.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MailboxConfig {
+    /// Endpoint ids (64 hex chars) of mailbox servers. Empty by default.
+    #[serde(default)]
+    pub servers: Vec<String>,
+    /// Accept deposits from other nodes.
+    #[serde(default)]
+    pub serve: bool,
+    /// Days a deposit is kept after its last refresh.
+    #[serde(default = "default_mailbox_ttl_days")]
+    pub ttl_days: u64,
+    /// Documents kept at once, every depositor together.
+    #[serde(default = "default_mailbox_max_docs")]
+    pub max_docs: usize,
+    /// Documents one node may keep registered at once.
+    #[serde(default = "default_mailbox_max_docs_per_node")]
+    pub max_docs_per_node: usize,
+    /// Size (MiB) above which a document is evicted.
+    #[serde(default = "default_mailbox_max_doc_mib")]
+    pub max_doc_mib: u64,
+}
+
+fn default_mailbox_ttl_days() -> u64 {
+    21
+}
+fn default_mailbox_max_docs() -> usize {
+    256
+}
+fn default_mailbox_max_docs_per_node() -> usize {
+    16
+}
+fn default_mailbox_max_doc_mib() -> u64 {
+    16
+}
+
+impl Default for MailboxConfig {
+    fn default() -> Self {
+        Self {
+            servers: Vec::new(),
+            serve: false,
+            ttl_days: default_mailbox_ttl_days(),
+            max_docs: default_mailbox_max_docs(),
+            max_docs_per_node: default_mailbox_max_docs_per_node(),
+            max_doc_mib: default_mailbox_max_doc_mib(),
+        }
+    }
+}
+
 // =================================================================
 // ShellDaemonConfig impl — load, save, helpers
 // =================================================================
@@ -377,6 +447,27 @@ impl ShellDaemonConfig {
             }
             valid
         });
+        // Chat v1 Phase E: a mailbox server is an endpoint id, same shape
+        // and same lowercase normalization as the lists above.
+        for id in &mut self.mailbox.servers {
+            id.make_ascii_lowercase();
+        }
+        self.mailbox.servers.retain(|hex| {
+            let valid = hex.len() == 64 && hex.chars().all(|c| c.is_ascii_hexdigit());
+            if !valid {
+                tracing::warn!(
+                    server = %hex,
+                    "dropping invalid [mailbox] servers entry (expected 64 hex chars)"
+                );
+            }
+            valid
+        });
+        // A zero limit would make the server refuse everything or evict on
+        // the next sweep; the operator meant "small", not "off" (`serve`).
+        self.mailbox.ttl_days = self.mailbox.ttl_days.max(1);
+        self.mailbox.max_docs = self.mailbox.max_docs.max(1);
+        self.mailbox.max_docs_per_node = self.mailbox.max_docs_per_node.max(1);
+        self.mailbox.max_doc_mib = self.mailbox.max_doc_mib.max(1);
         self
     }
 }
@@ -690,5 +781,49 @@ keep_online_projects = ["not-a-project-id", "{valid}", "deadbeef", "{uppercase}"
             vec![valid, "cd".repeat(32)],
             "valid ids survive; the uppercase paste survives NORMALIZED to lowercase"
         );
+    }
+
+    /// Chat v1 Phase E: the compiled default neither serves nor names a
+    /// server (the anchor id only reaches a FIRST-BOOT file, main.rs).
+    #[test]
+    fn mailbox_section_defaults_off_and_empty() {
+        let cfg = ShellDaemonConfig::default();
+        assert!(!cfg.mailbox.serve);
+        assert!(cfg.mailbox.servers.is_empty());
+        assert_eq!(cfg.mailbox.ttl_days, 21);
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("no-mailbox.toml");
+        std::fs::write(&path, "[logging]\nlevel = \"debug\"\n").unwrap();
+        assert_eq!(
+            ShellDaemonConfig::load(&path).unwrap().mailbox,
+            MailboxConfig::default()
+        );
+    }
+
+    #[test]
+    fn mailbox_section_parses_validates_and_clamps() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("mailbox.toml");
+        let valid = "ab".repeat(32);
+        let uppercase = "CD".repeat(32);
+        std::fs::write(
+            &path,
+            format!(
+                r#"
+[mailbox]
+servers = ["nope", "{valid}", "{uppercase}"]
+serve = true
+max_docs = 0
+max_doc_mib = 4
+"#
+            ),
+        )
+        .unwrap();
+        let m = ShellDaemonConfig::load(&path).unwrap().mailbox;
+        assert_eq!(m.servers, vec![valid, "cd".repeat(32)]);
+        assert!(m.serve);
+        assert_eq!(m.max_docs, 1, "zero is clamped, never 'refuse all'");
+        assert_eq!(m.max_doc_mib, 4);
+        assert_eq!(m.max_docs_per_node, 16, "absent field keeps its default");
     }
 }

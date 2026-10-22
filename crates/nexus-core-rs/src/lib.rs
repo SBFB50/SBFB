@@ -145,8 +145,8 @@ pub use keystore::{
     TAG_LEN, UnlockError,
 };
 pub use node::{
-    BlobStore, ExtraProtocolFactory, Node, NodeConfig, SEED_ALPN, SHARD_ALPN, create_node,
-    create_node_with_config, create_node_with_protocols,
+    BlobStore, ExtraProtocolFactory, MAILBOX_ALPN, Node, NodeConfig, SEED_ALPN, SHARD_ALPN,
+    create_node, create_node_with_config, create_node_with_protocols,
 };
 pub use node_directory::{
     CatalogApp, NODE_DIRECTORY_ARCHIVE_HASH_MAX, NODE_DIRECTORY_CATEGORY_MAX,

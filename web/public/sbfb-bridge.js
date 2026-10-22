@@ -367,6 +367,19 @@ class SBFBBridge {
   }
 
   /**
+   * Offline mailbox. Without argument: read the state. With a boolean: the
+   * user's choice. When on, an always-on node keeps the ENCRYPTED
+   * conversations so contacts who are never online at the same time still
+   * get each other's messages; that node sees which nodes share a
+   * conversation and when, never the content. Ask the user before turning
+   * it on.
+   * @returns {Promise<{ enabled: boolean, servers: string[], conversations: Array<{ id: string, status: "pending" | "kept" | "failed", expires_at: number }> }>}
+   */
+  chatMailbox(enabled) {
+    return this._call("chat_mailbox", enabled === undefined ? {} : { enabled: !!enabled });
+  }
+
+  /**
    * Live chat updates pushed by the host: `{ type: "message" | "members" |
    * "removed", conversation, ... }`.
    * @returns {() => void} unsubscribe

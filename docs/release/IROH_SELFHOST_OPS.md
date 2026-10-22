@@ -367,3 +367,58 @@ impossible). Mitigations : host relais ≠ host ancre (jointure
 métadonnées × contenu), ≥ 2 relais pkarr distincts, les verrous
 anti-recentralisation S74/S75 ne sont pas touchés (le mode ne change ni
 la seed-list, ni le directory ingest, ni le comptage).
+
+## 9. Boîte aux lettres de la messagerie (chat v1 Phase E, 2026-10-21)
+
+Rôle optionnel de l'ancre, **indépendant du zéro-n0** : garder le
+**chiffré** des conversations des utilisateurs qui l'ont demandé, pour que
+deux contacts jamais en ligne en même temps reçoivent quand même leurs
+messages (ADR `docs/architecture/ADR_CHAT_V1.md`, décision 5 ; surface :
+THREAT_MODEL §20).
+
+**Activer sur l'ancre** — dans le `config.toml` du daemon de l'ancre
+(chemin affiché au boot), puis redémarrer le daemon :
+
+```toml
+[mailbox]
+serve = true
+ttl_days = 21          # durée après le dernier rafraîchissement (quotidien côté client)
+max_docs = 256         # documents gardés en tout
+max_docs_per_node = 16 # par nœud déposant
+max_doc_mib = 16       # au-delà, le document est évincé au balayage (10 min)
+```
+
+Le daemon enregistre alors l'ALPN `sbfb/mailbox/0` ; sans `serve = true`
+il ne le parle pas du tout. Jamais actif sous identité de contrainte
+(duress). Registre : `$NEXUS_GRID_ROOT/shell-daemon/mailbox.json`.
+
+**Côté clients** — `[mailbox] servers` liste les nœuds auxquels un client
+PEUT déposer. Une installation neuve y écrit l'ancre au premier boot (même
+règle que les curateurs par défaut) ; une config existante (v1.1.0) doit
+l'ajouter à la main :
+
+```toml
+[mailbox]
+servers = ["d7c32e295f8c1cfab42dd0629beced31bab3f45114425b80bc6fdc1edb42c174"]
+```
+
+Lister un serveur n'envoie rien : chaque app demande l'accord de son
+utilisateur (verbe bridge `chat_mailbox`).
+
+**Ce que l'ancre voit** : quels nœuds déposent quel document, et quand ;
+la taille et le rythme des entrées. **Jamais** le contenu (chiffré de bout
+en bout), et elle ne peut rien écrire (ticket LECTURE ; un ticket
+d'écriture est refusé).
+
+**Limite connue — disque** : une réplique abandonnée (TTL, retrait,
+éviction) est supprimée, mais ses blobs de contenu restent sur disque : le
+GC iroh-blobs n'est pas activé sur les nœuds SBFB. Surveiller la taille du
+dossier `iroh/` de l'ancre ; le plafond des documents VIVANTS reste
+`max_docs × max_doc_mib`.
+
+**Vérifier** (depuis l'ancre) :
+
+```bash
+journalctl -u nexus-shell-daemon | grep -E "mailbox server ready|mailbox document above"
+jq '.docs | length' /var/lib/nexus-grid/shell-daemon/mailbox.json   # $NEXUS_GRID_ROOT/shell-daemon
+```

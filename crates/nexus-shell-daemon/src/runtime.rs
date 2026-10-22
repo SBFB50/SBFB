@@ -44,7 +44,7 @@ use nexus_shell_daemon_core::browse::{
     BrowseAggregator, BrowseAggregatorHandle, BrowseEntry, BrowseSource, BrowseStatus,
 };
 use nexus_shell_daemon_core::browse_limiter::BrowseRequestLimiter;
-use nexus_shell_daemon_core::config::{CuratorConfig, SeedConfig, ShellDaemonPaths};
+use nexus_shell_daemon_core::config::{CuratorConfig, MailboxConfig, SeedConfig, ShellDaemonPaths};
 use nexus_shell_daemon_core::iroh_runtime::{
     CuratorRuntime, CuratorRuntimeError, CuratorRuntimeHandle, curator_topic_id,
     is_node_directory_announcement,
@@ -175,6 +175,9 @@ pub struct DaemonStartOptions {
     /// headless boot seed driver's accept-list. Empty by default
     /// (verrou 3); an empty list drives ZERO boot network calls.
     pub seed: SeedConfig,
+    /// Chat v1 Phase E: `[mailbox]` section — servers this node may
+    /// deposit to (per-app opt-in) and whether it serves itself.
+    pub mailbox: MailboxConfig,
     /// Sprint 75 Phase E: explicit `.sbfb` security-root override.
     /// `None` (production) resolves `auth::sbfb_home()` ONCE at boot;
     /// the runtime tests inject a tempdir so the boot driver's
@@ -326,15 +329,39 @@ impl DaemonRuntime {
         // TTL-purged). One instance, captured by the handler factory.
         let seed_nonce_cache = std::sync::Arc::new(crate::seed_protocol::NonceCache::default());
 
+        // Chat v1 Phase E: the offline mailbox server, only when the
+        // operator asked for it and never under duress (a decoy identity
+        // must not keep anyone's documents). Built before the node for the
+        // same no-post-spawn-registration reason as the seed handler.
+        let mailbox_server = (opts.mailbox.serve
+            && opts.identity_mode == nexus_core_rs::IdentityMode::Normal)
+            .then(|| {
+                Arc::new(crate::mailbox_protocol::MailboxServer::open(
+                    opts.paths
+                        .root
+                        .join(crate::mailbox_protocol::MAILBOX_REGISTRY_FILE),
+                    nexus_messaging_core::mailbox::MailboxLimits {
+                        ttl_secs: opts.mailbox.ttl_days * 24 * 3600,
+                        max_docs_total: opts.mailbox.max_docs,
+                        max_docs_per_node: opts.mailbox.max_docs_per_node,
+                        max_doc_bytes: opts.mailbox.max_doc_mib * 1024 * 1024,
+                    },
+                ))
+            });
+
         let iroh_data_dir = opts.paths.root.join("iroh");
         let (node, pow_keypair) = boot_node_identity(
             &opts.paths.root,
             &iroh_data_dir,
             &coordinator_db,
             &seed_nonce_cache,
+            mailbox_server.as_ref(),
         )
         .await?;
         let node_id = node.node_id();
+        if let Some(server) = &mailbox_server {
+            server.attach(nexus_core_rs::docs::DocsClient::new(node.docs()));
+        }
 
         // 3. Bind the TCP listener (the 127.0.0.1 defend-in-depth
         //    clamp lives INSIDE the sub-function, before the bind).
@@ -833,6 +860,7 @@ impl DaemonRuntime {
                     dir.join("chat"),
                     key,
                     identity_mode == nexus_core_rs::IdentityMode::Normal,
+                    crate::mailbox_protocol::parse_servers(&opts.mailbox.servers),
                 ))
             },
         });
@@ -1102,12 +1130,33 @@ impl DaemonRuntime {
 /// the Router accepts no post-spawn protocols, which is why the
 /// coordinator DB + nonce cache are opened BEFORE this function
 /// runs and captured by the handler factory here.
+///
+/// Chat v1 Phase E: a node configured to serve the offline mailbox also
+/// registers `MAILBOX_ALPN`; every other node does not speak it at all.
 async fn boot_node_identity(
     root: &Path,
     iroh_data_dir: &Path,
     coordinator_db: &std::sync::Arc<std::sync::Mutex<nexus_coordinator_rs::db::CoordinatorDb>>,
     seed_nonce_cache: &std::sync::Arc<crate::seed_protocol::NonceCache>,
+    mailbox_server: Option<&Arc<crate::mailbox_protocol::MailboxServer>>,
 ) -> Result<(Arc<Node>, Arc<KeyPair>)> {
+    let protocols = |pow_kp: &Arc<KeyPair>| {
+        let mut extra = vec![(
+            nexus_core_rs::SEED_ALPN.to_vec(),
+            crate::seed_protocol::seed_protocol_factory(
+                Arc::clone(coordinator_db),
+                Arc::clone(pow_kp),
+                Arc::clone(seed_nonce_cache),
+            ),
+        )];
+        if let Some(server) = mailbox_server {
+            extra.push((
+                nexus_core_rs::MAILBOX_ALPN.to_vec(),
+                crate::mailbox_protocol::mailbox_protocol_factory(Arc::clone(server)),
+            ));
+        }
+        extra
+    };
     let (node, pow_keypair) = match read_optional_identity_env() {
         Some(secret_bytes) => {
             info!("shell daemon using persistent identity from launcher keystore");
@@ -1115,15 +1164,9 @@ async fn boot_node_identity(
             let cfg = NodeConfig::default()
                 .with_secret_key(secret_bytes)
                 .with_data_dir(iroh_data_dir.to_path_buf());
-            let factory = crate::seed_protocol::seed_protocol_factory(
-                Arc::clone(coordinator_db),
-                Arc::clone(&pow_kp),
-                Arc::clone(seed_nonce_cache),
-            );
-            let n =
-                create_node_with_protocols(cfg, vec![(nexus_core_rs::SEED_ALPN.to_vec(), factory)])
-                    .await
-                    .context("failed to boot iroh node with persistent identity")?;
+            let n = create_node_with_protocols(cfg, protocols(&pow_kp))
+                .await
+                .context("failed to boot iroh node with persistent identity")?;
             (n, pow_kp)
         }
         None => {
@@ -1136,15 +1179,9 @@ async fn boot_node_identity(
             let cfg = NodeConfig::default()
                 .with_secret_key(secret_bytes)
                 .with_data_dir(iroh_data_dir.to_path_buf());
-            let factory = crate::seed_protocol::seed_protocol_factory(
-                Arc::clone(coordinator_db),
-                Arc::clone(&pow_kp),
-                Arc::clone(seed_nonce_cache),
-            );
-            let n =
-                create_node_with_protocols(cfg, vec![(nexus_core_rs::SEED_ALPN.to_vec(), factory)])
-                    .await
-                    .context("failed to boot iroh node with file-based identity")?;
+            let n = create_node_with_protocols(cfg, protocols(&pow_kp))
+                .await
+                .context("failed to boot iroh node with file-based identity")?;
             (n, pow_kp)
         }
     };
@@ -4404,6 +4441,7 @@ mod tests {
             daemon_version: "0.1.0-test".to_string(),
             curator: CuratorConfig::default(),
             seed: SeedConfig::default(),
+            mailbox: MailboxConfig::default(),
             // Isolate the boot driver's directory-revision persistence in
             // the test root — never the developer's real ~/.sbfb.
             sbfb_home: Some(root.join(".sbfb")),

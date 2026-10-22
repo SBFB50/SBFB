@@ -25,7 +25,7 @@ import { BRIDGE_METHODS, type BridgeMethod } from "../protocol";
 const set = (...m: BridgeMethod[]): Set<BridgeMethod> => new Set(m);
 
 describe("bridge authority (Sprint 83 Phase C)", () => {
-  it("ALL_DISPATCH_METHODS mirrors the 25 protocol methods (literal, drift-catching)", () => {
+  it("ALL_DISPATCH_METHODS mirrors the 26 protocol methods (literal, drift-catching)", () => {
     // Compare against a LITERAL list — NOT another derivation of BRIDGE_METHODS — so
     // a renamed / added / removed method is actually caught here, not silently
     // mirrored on both sides of the assertion.
@@ -35,11 +35,11 @@ describe("bridge authority (Sprint 83 Phase C)", () => {
       "storage_version", "provenance_get", "provenance_verify", "feed_cursor_get",
       "search", "proof_card_get", "task_result",
       "chat_identity", "chat_set_profile", "chat_list", "chat_create", "chat_invite",
-      "chat_accept", "chat_send", "chat_messages", "chat_remove",
+      "chat_accept", "chat_send", "chat_messages", "chat_remove", "chat_mailbox",
     ];
     expect(new Set(BRIDGE_METHODS)).toEqual(new Set(EXPECTED));
     expect([...ALL_DISPATCH_METHODS].sort()).toEqual([...EXPECTED].sort());
-    expect(ALL_DISPATCH_METHODS.size).toBe(25);
+    expect(ALL_DISPATCH_METHODS.size).toBe(26);
   });
 
   it("no verb grants HITL/approval/signing authority to an iframe (Sprint 83 Phase L1, G-HITL)", () => {

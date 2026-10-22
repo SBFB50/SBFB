@@ -121,6 +121,20 @@ pub(crate) async fn mk_state_with_sbfb_home(home: std::path::PathBuf) -> Arc<Dae
     Arc::new(state)
 }
 
+/// Chat v1 Phase E: a state whose chat service deposits to `servers`.
+pub(crate) async fn mk_state_with_mailbox(servers: Vec<iroh::EndpointId>) -> Arc<DaemonHttpState> {
+    let mut state = (*mk_state().await).clone();
+    let root = tempfile::tempdir().expect("chat tempdir").keep();
+    state.chat = Arc::new(crate::chat_api::ChatService::new(
+        Arc::clone(&state.node),
+        root,
+        [7u8; 32],
+        true,
+        servers,
+    ));
+    Arc::new(state)
+}
+
 pub(crate) async fn mk_state_with_mode(mode: nexus_core_rs::IdentityMode) -> Arc<DaemonHttpState> {
     mk_state_with_mode_tx(mode, tokio::sync::mpsc::channel(8).0).await
 }
@@ -214,6 +228,7 @@ pub(crate) async fn mk_state_with_mode_tx(
             chat_root,
             [7u8; 32],
             true,
+            Vec::new(),
         )),
     })
 }

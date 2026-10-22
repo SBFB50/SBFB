@@ -535,6 +535,10 @@ pub fn build_router(
         )
         .route("/app/{name}/chat/stream", get(crate::chat_api::chat_stream))
         .route(
+            "/app/{name}/chat/mailbox",
+            get(crate::chat_api::chat_mailbox).post(crate::chat_api::chat_set_mailbox),
+        )
+        .route(
             "/app/{name}/chat/conversations/{id}/invite",
             post(crate::chat_api::chat_invite),
         )

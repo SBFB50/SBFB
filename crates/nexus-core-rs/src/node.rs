@@ -81,6 +81,16 @@ pub const SEED_ALPN: &[u8] = b"sbfb/seed/0";
 /// payload).
 pub const SHARD_ALPN: &[u8] = b"sbfb/shard/1";
 
+/// ALPN for the chat v1 offline mailbox (ADR_CHAT_V1, decision 5). A node
+/// that opted in hands an always-on peer (the anchor) a READ ticket of a
+/// conversation document; the peer keeps a read-only replica so members
+/// that are never online at the same time still converge. Registered via
+/// [`create_node_with_protocols`] only on nodes configured to serve
+/// (`[mailbox] serve = true`); the handler lives in the daemon. Payloads
+/// carry a fine-grained `version` under the `/0` generation
+/// (`nexus_messaging_core::mailbox::MAILBOX_FORMAT_VERSION`).
+pub const MAILBOX_ALPN: &[u8] = b"sbfb/mailbox/0";
+
 /// A factory that builds an extra ALPN protocol handler once the node's
 /// blob store, endpoint and address lookup exist.
 ///

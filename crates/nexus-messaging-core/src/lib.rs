@@ -20,6 +20,7 @@ pub mod conversation;
 pub mod envelope;
 pub mod identity;
 pub mod invite;
+pub mod mailbox;
 
 pub use conversation::{ChatEvent, Conversation, ROTATE_AFTER_MESSAGES, ROTATE_AFTER_SECS};
 pub use envelope::{Envelope, MemberProfile, Wire};

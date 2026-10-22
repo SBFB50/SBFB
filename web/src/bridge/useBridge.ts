@@ -618,6 +618,17 @@ async function dispatch(
           { member },
         );
       }
+      case "chat_mailbox": {
+        // No `enabled` = read the state; a boolean = the user's choice.
+        const enabled = req.payload.enabled;
+        if (enabled === undefined) {
+          return await chatCall(coordUrl, chatApp, "mailbox", controller.signal);
+        }
+        if (typeof enabled !== "boolean") {
+          throw new Error("chat_mailbox payload.enabled must be a boolean");
+        }
+        return await chatCall(coordUrl, chatApp, "mailbox", controller.signal, { enabled });
+      }
 
       default:
         throw new Error(`unknown bridge method: ${req.method}`);

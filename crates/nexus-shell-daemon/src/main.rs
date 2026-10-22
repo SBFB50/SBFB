@@ -52,6 +52,7 @@ mod invite_api;
 mod kudos_api;
 mod local_worker;
 mod logging;
+mod mailbox_protocol;
 #[cfg(windows)]
 mod named_pipe_server;
 mod noop_identity;
@@ -592,6 +593,12 @@ async fn handle_start(
             .iter()
             .map(|k| k.to_string())
             .collect();
+        // Chat v1 Phase E: same rule for the offline mailbox. Listing the
+        // anchor sends nothing by itself — each app's user opts in.
+        cfg.mailbox.servers = nexus_shell_daemon_core::config::PUBLIC_DEFAULT_MAILBOXES
+            .iter()
+            .map(|k| k.to_string())
+            .collect();
         cfg.save(&paths.config_file)
             .context("failed to write first-boot shell-daemon config")?;
     }
@@ -654,6 +661,7 @@ async fn handle_start(
         daemon_version: env!("CARGO_PKG_VERSION").to_string(),
         curator: cfg.curator.clone(),
         seed: cfg.seed.clone(),
+        mailbox: cfg.mailbox.clone(),
         sbfb_home: None,
         identity_mode,
         cors_origins,

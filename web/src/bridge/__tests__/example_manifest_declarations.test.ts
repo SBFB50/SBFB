@@ -77,6 +77,7 @@ const HELPER_TO_METHODS: Record<string, BridgeMethod[]> = {
   chatSend: ["chat_send"],
   chatMessages: ["chat_messages"],
   chatRemove: ["chat_remove"],
+  chatMailbox: ["chat_mailbox"],
   onChat: [], // push event only (host-relayed SSE), reaches no verb
 };
 

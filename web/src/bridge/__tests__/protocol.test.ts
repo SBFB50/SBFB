@@ -172,9 +172,10 @@ describe("BridgeMethodSchema parity (Sprint 76 Phase B, B10)", () => {
     "chat_send",
     "chat_messages",
     "chat_remove",
+    "chat_mailbox",
   ];
 
-  it("the host dispatch schema is exactly the 25 canonical methods", () => {
+  it("the host dispatch schema is exactly the 26 canonical methods", () => {
     expect([...BridgeMethodSchema.options].sort()).toEqual(
       [...CANONICAL].sort(),
     );
