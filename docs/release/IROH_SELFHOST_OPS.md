@@ -247,11 +247,28 @@ rr_ns = "ns1.pkarr1.sbfb.world."
 enabled = false
 ```
 
-**Caddy — 2 blocs à ajouter** (`/etc/caddy/Caddyfile`, certs
+**Caddy — bloc global + 2 blocs de site** (`/etc/caddy/Caddyfile`, certs
 automatiques ; Caddy gère l'upgrade WebSocket nativement pour le
 data-plane WSS du relais) :
 
 ```caddyfile
+{
+	# No client IP in Caddy logs (chat plan phase I). The default logger
+	# (journald) records HTTP errors with the client address next to the
+	# request URI — for pkarr1 that URI is the publishing node identity.
+	log default {
+		format filter {
+			wrap json
+			fields {
+				request>remote_ip delete
+				request>remote_port delete
+				request>client_ip delete
+				request>headers>X-Forwarded-For delete
+			}
+		}
+	}
+}
+
 relay1.sbfb.world {
     reverse_proxy localhost:3340
 }
@@ -260,11 +277,19 @@ pkarr1.sbfb.world {
 }
 ```
 
-Puis `systemctl reload caddy`. **Jamais de directive `log`** dans ces
-deux blocs : Caddy n'écrit pas de journal d'accès par défaut, et en
-ajouter un consignerait l'IP de chaque nœud qui joint le relais ou
-publie son adresse (plan messagerie, phase I). Contrôle :
-`grep -cE '^\s*log' /etc/caddy/Caddyfile` doit rendre `0`.
+Puis `caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile` et
+`systemctl reload caddy`. **Jamais de directive `log`** dans les blocs de
+site : Caddy n'écrit pas de journal d'accès par défaut, et en ajouter un
+consignerait l'IP de chaque nœud qui joint le relais ou publie son
+adresse. Le **bloc global**, lui, est nécessaire : sans lui, le journal
+d'erreurs HTTP (`http.log.error`, émis par exemple quand le serveur ferme
+une connexion inactive pendant un `PUT /pkarr/<clé>`) associe l'IP du
+client à l'identité du nœud — constaté sur l'ancre le 2026-10-22, corrigé
+le jour même ; filtre prouvé sur Caddy 2.6.2 (entrée d'erreur conservée,
+`remote_ip` absent). Contrôles : `grep -cE '^\s*log' /etc/caddy/Caddyfile`
+doit rendre `0` hors bloc global, et
+`journalctl -u caddy --since today | scripts/check-no-ip-in-logs.sh -`
+doit rendre `PASS`.
 Les units systemd §4.3 restent
 utilisables telles quelles (les binds loopback > 1024 n'utilisent pas
 `CAP_NET_BIND_SERVICE`, qui reste sans effet nocif ; en Topologie B le
