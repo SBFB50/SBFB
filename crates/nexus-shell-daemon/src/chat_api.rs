@@ -1260,6 +1260,37 @@ mod tests {
         }
     }
 
+    /// Wait until the ADMIN `admin` lists `n` members of `conv`, i.e. has
+    /// ingested every join. The invitee's own view is no signal: it lists the
+    /// inviter and itself from the invitation alone, before the admin knows
+    /// it — and a message the admin sends before that point is encrypted for
+    /// nobody but its author, unreadable to the newcomer forever.
+    async fn wait_admitted(admin: &Arc<DaemonHttpState>, conv: &str, n: usize) {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(45);
+        loop {
+            let (_, v) = call(
+                admin,
+                Method::GET,
+                "/app/chat-test/chat/conversations",
+                serde_json::Value::Null,
+            )
+            .await;
+            let listed = v
+                .as_array()
+                .and_then(|a| a.iter().find(|c| c["id"] == conv))
+                .and_then(|c| c["members"].as_array())
+                .map(Vec::len);
+            if listed == Some(n) {
+                return;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "the admin never admitted {n} members: {v}"
+            );
+            tokio::time::sleep(Duration::from_millis(300)).await;
+        }
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn two_daemons_chat_end_to_end_over_iroh_docs() {
         let alice = mk_state().await;
@@ -1317,24 +1348,7 @@ mod tests {
         assert_eq!(s, StatusCode::BAD_REQUEST, "{v}");
 
         // Wait until Alice's roster includes Bob, then talk both ways.
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(45);
-        loop {
-            let (_, v) = call(
-                &bob,
-                Method::GET,
-                &format!("{app}/conversations"),
-                serde_json::Value::Null,
-            )
-            .await;
-            if v[0]["members"].as_array().map(Vec::len) == Some(2) {
-                break;
-            }
-            assert!(
-                tokio::time::Instant::now() < deadline,
-                "bob never saw the roster: {v}"
-            );
-            tokio::time::sleep(Duration::from_millis(300)).await;
-        }
+        wait_admitted(&alice, &conv, 2).await;
         let (s, _) = call(
             &alice,
             Method::POST,
@@ -1420,21 +1434,7 @@ mod tests {
         )
         .await;
         assert_eq!(s, StatusCode::OK, "{v}");
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(45);
-        loop {
-            let (_, v) = call(
-                bob,
-                Method::GET,
-                &format!("{app}/conversations"),
-                serde_json::Value::Null,
-            )
-            .await;
-            if v[0]["members"].as_array().map(Vec::len) == Some(2) {
-                break;
-            }
-            assert!(tokio::time::Instant::now() < deadline, "no roster: {v}");
-            tokio::time::sleep(Duration::from_millis(300)).await;
-        }
+        wait_admitted(alice, &conv, 2).await;
         for (who, text) in [(alice, "hello-1"), (bob, "hello-2")] {
             call(
                 who,

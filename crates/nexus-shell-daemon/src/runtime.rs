@@ -806,8 +806,11 @@ impl DaemonRuntime {
             coordinator_db: Arc::clone(&coordinator_db),
             result_event_tx,
             canary_registry: {
-                let dir = nexus_shell_daemon_core::paths::shell_daemon_dir()
-                    .unwrap_or_else(|| std::path::PathBuf::from(".sbfb"));
+                // The daemon's own root (`--config` parent, else the grid
+                // root's `shell-daemon/`), never the global grid dir: a
+                // daemon started on a hermetic config must not write into
+                // the user's real install.
+                let dir = opts.paths.root.clone();
                 Arc::new(std::sync::Mutex::new(
                     nexus_coordinator_rs::canary_registry::CanaryRegistry::new(
                         dir.join("canary_registry.json"),
@@ -849,10 +852,11 @@ impl DaemonRuntime {
             shard_sessions: Arc::new(crate::shard_session::ShardSessionRegistry::default()),
             run_store,
             // Chat v1 (ADR_CHAT_V1): keys sealed under a per-install key file
-            // next to node_key; the whole surface is off under duress.
+            // next to node_key (the daemon's own root, so a `--config`
+            // hermetic daemon keeps its chat state in its own dir); the
+            // whole surface is off under duress.
             chat: {
-                let dir = nexus_shell_daemon_core::paths::shell_daemon_dir()
-                    .unwrap_or_else(|| std::path::PathBuf::from(".sbfb"));
+                let dir = opts.paths.root.clone();
                 let key = crate::chat_api::load_or_create_chat_key(&dir)
                     .context("failed to load or create chat.key")?;
                 Arc::new(crate::chat_api::ChatService::new(

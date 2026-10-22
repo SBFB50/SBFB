@@ -712,7 +712,18 @@ function FullScreenApp({
           </div>
         )}
 
-        {hasArchive ? (
+        {hasArchive && manifestQuery.isPending ? (
+          // The app's authority comes from its manifest: an app mounted before
+          // the manifest resolves boots under the grandfathered authority and
+          // meets refusals it never retries (found by the chat T1: a revisit
+          // with consent already granted raced the manifest fetch). One local
+          // fetch, then the app boots under its final authority.
+          <div
+            className="h-full w-full"
+            aria-busy="true"
+            data-testid="app-authority-pending"
+          />
+        ) : hasArchive ? (
           <iframe
             // A consent decision changes what the app may reach: remount it so
             // it boots under its new authority instead of staying stuck on the

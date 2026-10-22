@@ -5,6 +5,13 @@
 //! own temporary directory with distinct iroh keypairs. Provides
 //! health checks, port discovery via `running.json`, and graceful
 //! shutdown via SIGINT / TerminateProcess.
+//!
+//! [`DaemonHandle::spawn_with`] adds what a test needs to stay off the
+//! public network and to model a node going offline: a `config.toml`
+//! written before the first boot (so the first-boot public curator and
+//! mailbox defaults are never added), a hermetic discovery posture
+//! ([`HERMETIC_ENV`]), and [`DaemonHandle::restart`] on the same data
+//! directories.
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -19,7 +26,42 @@ use tokio::time::{sleep, timeout};
 const HEALTH_POLL_INTERVAL: Duration = Duration::from_millis(250);
 const HEALTH_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// Overrides the daemon binary the harness launches (default: the
+/// `nexus-shell-daemon` next to the test binary's profile directory).
+pub const DAEMON_BIN_ENV: &str = "SBFB_TEST_DAEMON_BIN";
+
+/// `RUST_LOG` handed to every daemon (default `warn`); its logs land in
+/// `<root>/logs/` and `<root>/daemon-<boot>.log` (stdout + stderr).
+pub const DAEMON_LOG_ENV: &str = "SBFB_TEST_DAEMON_LOG";
+
+/// Environment of a hermetic daemon: zero-n0 discovery pointed at a
+/// loopback port nothing listens on, so the endpoint neither homes on a
+/// public relay nor publishes to / resolves from a public pkarr relay.
+/// Peers are then reachable only through the direct addresses carried by
+/// tickets. `SBFB_DEV_MODE=1` is what lets the URL policy accept a
+/// loopback relay; it has no other effect.
+pub const HERMETIC_ENV: &[(&str, &str)] = &[
+    ("SBFB_ZERO_N0", "1"),
+    ("SBFB_ZERO_N0_PKARR_RELAYS", "https://127.0.0.1:9/pkarr"),
+    ("SBFB_CUSTOM_RELAYS", "https://127.0.0.1:9"),
+    ("SBFB_DEV_MODE", "1"),
+];
+
+/// How a daemon is launched by [`DaemonHandle::spawn_with`].
+#[derive(Debug, Clone, Default)]
+pub struct SpawnOptions {
+    /// Written to `<root>/shell-daemon/config.toml` before the first
+    /// boot. The daemon only adds its public first-boot defaults when no
+    /// config file exists, so any value here keeps them out.
+    pub config_toml: Option<String>,
+    /// Launch with [`HERMETIC_ENV`].
+    pub hermetic: bool,
+}
+
 fn daemon_binary() -> PathBuf {
+    if let Some(bin) = std::env::var_os(DAEMON_BIN_ENV) {
+        return PathBuf::from(bin);
+    }
     let mut path = std::env::current_exe()
         .expect("current_exe")
         .parent()
@@ -49,7 +91,9 @@ struct HealthResponse {
 pub struct DaemonHandle {
     proc: Child,
     root: TempDir,
-    _sbfb_home: TempDir,
+    sbfb_home: TempDir,
+    opts: SpawnOptions,
+    boots: u32,
     pub http_port: u16,
     pub node_id: String,
     pub auth_token: String,
@@ -57,48 +101,98 @@ pub struct DaemonHandle {
 
 impl DaemonHandle {
     async fn spawn() -> Result<Self> {
+        Self::spawn_with(SpawnOptions::default()).await
+    }
+
+    /// Launch one daemon in fresh `NEXUS_GRID_ROOT` / `SBFB_HOME`
+    /// temporary directories and wait until it answers `/health`.
+    pub async fn spawn_with(opts: SpawnOptions) -> Result<Self> {
         let root = TempDir::new().context("create NEXUS_GRID_ROOT tempdir")?;
         let sbfb_home = TempDir::new().context("create SBFB_HOME tempdir")?;
 
-        let bin = daemon_binary();
-        if !bin.exists() {
-            bail!(
-                "daemon binary not found at {}; build with `cargo build -p nexus-shell-daemon`",
-                bin.display()
-            );
+        if let Some(cfg) = &opts.config_toml {
+            let dir = root.path().join("shell-daemon");
+            std::fs::create_dir_all(&dir).context("create shell-daemon dir")?;
+            std::fs::write(dir.join("config.toml"), cfg).context("write config.toml")?;
         }
 
-        let proc = Command::new(&bin)
-            .args(["start", "--headless"])
-            .env("NEXUS_GRID_ROOT", root.path())
-            .env("SBFB_HOME", sbfb_home.path())
-            .env("RUST_LOG", "warn")
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true)
-            .spawn()
-            .with_context(|| format!("spawn {}", bin.display()))?;
-
-        let running_json = root.path().join("shell-daemon").join("running.json");
-
-        let state = timeout(HEALTH_TIMEOUT, wait_for_running_json(&running_json))
-            .await
-            .context("timeout waiting for running.json")?
-            .context("failed to read running.json")?;
-
-        let auth_token = read_auth_token(sbfb_home.path()).await?;
-
+        let proc = launch(root.path(), sbfb_home.path(), &opts, 0)?;
         let mut handle = Self {
             proc,
             root,
-            _sbfb_home: sbfb_home,
-            http_port: state.api_port,
-            node_id: state.node_id,
-            auth_token,
+            sbfb_home,
+            opts,
+            boots: 0,
+            http_port: 0,
+            node_id: String::new(),
+            auth_token: String::new(),
         };
-
-        handle.wait_for_health().await?;
+        handle.attach().await?;
         Ok(handle)
+    }
+
+    /// Stop the process and boot it again on the SAME data directories
+    /// (same node key, same stores). The HTTP port changes; the node id
+    /// must not.
+    pub async fn restart(&mut self) -> Result<()> {
+        self.shutdown().await?;
+        // A killed daemon leaves its running.json behind: remove it so
+        // the wait below reads the new boot's port, not the old one.
+        let _ = std::fs::remove_file(self.running_json());
+        self.boots += 1;
+        self.proc = launch(
+            self.root.path(),
+            self.sbfb_home.path(),
+            &self.opts,
+            self.boots,
+        )?;
+        self.attach().await
+    }
+
+    fn running_json(&self) -> PathBuf {
+        self.root.path().join("shell-daemon").join("running.json")
+    }
+
+    async fn attach(&mut self) -> Result<()> {
+        let state = timeout(HEALTH_TIMEOUT, wait_for_running_json(&self.running_json()))
+            .await
+            .context("timeout waiting for running.json")?
+            .context("failed to read running.json")?;
+        self.auth_token = read_auth_token(self.sbfb_home.path()).await?;
+        self.http_port = state.api_port;
+        self.node_id = state.node_id;
+        self.wait_for_health().await
+    }
+
+    /// `SBFB_HOME` of this daemon.
+    pub fn sbfb_home_path(&self) -> &Path {
+        self.sbfb_home.path()
+    }
+
+    /// Authenticated loopback call; returns the status and the JSON body
+    /// (`Null` when the body is empty or not JSON).
+    pub async fn request(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        body: Option<serde_json::Value>,
+    ) -> Result<(reqwest::StatusCode, serde_json::Value)> {
+        let mut req = reqwest::Client::new()
+            .request(method, format!("{}{}", self.http_url(), path))
+            .header("X-SBFB-Token", &self.auth_token)
+            .header("Host", format!("127.0.0.1:{}", self.http_port))
+            .timeout(Duration::from_secs(30));
+        if let Some(b) = body {
+            req = req.json(&b);
+        }
+        let resp = req
+            .send()
+            .await
+            .with_context(|| format!("request {path}"))?;
+        let status = resp.status();
+        let bytes = resp.bytes().await.context("read body")?;
+        let value = serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
+        Ok((status, value))
     }
 
     pub fn http_url(&self) -> String {
@@ -211,6 +305,37 @@ impl DaemonHandle {
         let entries = body["entries"].as_array().cloned().unwrap_or_default();
         Ok(entries)
     }
+}
+
+/// Start the daemon process. stdout/stderr go to a file under the root (a
+/// pipe nobody drains would block the daemon once its buffer fills).
+fn launch(root: &Path, sbfb_home: &Path, opts: &SpawnOptions, boot: u32) -> Result<Child> {
+    let bin = daemon_binary();
+    if !bin.exists() {
+        bail!(
+            "daemon binary not found at {}; build with `cargo build -p nexus-shell-daemon`",
+            bin.display()
+        );
+    }
+    let log = std::fs::File::create(root.join(format!("daemon-{boot}.log")))
+        .context("create daemon log")?;
+    let log2 = log.try_clone().context("clone daemon log")?;
+    let mut cmd = Command::new(&bin);
+    cmd.args(["start", "--headless"])
+        .env("NEXUS_GRID_ROOT", root)
+        .env("SBFB_HOME", sbfb_home)
+        .env(
+            "RUST_LOG",
+            std::env::var(DAEMON_LOG_ENV).unwrap_or_else(|_| "warn".to_owned()),
+        )
+        .stdout(Stdio::from(log))
+        .stderr(Stdio::from(log2))
+        .kill_on_drop(true);
+    if opts.hermetic {
+        cmd.envs(HERMETIC_ENV.iter().copied());
+    }
+    cmd.spawn()
+        .with_context(|| format!("spawn {}", bin.display()))
 }
 
 pub struct DaemonCluster {

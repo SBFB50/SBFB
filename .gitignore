@@ -157,6 +157,9 @@ scripts/acceptance/.b3_worker.log
 scripts/acceptance/.app_authoring_last_result.json
 scripts/acceptance/.app_authoring_pw.json
 scripts/acceptance/.app_authoring_pw.log
+scripts/acceptance/.chat_t2_last_result.json
+scripts/acceptance/.chat_t2_dry_run.json
+scripts/acceptance/.chat_t2/
 
 # In-progress app design docs (pre-sprint intake, not planning)
 docs/DND_P2P_DESIGN.md
