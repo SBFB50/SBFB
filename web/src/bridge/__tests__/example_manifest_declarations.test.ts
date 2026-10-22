@@ -67,6 +67,18 @@ const HELPER_TO_METHODS: Record<string, BridgeMethod[]> = {
   search: ["search"],
   getProofCard: ["proof_card_get"],
   onStorageUpdate: ["storage_version"], // transitive: polls getStorageVersion
+  // Chat v1 (sensitive class, consent-gated).
+  chatIdentity: ["chat_identity"],
+  chatSetProfile: ["chat_set_profile"],
+  chatList: ["chat_list"],
+  chatCreate: ["chat_create"],
+  chatInvite: ["chat_invite"],
+  chatAccept: ["chat_accept"],
+  chatSend: ["chat_send"],
+  chatMessages: ["chat_messages"],
+  chatRemove: ["chat_remove"],
+  chatMailbox: ["chat_mailbox"],
+  onChat: [], // push event only (host-relayed SSE), reaches no verb
 };
 
 const ALLOWLIST = new Set<string>(BRIDGE_METHODS);

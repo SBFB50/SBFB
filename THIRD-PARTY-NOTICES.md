@@ -37,3 +37,19 @@ part of this source-verifiable repository.
 These crates are consumed only when an operator builds nexus-worker with one of
 the `llm_llama_cpp*` Cargo features; the default build and CI never compile them.
 The override is wired via `[patch.crates-io]` in the root `Cargo.toml`.
+
+## iroh-gossip (vendored + patched) — chat plan Phase I, 2026-10-22
+
+- **What**: the `iroh-gossip` crate, pinned `0.101.0`, vendored at
+  `vendor/iroh-gossip/` (the published crate, unchanged except below) and
+  substituted through `[patch.crates-io]` in the workspace `Cargo.toml`.
+- **Upstream**: <https://github.com/n0-computer/iroh-gossip>.
+- **License**: MIT OR Apache-2.0 (`vendor/iroh-gossip/LICENSE-MIT`,
+  `vendor/iroh-gossip/LICENSE-APACHE`). Compatible with this repository's
+  AGPL-3.0-or-later licensing.
+- **SBFB modifications**: `net::Builder::addr_filter(AddrFilter)`, applied to
+  the node's own address before it is encoded as gossip peer data, so a node
+  configured as discreet does not hand its public IP to topic members it never
+  connected to. Re-appliable as `patches/iroh-gossip-addr-filter.patch`;
+  changed regions are marked `SBFB patch (addr filter)`. Default behaviour
+  (no filter set) is byte-identical to upstream.

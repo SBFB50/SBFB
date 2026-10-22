@@ -1,0 +1,54 @@
+{
+  "suite": "chat-v1-t2-pc-vps",
+  "kind": "aggregate",
+  "date": "2026-10-22T16:04:28Z",
+  "mode": "live",
+  "run_id": "20261022T160140Z-2ef19234",
+  "status": "RIG-ABSENT",
+  "diagnosis": "group_of_3 RIG-ABSENT: no third host configured (set THIRD_SSH + THIRD_DAEMON)",
+  "contract": "closed vocabulary PASS / BLOCK{diagnosis} / RIG-ABSENT / NOT-RUN per check; aggregate PASS only if every check PASS, BLOCK if any BLOCK, else RIG-ABSENT. No token, no IP value is ever written (counts only).",
+  "rig": {
+    "anchor_ssh_alias": "vps",
+    "anchor_daemon": "http://127.0.0.1:7000",
+    "anchor_node_id": "d7c32e295f8c1cfab42dd0629beced31bab3f45114425b80bc6fdc1edb42c174",
+    "third_ssh_alias": null,
+    "chat_app": "t2-chat-acceptance",
+    "local_nodes": {
+      "sender": "01749d44c432cc32dba2b21b6b890701c2508687e3d07eff2fcd4c07052363e3",
+      "recipient": "89136aae546759c30b6be98cc67af55589b79255118e63f9fcac7e6bea77f275"
+    },
+    "offline_settle_s": 90
+  },
+  "checks": {
+    "one_to_one": {
+      "status": "PASS",
+      "stage": "deliver-v2a",
+      "delay_s": 3,
+      "diagnosis": "2 members on both sides; A->V and V->A decrypted (round trip 3s)"
+    },
+    "group_of_3": {
+      "status": "RIG-ABSENT",
+      "stage": "third-host",
+      "delay_s": null,
+      "diagnosis": "no third host configured (set THIRD_SSH + THIRD_DAEMON)"
+    },
+    "offline_mailbox": {
+      "status": "PASS",
+      "stage": "offline-delivery",
+      "delay_s": 5,
+      "diagnosis": "R read the canary 5s after restart with A stopped and the anchor not a member \u2014 served from the anchor's ciphertext replica"
+    },
+    "leak_plaintext": {
+      "status": "PASS",
+      "stage": "scan",
+      "delay_s": null,
+      "diagnosis": "3 known plaintexts: 0 file under /var/lib/nexus-grid, 0 of 533 journal lines since run start; positive control detected"
+    },
+    "leak_registry": {
+      "status": "PASS",
+      "stage": "registry",
+      "delay_s": null,
+      "diagnosis": "registry = {docs:{ns:{node_id:expiry}}} only; our conversation held for 2 test node(s); 0 IP-like string; 7 PC IP(s) checked absent; 2 namespace(s) total"
+    }
+  }
+}

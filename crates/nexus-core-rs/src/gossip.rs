@@ -812,10 +812,90 @@ mod tests {
 
         node.shutdown().await.ok();
     }
+    /// Chat plan Phase I: the peer data gossip sends about a node reaches
+    /// topic members it never connected to (join forwarding, shuffles), so
+    /// it follows the node's address policy — vendored iroh-gossip patch,
+    /// `Builder::addr_filter`. The `Full` run is the positive control: it
+    /// proves the observation channel works, so the `Discreet` run cannot
+    /// pass by seeing nothing.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn gossip_peer_data_follows_the_address_policy() {
+        use crate::discovery::AddrPolicy;
+        use futures_lite::StreamExt;
+        use iroh::TransportAddr;
+        const PUBLIC: &str = "198.51.100.7:4433";
+        let public: std::net::SocketAddr = PUBLIC.parse().unwrap();
+        for (policy, leaks) in [(AddrPolicy::Full, true), (AddrPolicy::Discreet, false)] {
+            let a = crate::create_node_with_config(
+                crate::NodeConfig::default().with_addr_policy(policy),
+            )
+            .await
+            .unwrap();
+            a.endpoint().add_external_addr(public).await;
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+            while !a.endpoint().addr().ip_addrs().any(|x| *x == public) {
+                assert!(
+                    tokio::time::Instant::now() < deadline,
+                    "external address never advertised"
+                );
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            // B reaches A without ever being told A's public address.
+            let b = create_node().await.unwrap();
+            let mut a_addr = a.endpoint().addr();
+            a_addr.addrs.retain(|t| *t != TransportAddr::Ip(public));
+            b.memory_lookup().add_endpoint_info(a_addr);
+
+            let topic = [0x5e; 32];
+            let _a_topic = GossipClient::new(a.gossip())
+                .subscribe_topic(topic, vec![])
+                .await
+                .unwrap();
+            let _b_topic = timeout(
+                Duration::from_secs(30),
+                GossipClient::new(b.gossip()).join_topic(topic, vec![a.node_id()]),
+            )
+            .await
+            .expect("B joins A's topic")
+            .unwrap();
+
+            // What B learnt of A through gossip peer data.
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+            let learnt = loop {
+                let mut stream = b
+                    .endpoint()
+                    .address_lookup()
+                    .unwrap()
+                    .resolve(a.endpoint().id());
+                let mut found = None;
+                while let Ok(Some(item)) = timeout(Duration::from_millis(500), stream.next()).await
+                {
+                    if let Ok(Ok(item)) = item
+                        && item.provenance() == "gossip"
+                    {
+                        found = Some(item.into_endpoint_addr());
+                    }
+                }
+                if let Some(addr) = found {
+                    break addr;
+                }
+                assert!(
+                    tokio::time::Instant::now() < deadline,
+                    "B never received A's peer data"
+                );
+                tokio::time::sleep(Duration::from_millis(200)).await;
+            };
+            let named = learnt.ip_addrs().any(|x| *x == public);
+            assert_eq!(named, leaks, "{policy:?}: B learnt {learnt:?}");
+            a.shutdown().await.ok();
+            b.shutdown().await.ok();
+        }
+    }
 }
 
 // Note: end-to-end 2-node gossip message exchange is deliberately
-// not tested at this layer because it requires configuring peer
+// not tested at this layer (the one two-node test above checks the
+// peer data a join hands over, not message delivery) because it requires configuring peer
 // address injection (`MemoryLookup` under iroh 1.0.1) against an
 // API surface that is orthogonal to the GossipClient wrapper
 // itself. The wrapper is exercised end-to-end in Sprint 4 when

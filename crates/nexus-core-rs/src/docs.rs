@@ -46,6 +46,7 @@ use iroh_docs::protocol::Docs;
 use iroh_docs::store::Query;
 use iroh_docs::{AuthorId, DocTicket, NamespaceId};
 
+use crate::discovery::{AddrPolicy, discreet_addr};
 use crate::error::{NexusError, Result};
 
 /// Filename suffix the iroh-docs redb 2->4 tuple migration appends to
@@ -76,16 +77,43 @@ pub const MIGRATION_BACKUP_SUFFIX: &str = ".backup-redb-v2-tuples";
 #[derive(Debug, Clone)]
 pub struct DocsClient {
     inner: Docs,
+    addr_policy: AddrPolicy,
 }
 
 impl DocsClient {
     /// Wrap a `&Docs` (typically obtained from
     /// [`crate::Node::docs`]). Clones the inner `Arc` so the
-    /// resulting client has no borrow on the source.
+    /// resulting client has no borrow on the source. Tickets of the
+    /// documents it opens are minted under [`AddrPolicy::Discreet`];
+    /// [`DocsClient::for_node`] follows the node's own policy.
     pub fn new(inner: &Docs) -> Self {
         DocsClient {
             inner: inner.clone(),
+            addr_policy: AddrPolicy::Discreet,
         }
+    }
+
+    /// Like [`DocsClient::new`] on `node.docs()`, minting tickets under
+    /// [`crate::Node::addr_policy`]: use it wherever a ticket may be
+    /// handed out on behalf of the node's configuration.
+    pub fn for_node(node: &crate::Node) -> Self {
+        DocsClient {
+            inner: node.docs().clone(),
+            addr_policy: node.addr_policy(),
+        }
+    }
+
+    /// Re-apply this client's address policy to a ticket minted earlier —
+    /// one persisted by a previous binary or under another posture —
+    /// without re-minting it (a re-mint goes through `share`, which also
+    /// enters the document's sync-set).
+    pub fn filter_ticket(&self, ticket: &str) -> Result<String> {
+        let mut parsed = <DocTicket as std::str::FromStr>::from_str(ticket.trim())
+            .map_err(|e| NexusError::Docs(format!("stored ticket unreadable: {e}")))?;
+        for node in &mut parsed.nodes {
+            *node = discreet_addr(node, self.addr_policy);
+        }
+        Ok(parsed.to_string())
     }
 
     // ------------------------------------------------------------------
@@ -124,7 +152,10 @@ impl DocsClient {
             .create()
             .await
             .map_err(|e| NexusError::Docs(format!("create failed: {e}")))?;
-        Ok(DocHandle { inner: doc })
+        Ok(DocHandle {
+            inner: doc,
+            addr_policy: self.addr_policy,
+        })
     }
 
     /// Import a document from a [`DocTicket`] and join the peers
@@ -140,7 +171,10 @@ impl DocsClient {
             .import(ticket)
             .await
             .map_err(|e| NexusError::Docs(format!("import failed: {e}")))?;
-        Ok(DocHandle { inner: doc })
+        Ok(DocHandle {
+            inner: doc,
+            addr_policy: self.addr_policy,
+        })
     }
 
     /// Import a ticket AND create a LiveEvent subscription in the
@@ -160,7 +194,13 @@ impl DocsClient {
         let stream = stream
             .map(|ev| ev.map_err(|e| NexusError::Docs(format!("live event stream error: {e}"))));
 
-        Ok((DocHandle { inner: doc }, stream))
+        Ok((
+            DocHandle {
+                inner: doc,
+                addr_policy: self.addr_policy,
+            },
+            stream,
+        ))
     }
 
     /// Open an existing document by its namespace id.
@@ -180,7 +220,10 @@ impl DocsClient {
             .open(id)
             .await
             .map_err(|e| NexusError::Docs(format!("open failed: {e}")))?;
-        Ok(maybe.map(|inner| DocHandle { inner }))
+        Ok(maybe.map(|inner| DocHandle {
+            inner,
+            addr_policy: self.addr_policy,
+        }))
     }
 
     /// Drop a document from the local node.
@@ -244,6 +287,8 @@ impl DocsClient {
 #[derive(Debug, Clone)]
 pub struct DocHandle {
     inner: IrohDoc,
+    /// Inherited from the [`DocsClient`] that opened it.
+    addr_policy: AddrPolicy,
 }
 
 impl DocHandle {
@@ -435,24 +480,42 @@ impl DocHandle {
 
     /// Produce a write-capable [`DocTicket`] that another node can
     /// pass to [`DocsClient::import_ticket`] to join this document
-    /// with full write access.
-    ///
-    /// Uses `AddrInfoOptions::RelayAndAddresses` so the ticket
-    /// carries both the relay URL and direct addresses — maximum
-    /// chance of a successful connection from behind NAT.
+    /// with full write access. Its addresses follow the policy of the
+    /// [`DocsClient`] that opened the document (discreet unless built
+    /// with [`DocsClient::for_node`] on a node configured otherwise).
     pub async fn share_write(&self) -> Result<DocTicket> {
-        self.inner
-            .share(ShareMode::Write, AddrInfoOptions::RelayAndAddresses)
-            .await
-            .map_err(|e| NexusError::Docs(format!("share write failed: {e}")))
+        self.share_write_with(self.addr_policy).await
     }
 
-    /// Produce a read-only [`DocTicket`].
+    /// Produce a read-only [`DocTicket`], same address policy as
+    /// [`DocHandle::share_write`].
     pub async fn share_read(&self) -> Result<DocTicket> {
-        self.inner
-            .share(ShareMode::Read, AddrInfoOptions::RelayAndAddresses)
+        self.share_read_with(self.addr_policy).await
+    }
+
+    /// [`DocHandle::share_write`] under an explicit address policy.
+    pub async fn share_write_with(&self, policy: AddrPolicy) -> Result<DocTicket> {
+        self.share_with(ShareMode::Write, policy).await
+    }
+
+    /// [`DocHandle::share_read`] under an explicit address policy.
+    pub async fn share_read_with(&self, policy: AddrPolicy) -> Result<DocTicket> {
+        self.share_with(ShareMode::Read, policy).await
+    }
+
+    /// iroh-docs embeds the endpoint's whole address (relay URL and
+    /// every direct address) in the ticket; `policy` then decides which
+    /// of those leave the node.
+    async fn share_with(&self, mode: ShareMode, policy: AddrPolicy) -> Result<DocTicket> {
+        let mut ticket = self
+            .inner
+            .share(mode, AddrInfoOptions::RelayAndAddresses)
             .await
-            .map_err(|e| NexusError::Docs(format!("share read failed: {e}")))
+            .map_err(|e| NexusError::Docs(format!("share failed: {e}")))?;
+        for node in &mut ticket.nodes {
+            *node = discreet_addr(node, policy);
+        }
+        Ok(ticket)
     }
 }
 
@@ -460,8 +523,8 @@ impl DocHandle {
 // downstream callers don't need to add iroh-docs as a direct dep.
 pub use iroh_docs::engine::LiveEvent as DocsLiveEvent;
 pub use iroh_docs::{
-    AuthorId as DocsAuthorId, DocTicket as DocsTicket, Entry as DocsEntry,
-    NamespaceId as DocsNamespaceId,
+    AuthorId as DocsAuthorId, Capability as DocsCapability, DocTicket as DocsTicket,
+    Entry as DocsEntry, NamespaceId as DocsNamespaceId,
 };
 
 #[cfg(test)]
@@ -475,6 +538,80 @@ mod tests {
         create_node()
             .await
             .expect("create_node should boot on a standard dev machine")
+    }
+
+    /// An address the endpoint will itself advertise, outside every
+    /// private range: what a node behind a port-forward or on a VPS knows
+    /// of itself.
+    const PUBLIC: &str = "198.51.100.7:4433";
+
+    async fn node_knowing_its_public_ip(policy: AddrPolicy) -> Node {
+        let node =
+            crate::create_node_with_config(crate::NodeConfig::default().with_addr_policy(policy))
+                .await
+                .expect("node boots");
+        node.endpoint()
+            .add_external_addr(PUBLIC.parse().unwrap())
+            .await;
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        while !node
+            .endpoint()
+            .addr()
+            .ip_addrs()
+            .any(|a| a.to_string() == PUBLIC)
+        {
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "external address never advertised"
+            );
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        node
+    }
+
+    fn names_public_ip(ticket: &DocTicket) -> bool {
+        ticket
+            .nodes
+            .iter()
+            .any(|n| n.ip_addrs().any(|a| a.to_string() == PUBLIC))
+    }
+
+    #[tokio::test]
+    async fn share_tickets_follow_the_address_policy() {
+        let discreet = node_knowing_its_public_ip(AddrPolicy::Discreet).await;
+        let full = node_knowing_its_public_ip(AddrPolicy::Full).await;
+
+        // A bare client is discreet whatever the node says; `for_node`
+        // follows the node; `_with` imposes its own policy.
+        for (client, leaks) in [
+            (DocsClient::new(full.docs()), false),
+            (DocsClient::for_node(&discreet), false),
+            (DocsClient::for_node(&full), true),
+        ] {
+            let doc = client.create_doc().await.unwrap();
+            for ticket in [
+                doc.share_write().await.unwrap(),
+                doc.share_read().await.unwrap(),
+            ] {
+                assert_eq!(names_public_ip(&ticket), leaks, "{ticket:?}");
+            }
+            let reopened = client.open_doc(doc.id()).await.unwrap().unwrap();
+            assert_eq!(
+                names_public_ip(&reopened.share_read().await.unwrap()),
+                leaks
+            );
+        }
+        let doc = DocsClient::for_node(&full).create_doc().await.unwrap();
+        assert!(!names_public_ip(
+            &doc.share_write_with(AddrPolicy::Discreet).await.unwrap()
+        ));
+        let doc = DocsClient::new(discreet.docs()).create_doc().await.unwrap();
+        assert!(names_public_ip(
+            &doc.share_read_with(AddrPolicy::Full).await.unwrap()
+        ));
+
+        discreet.shutdown().await.ok();
+        full.shutdown().await.ok();
     }
 
     #[tokio::test]

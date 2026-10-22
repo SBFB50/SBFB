@@ -2468,7 +2468,140 @@ Palier T2 WA-T2.6 (joindre les sorties dans un `ArtifactRef` type) et WA-T5.5
 (consommer l'artefact depuis une autre app) appartient a la Phase Y ; WA-T5.6
 (mutation de chaque classe de digest/receipt/lineage) a la Phase M1.
 
-## 20. Revue et evolution
+## 20. Surface messagerie v1 (chat iroh E2E, 2026-10-21)
+
+Plan PO 2026-10-21 (hors cycle sprint) ; ADR
+`docs/architecture/ADR_CHAT_V1.md`. Spike A GO : crypto
+`crates/nexus-messaging-core/tests/spike_olm_megolm.rs`, transport
+`crates/nexus-core-rs/tests/chat_docs_spike.rs`.
+
+**Composants** : `nexus-messaging-core` (vodozemac Olm/Megolm, enveloppes
+signees, sans I/O) ; daemon local (cles, chiffrement, 1 document iroh-docs
+par conversation) ; verbes bridge `msg_*` (classe sensible, consentement
+explicite) ; boite aux lettres sur l'ancre (ALPN `sbfb/mailbox/0`, ticket
+LECTURE seulement, opt-in, TTL 21 j, quotas).
+
+**Protege** : contenu (relais, ancre, autres noeuds, autres apps SBFB) ;
+authenticite (Megolm signe + MAC, enveloppes signees) ; messages
+posterieurs au retrait d'un membre (rotation de session + nouveau document,
+le ticket d'ecriture iroh-docs n'etant pas revocable) ; l'ancre ne peut pas
+forger d'entree (replique en lecture, prouve par le spike).
+
+**Non protege en v1 (dit dans l'app)** : metadonnees reseau — les membres
+voient `node_id`/IP les uns des autres, le relais voit qui joint qui,
+l'ancre (si opt-in) voit quels noeuds partagent un document et quand.
+L'anonymat est la v2 (plan Tor/SimpleX du 2026-10-19).
+
+**Base de confiance** : l'appareil ; le daemon local (voit le clair) ;
+l'editeur de l'app (affiche le clair, mitige par epinglage de version).
+
+**Limites** : Megolm = securite post-compromission faible (rotation
+periodique des sessions) ; vodozemac est audite (Least Authority), le
+protocole SBFB au-dessus ne l'est pas => statut « experimental » affiche
+jusqu'a audit externe.
+
+### 20.1 Boite aux lettres hors ligne (Phase E, 2026-10-21)
+
+Code : `crates/nexus-messaging-core/src/mailbox.rs` (format + registre de
+quotas, pur) ; `crates/nexus-shell-daemon/src/mailbox_protocol.rs`
+(serveur ALPN `sbfb/mailbox/0` + client) ; `chat_api.rs` (opt-in par app,
+depot, rafraichissement). Le serveur n'existe que si `[mailbox] serve =
+true` (ancre), jamais sous identite de contrainte ; le client ne depose
+rien tant que l'utilisateur de l'app n'a pas active la boite (verbe
+`chat_mailbox`, classe sensible).
+
+| Menace | Mitigation | Preuve |
+|---|---|---|
+| **T-MAILBOX-FORGE** — le serveur ecrit dans une conversation | Ticket LECTURE seulement : un ticket d'ecriture est refuse avant tout stockage (le secret du namespace n'atteint jamais le serveur) ; une replique en lecture ne peut pas signer d'entree. Ajoute aux signatures d'enveloppe de §20. | `write_tickets_and_malformed_requests_store_nothing`, `deposited_history_outlives_the_depositor_and_the_replica_cannot_write` |
+| **T-MAILBOX-READ** — le serveur lit le contenu | Il ne recoit que des enveloppes chiffrees (Megolm/Olm). | meme test (contenu opaque) + `returning_member_catches_up_through_the_mailbox_alone` (aucun clair dans la replique) |
+| **T-MAILBOX-ATTRIBUTION** — deposer/retirer au nom d'un autre | Toute inscription est indexee par l'identite QUIC authentifiee du dialeur (`conn.remote_id()`), jamais par un champ de la requete ; une requete ne porte donc ni signature ni domaine (pas de famille `DOMAIN_*` ajoutee, census inchange). | `per_node_quota_then_withdraw_frees_and_drops_the_replica` (retrait = inscription du dialeur seulement) |
+| **T-MAILBOX-SSRF** — faire composer au serveur des pairs arbitraires | Le ticket importe est reconstruit avec le dialeur comme SEUL pair ; toute autre adresse listee est ecartee. | `ticket_peers_are_reduced_to_the_dialer` |
+| **T-MAILBOX-DOS** — remplir le disque de l'ancre | Plafonds par noeud et global (refus `quota` avant toute mutation), TTL depuis le dernier depot, eviction au-dela de `max_doc_mib` au balayage (10 min). Borne des documents VIVANTS = `max_docs x max_doc_mib`. | `mailbox::tests::*` (registre), `sweep_drops_expired_and_oversize_documents_and_registry_persists` |
+| **T-MAILBOX-STRANDED** — un membre hors ligne perd la trace d'une conversation deplacee | Une rotation de document (retrait d'un membre) ne retire PAS l'ancien depot : il porte l'entree `Moved` ; il expire a son TTL faute de rafraichissement. Seul l'opt-out retire. | revue de code (`rotate_mailbox`) |
+
+**Residuels (assumes)** :
+- **Metadonnees** : l'ancre voit quels noeuds deposent quel document, quand,
+  et le volume/rythme des entrees (deja dit en §20, ici concret).
+- **Blobs orphelins** : abandonner une replique supprime le namespace et ses
+  entrees, pas les blobs de contenu — le GC iroh-blobs n'est pas active sur
+  les noeuds SBFB (l'activer impose de proteger tout blob non tague dont le
+  daemon depend). Le disque des documents ABANDONNES n'est donc pas borne ;
+  a surveiller cote operateur (`IROH_SELFHOST_OPS.md` §9) jusqu'a ce chantier.
+- **Course opt-out / depot en vol** : un depot qui aboutit apres l'opt-out est
+  retire par la tache elle-meme ; un opt-out puis opt-in en quelques
+  secondes peut laisser une inscription retiree jusqu'au rafraichissement
+  suivant (24 h) — sans fuite, seulement une livraison hors ligne retardee.
+- **Point unique** : une seule ancre configuree par defaut ; plusieurs
+  `servers` sont supportes (depot a chacun).
+
+### 20.2 Defaut discret (Phase I, 2026-10-22)
+
+Plan messagerie, phase I. Objectif : aucune IP publique du noeud ne quitte
+la machine AVANT une connexion — tickets, annonces, journaux. Code :
+`nexus_core_rs::discovery::{AddrPolicy, discreet_addr}` (liste blanche :
+relais, loopback, RFC 1918, link-local IPv4, IPv6 ULA ; tout le reste —
+CGNAT `100.64/10`, link-local IPv6 (EUI-64 = MAC) — est retire) ; `DocHandle::share_*` filtre TOUJOURS
+(politique heritee du `DocsClient`, discret sauf `DocsClient::for_node` sur
+un noeud `Full`) ; `runtime::mint_ticket_for_hash_with_addr` (tickets de
+blob des annonces gossip) ; tickets de stockage/feed PERSISTES re-filtres a
+la reouverture (`DocsClient::filter_ticket`, sans re-frappe : une re-frappe
+entrerait dans le sync-set avant la porte duress) ; `PeerData` du gossip
+filtre par un patch vendore d'iroh-gossip (`Builder::addr_filter`,
+`patches/iroh-gossip-addr-filter.patch`, decision PO 2026-10-22) ; portmapper coupe par defaut
+(`NodeConfig::portmapper`) ; journaux `iroh::socket` et `iroh::net_report`
+(adresses des pairs, IP publique vue par QAD) a `error`. Config
+`[transport] advertise_ip / portmapper`, faux par defaut ; l'ancre met
+`advertise_ip = true` (`deploy/config.toml.example`).
+
+| Menace | Mitigation | Preuve |
+|---|---|---|
+| **T-DISCREET-INVITE** — un lien/QR d'invitation divulgue l'IP publique de l'invitant a quiconque le voit | Le ticket ne porte que relais + adresses non globales. | `chat_invite_ticket_has_no_global_ip`, `share_tickets_follow_the_address_policy`, `discreet_addr_drops_global_ips` |
+| **T-DISCREET-ANNOUNCE** — un ticket de blob diffuse par gossip a tout le reseau porte l'IP | Meme filtre a l'unique point de fabrication. | `announce_blob_ticket_respects_policy` |
+| **T-DISCREET-GOSSIP** — les `PeerData` HyParView (ForwardJoin, Shuffle) portent l'adresse complete du noeud jusqu'a des membres du sujet jamais connectes | iroh-gossip 0.101 n'offre aucun filtre : patch vendore `Builder::addr_filter`, alimente par `AddrPolicy::gossip_filter`. | `gossip_peer_data_follows_the_address_policy` (controle positif `Full`) |
+| **T-DISCREET-STORED** — un ticket persiste par un binaire anterieur est resservi tel quel | Re-filtre a la reouverture, ligne reecrite. | `persisted_tickets_are_refiltered_at_reopen` |
+| **T-DISCREET-PKARR** — le serveur pkarr (tiers interrogeable) publie l'IP | Le publieur reste « relais seul » (defaut iroh, verrouille par un test). | `pkarr_publisher_stays_relay_only` |
+| **T-DISCREET-UPNP** — le noeud ouvre un port sur la box et sonde le LAN en SSDP | Portmapper `Disabled` par defaut. | `portmapper_is_off_unless_asked` (choix de config ; le cablage du builder n'est pas observable de l'exterieur : pas de getter, metriques du client portmapper privees — revue de code) |
+| **T-DISCREET-LOGS** — un journal partage divulgue des IP | Cibles iroh qui journalisent des adresses (`iroh::socket::remote_map`, `iroh::socket::transports` hors relais, `iroh::net_report`) a `error` et les spans INFO du client relais (`iroh_relay::client`, IP du relais) a `warn`, terminal ET fichier ET sous `RUST_LOG` (sauf si `RUST_LOG` cible `iroh` lui-meme) ; les WARN du client relais restent. | `log_filters_silence_iroh_address_logs` (abonne reel, cible par cible), `rust_log_keeps_address_directives_unless_it_targets_iroh` + `scripts/check-no-ip-in-logs.sh` sur un vrai `daemon.log` |
+
+**Residuels (assumes)** :
+- **Le pair connecte apprend l'IP** : une fois la connexion etablie (via le
+  relais), iroh echange les chemins directs pour percer le NAT. C'est le
+  perimetre de la phase I (« sauf vers le pair effectivement connecte ») ;
+  le cacher est le palier 3 (saut de transfert).
+- **Le relais voit l'IP** de chaque noeud qui s'y connecte (inchange).
+- **Adresses privees conservees** dans les tickets : elles revelent la
+  topologie du LAN (fuite faible) et permettent la connexion directe en LAN
+  (et aux tests multi-noeuds de passer par l'IP LAN : iroh n'annonce le
+  loopback que faute d'autre adresse). Un hote dont les interfaces n'ont
+  que des IP globales (VPS non-ancre, runner IPv6 seul) remet des tickets
+  « relais seul » : sans relais joignable, pas de connexion directe a
+  partir d'un ticket.
+- **Ticket reduit a l'ID** : sous `Discreet`, si la seule adresse connue
+  est globale et le relais pas encore etabli, le ticket ne porte que l'ID ;
+  le pair resout alors l'ID par pkarr (publie « relais seul ») — mise en
+  route plus lente, pas une annonce morte.
+- **pkarr reste « relais seul » meme en `Full`** : `advertise_ip` ne couvre
+  que tickets et gossip ; un pair qui compose l'ancre par ID nu passe
+  d'abord par le relais. Seul le bras zero-n0 du publieur est verrouille
+  par un test (le bras `presets::N0` est le defaut iroh, non teste ici).
+- **Premier contact plus lent** : sans IP publique dans le ticket, le
+  premier paquet passe par le relais ; dependance accrue au relais jusqu'a
+  la phase L.
+- **Sondes `net_report` conservees** (ecart a la spec) : elles ne visent que
+  les relais de NOTRE RelayMap, qui voient deja l'IP ; les couper
+  (`NetReportConfig::minimal`) empecherait de trouver le relais domestique
+  sur un reseau qui bloque QUIC (doc iroh `net_report.rs:95-99`).
+- **`shard serve`** (commande operateur) affiche l'adresse complete : action
+  explicite de l'operateur, adresse passee a la main a l'orchestrateur.
+- **Worker co-localise** : son ticket garde toutes les adresses (`Full`) —
+  il ne quitte pas la machine (base allowlist locale).
+- **Caddy** : pas de journal d'acces par defaut, mais son journal d'erreurs
+  HTTP peut porter l'IP du client quand un amont echoue (non verifie dans
+  les sources) — controler aussi `journalctl -u caddy` avec le script.
+- **Patch iroh-gossip** a reporter a chaque montee d'iroh-gossip (ou a
+  abandonner si l'amont livre un equivalent).
+
+## 21. Revue et evolution
 
 Ce document est vivant. Chaque sprint qui livre une mitigation
 ou deplace un residual doit :
@@ -2811,6 +2944,12 @@ Historique versions :
   INCHANGE, 0 bump wire, 0 dep runtime neuve (dep intra-workspace
   engine→core seule). Re-coupe B6 : routes daemon + D7 + golden_http +
   clôture docs-contrat = Phase I1.
+- **v31 (chat v1 Phase E, 2026-10-21)** : ajout **§20.1 Boite aux lettres
+  hors ligne** — 6 menaces T-MAILBOX-* avec leurs tests, residuels
+  (metadonnees, blobs orphelins sans GC, course opt-out, point unique).
+- **v30 (chat v1 Phase 0, 2026-10-21)** : ajout **§20 Surface messagerie
+  v1** (iroh E2E, vodozemac daemon-side, boite aux lettres ancre en
+  lecture seule), renommage §20→§21.
 - **v29 (Sprint 83 Phase M, 2026-07-28)** : ajout **§19.5 Surface artefacts,
   mode de publication et ACL de lecture** + asset **A16** (artefact durable de
   run, ligne ajoutee dans §2 comme l'impose §20 item 3). **6 rows neuves** —

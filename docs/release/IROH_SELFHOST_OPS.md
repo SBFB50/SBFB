@@ -247,11 +247,28 @@ rr_ns = "ns1.pkarr1.sbfb.world."
 enabled = false
 ```
 
-**Caddy — 2 blocs à ajouter** (`/etc/caddy/Caddyfile`, certs
+**Caddy — bloc global + 2 blocs de site** (`/etc/caddy/Caddyfile`, certs
 automatiques ; Caddy gère l'upgrade WebSocket nativement pour le
 data-plane WSS du relais) :
 
 ```caddyfile
+{
+	# No client IP in Caddy logs (chat plan phase I). The default logger
+	# (journald) records HTTP errors with the client address next to the
+	# request URI — for pkarr1 that URI is the publishing node identity.
+	log default {
+		format filter {
+			wrap json
+			fields {
+				request>remote_ip delete
+				request>remote_port delete
+				request>client_ip delete
+				request>headers>X-Forwarded-For delete
+			}
+		}
+	}
+}
+
 relay1.sbfb.world {
     reverse_proxy localhost:3340
 }
@@ -260,7 +277,20 @@ pkarr1.sbfb.world {
 }
 ```
 
-Puis `systemctl reload caddy`. Les units systemd §4.3 restent
+Puis `caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile` et
+`systemctl reload caddy`. **Jamais de directive `log`** dans les blocs de
+site : Caddy n'écrit pas de journal d'accès par défaut, et en ajouter un
+consignerait l'IP de chaque nœud qui joint le relais ou publie son
+adresse. Le **bloc global**, lui, est nécessaire : sans lui, le journal
+d'erreurs HTTP (`http.log.error`, émis par exemple quand le serveur ferme
+une connexion inactive pendant un `PUT /pkarr/<clé>`) associe l'IP du
+client à l'identité du nœud — constaté sur l'ancre le 2026-10-22, corrigé
+le jour même ; filtre prouvé sur Caddy 2.6.2 (entrée d'erreur conservée,
+`remote_ip` absent). Contrôles : `grep -cE '^\s*log' /etc/caddy/Caddyfile`
+doit rendre `0` hors bloc global, et
+`journalctl -u caddy --since today | scripts/check-no-ip-in-logs.sh -`
+doit rendre `PASS`.
+Les units systemd §4.3 restent
 utilisables telles quelles (les binds loopback > 1024 n'utilisent pas
 `CAP_NET_BIND_SERVICE`, qui reste sans effet nocif ; en Topologie B le
 `[dns]` est déplacé sur `5353` loopback — le DNS autoritaire public
@@ -367,3 +397,96 @@ impossible). Mitigations : host relais ≠ host ancre (jointure
 métadonnées × contenu), ≥ 2 relais pkarr distincts, les verrous
 anti-recentralisation S74/S75 ne sont pas touchés (le mode ne change ni
 la seed-list, ni le directory ingest, ni le comptage).
+
+## 9. Boîte aux lettres de la messagerie (chat v1 Phase E, 2026-10-21)
+
+Rôle optionnel de l'ancre, **indépendant du zéro-n0** : garder le
+**chiffré** des conversations des utilisateurs qui l'ont demandé, pour que
+deux contacts jamais en ligne en même temps reçoivent quand même leurs
+messages (ADR `docs/architecture/ADR_CHAT_V1.md`, décision 5 ; surface :
+THREAT_MODEL §20).
+
+**Activer sur l'ancre** — dans le `config.toml` du daemon de l'ancre
+(chemin affiché au boot), puis redémarrer le daemon :
+
+```toml
+[mailbox]
+serve = true
+ttl_days = 21          # durée après le dernier rafraîchissement (quotidien côté client)
+max_docs = 256         # documents gardés en tout
+max_docs_per_node = 16 # par nœud déposant
+max_doc_mib = 16       # au-delà, le document est évincé au balayage (10 min)
+```
+
+Le daemon enregistre alors l'ALPN `sbfb/mailbox/0` ; sans `serve = true`
+il ne le parle pas du tout. Jamais actif sous identité de contrainte
+(duress). Registre : `$NEXUS_GRID_ROOT/shell-daemon/mailbox.json`.
+
+**Côté clients** — `[mailbox] servers` liste les nœuds auxquels un client
+PEUT déposer. Une installation neuve y écrit l'ancre au premier boot (même
+règle que les curateurs par défaut) ; une config existante (v1.1.0) doit
+l'ajouter à la main :
+
+```toml
+[mailbox]
+servers = ["d7c32e295f8c1cfab42dd0629beced31bab3f45114425b80bc6fdc1edb42c174"]
+```
+
+Lister un serveur n'envoie rien : chaque app demande l'accord de son
+utilisateur (verbe bridge `chat_mailbox`).
+
+**Ce que l'ancre voit** : quels nœuds déposent quel document, et quand ;
+la taille et le rythme des entrées. **Jamais** le contenu (chiffré de bout
+en bout), et elle ne peut rien écrire (ticket LECTURE ; un ticket
+d'écriture est refusé).
+
+**Limite connue — disque** : une réplique abandonnée (TTL, retrait,
+éviction) est supprimée, mais ses blobs de contenu restent sur disque : le
+GC iroh-blobs n'est pas activé sur les nœuds SBFB. Surveiller la taille du
+dossier `iroh/` de l'ancre ; le plafond des documents VIVANTS reste
+`max_docs × max_doc_mib`.
+
+**Vérifier** (depuis l'ancre) :
+
+```bash
+journalctl -u nexus-shell-daemon | grep -E "mailbox server ready|mailbox document above"
+jq '.docs | length' /var/lib/nexus-grid/shell-daemon/mailbox.json   # $NEXUS_GRID_ROOT/shell-daemon
+```
+
+## 10. Posture réseau de l'ancre (plan messagerie, phase I, 2026-10-22)
+
+Depuis la phase I, un nœud est **discret par défaut** : les tickets et
+annonces qu'il remet (invitations, dépôts de boîte aux lettres, tickets de
+blob diffusés par gossip, tickets de stockage) et les données de pair du
+gossip ne nomment que son relais et ses adresses privées, jamais son IP
+publique ; il ne demande aucune ouverture de port à la box (UPnP/PCP/NAT-PMP
+coupé) ; ses journaux ne consignent plus les adresses des pairs ni la
+sienne (cibles iroh concernées à `error`, y compris sous `RUST_LOG` qui ne
+cible pas `iroh`). Détail et résiduels : THREAT_MODEL §20.2.
+
+**Sur l'ancre** (IP publique, aucun NAT), l'IP publique est précisément ce
+qu'on veut publier. **À faire en même temps que le déploiement d'un
+binaire ≥ phase I**, sinon l'ancre devient discrète elle aussi et ses
+pairs passent d'abord par le relais :
+
+```toml
+[transport]
+advertise_ip = true
+portmapper = false
+```
+
+Au boot, le daemon journalise sa posture : `network posture
+advertise_ip=true portmapper=false`. `advertise_ip` ne change rien à pkarr,
+qui reste « relais seul ».
+
+**Contrôler les journaux** (PC ou ancre) — compte les IP non loopback d'un
+`daemon.log` sans jamais les recopier ; `global` > 0 = `BLOCK` :
+
+```bash
+scripts/check-no-ip-in-logs.sh --json /tmp/ip-logs.json <dossier des logs>
+journalctl -u nexus-shell-daemon --since today | scripts/check-no-ip-in-logs.sh -
+journalctl -u caddy --since today | scripts/check-no-ip-in-logs.sh -
+```
+
+Le dernier contrôle couvre le journal d'erreurs HTTP de Caddy, qui peut
+porter l'IP d'un client quand un amont (relais, pkarr) échoue.

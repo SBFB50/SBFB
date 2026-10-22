@@ -714,7 +714,7 @@ pub async fn feed_join(
         }
     };
 
-    let docs_client = nexus_core_rs::docs::DocsClient::new(state.node.docs());
+    let docs_client = nexus_core_rs::docs::DocsClient::for_node(&state.node);
 
     // import_and_subscribe atomically: no window between import and
     // subscribe where initial sync events could be missed.

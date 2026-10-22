@@ -93,7 +93,7 @@ pub fn effective_methods(
     // Domain bound (belt-and-suspenders, mirrored in TS `effectiveMethods`): the
     // effective set can never exceed the dispatchable universe (the manifest
     // allowlist), so a grant carrying an off-allowlist name authorizes nothing beyond
-    // the 16 host-dispatched verbs — regardless of how the grant was built. The
+    // the host-dispatched verbs — regardless of how the grant was built. The
     // dispatch itself is already bounded upstream by the Zod enum (`req.method` ∈ 16);
     // this is defense in depth, not the sole guard.
     eff.retain(|m| crate::SbfbManifest::bridge_method_allowlist().contains(&m.as_str()));
@@ -112,13 +112,15 @@ pub fn is_authorized(
     effective_methods(declared, grant, policy, now_ms).contains(method)
 }
 
-/// The legacy grandfather grant: every host-dispatched method, no expiry, not
-/// revoked. Paired with `declared = None` for an app whose manifest declares no
-/// `bridge` config, so a pre-existing app keeps reaching the methods it always could.
+/// The legacy grandfather grant: every NON-sensitive host-dispatched method, no
+/// expiry, not revoked. Paired with `declared = None` for an app whose manifest
+/// declares no `bridge` config, so a pre-existing app keeps reaching the methods it
+/// always could — but never the consent-gated [`crate::SENSITIVE_BRIDGE_METHODS`].
 pub fn grandfather_grant() -> Grant {
     Grant {
         methods: crate::SbfbManifest::bridge_method_allowlist()
             .iter()
+            .filter(|m| !crate::SENSITIVE_BRIDGE_METHODS.contains(m))
             .map(|m| (*m).to_string())
             .collect(),
         expires_at_ms: None,
@@ -184,9 +186,11 @@ mod tests {
         let declared: Declared = None;
         let grant = grandfather_grant();
         for m in crate::SbfbManifest::bridge_method_allowlist() {
-            assert!(
+            let sensitive = crate::SENSITIVE_BRIDGE_METHODS.contains(m);
+            assert_eq!(
                 is_authorized(&declared, &grant, &None, m, 0),
-                "grandfather must allow {m}"
+                !sensitive,
+                "grandfather must allow {m} iff it is not sensitive"
             );
         }
         assert!(!is_authorized(&declared, &grant, &None, "not_a_method", 0));
@@ -207,7 +211,7 @@ mod tests {
     }
 
     /// A grant carrying an off-allowlist name (however it was built) authorizes
-    /// NOTHING beyond the 16 dispatchable verbs — the domain bound holds even with
+    /// NOTHING beyond the dispatchable verbs — the domain bound holds even with
     /// `declared = None` (grandfather-shaped) and no policy.
     #[test]
     fn off_allowlist_grant_authorizes_nothing_extra() {

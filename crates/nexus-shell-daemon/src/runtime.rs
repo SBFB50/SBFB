@@ -44,7 +44,9 @@ use nexus_shell_daemon_core::browse::{
     BrowseAggregator, BrowseAggregatorHandle, BrowseEntry, BrowseSource, BrowseStatus,
 };
 use nexus_shell_daemon_core::browse_limiter::BrowseRequestLimiter;
-use nexus_shell_daemon_core::config::{CuratorConfig, SeedConfig, ShellDaemonPaths};
+use nexus_shell_daemon_core::config::{
+    CuratorConfig, MailboxConfig, SeedConfig, ShellDaemonPaths, TransportConfig,
+};
 use nexus_shell_daemon_core::iroh_runtime::{
     CuratorRuntime, CuratorRuntimeError, CuratorRuntimeHandle, curator_topic_id,
     is_node_directory_announcement,
@@ -175,6 +177,12 @@ pub struct DaemonStartOptions {
     /// headless boot seed driver's accept-list. Empty by default
     /// (verrou 3); an empty list drives ZERO boot network calls.
     pub seed: SeedConfig,
+    /// Chat v1 Phase E: `[mailbox]` section — servers this node may
+    /// deposit to (per-app opt-in) and whether it serves itself.
+    pub mailbox: MailboxConfig,
+    /// Chat plan Phase I: `[transport]` section — public IPs in handed-out
+    /// tickets (`advertise_ip`) and the router port mapping.
+    pub transport: TransportConfig,
     /// Sprint 75 Phase E: explicit `.sbfb` security-root override.
     /// `None` (production) resolves `auth::sbfb_home()` ONCE at boot;
     /// the runtime tests inject a tempdir so the boot driver's
@@ -326,15 +334,40 @@ impl DaemonRuntime {
         // TTL-purged). One instance, captured by the handler factory.
         let seed_nonce_cache = std::sync::Arc::new(crate::seed_protocol::NonceCache::default());
 
+        // Chat v1 Phase E: the offline mailbox server, only when the
+        // operator asked for it and never under duress (a decoy identity
+        // must not keep anyone's documents). Built before the node for the
+        // same no-post-spawn-registration reason as the seed handler.
+        let mailbox_server = (opts.mailbox.serve
+            && opts.identity_mode == nexus_core_rs::IdentityMode::Normal)
+            .then(|| {
+                Arc::new(crate::mailbox_protocol::MailboxServer::open(
+                    opts.paths
+                        .root
+                        .join(crate::mailbox_protocol::MAILBOX_REGISTRY_FILE),
+                    nexus_messaging_core::mailbox::MailboxLimits {
+                        ttl_secs: opts.mailbox.ttl_days * 24 * 3600,
+                        max_docs_total: opts.mailbox.max_docs,
+                        max_docs_per_node: opts.mailbox.max_docs_per_node,
+                        max_doc_bytes: opts.mailbox.max_doc_mib * 1024 * 1024,
+                    },
+                ))
+            });
+
         let iroh_data_dir = opts.paths.root.join("iroh");
         let (node, pow_keypair) = boot_node_identity(
             &opts.paths.root,
             &iroh_data_dir,
             &coordinator_db,
             &seed_nonce_cache,
+            mailbox_server.as_ref(),
+            &opts.transport,
         )
         .await?;
         let node_id = node.node_id();
+        if let Some(server) = &mailbox_server {
+            server.attach(nexus_core_rs::docs::DocsClient::new(node.docs()));
+        }
 
         // 3. Bind the TCP listener (the 127.0.0.1 defend-in-depth
         //    clamp lives INSIDE the sub-function, before the bind).
@@ -536,7 +569,7 @@ impl DaemonRuntime {
         //     unit-testable and the coordinator never sits outside its
         //     own doc's sync-set (dead boot->first-submit window
         //     observed LIVE on the anchor, S81 Phase A3 baseline).
-        let docs_client = nexus_core_rs::docs::DocsClient::new(node.docs());
+        let docs_client = nexus_core_rs::docs::DocsClient::for_node(&node);
         let doc_author = docs_client
             .author_default()
             .await
@@ -779,8 +812,11 @@ impl DaemonRuntime {
             coordinator_db: Arc::clone(&coordinator_db),
             result_event_tx,
             canary_registry: {
-                let dir = nexus_shell_daemon_core::paths::shell_daemon_dir()
-                    .unwrap_or_else(|| std::path::PathBuf::from(".sbfb"));
+                // The daemon's own root (`--config` parent, else the grid
+                // root's `shell-daemon/`), never the global grid dir: a
+                // daemon started on a hermetic config must not write into
+                // the user's real install.
+                let dir = opts.paths.root.clone();
                 Arc::new(std::sync::Mutex::new(
                     nexus_coordinator_rs::canary_registry::CanaryRegistry::new(
                         dir.join("canary_registry.json"),
@@ -821,6 +857,22 @@ impl DaemonRuntime {
             // route populates it behind the signature + membership gate.
             shard_sessions: Arc::new(crate::shard_session::ShardSessionRegistry::default()),
             run_store,
+            // Chat v1 (ADR_CHAT_V1): keys sealed under a per-install key file
+            // next to node_key (the daemon's own root, so a `--config`
+            // hermetic daemon keeps its chat state in its own dir); the
+            // whole surface is off under duress.
+            chat: {
+                let dir = opts.paths.root.clone();
+                let key = crate::chat_api::load_or_create_chat_key(&dir)
+                    .context("failed to load or create chat.key")?;
+                Arc::new(crate::chat_api::ChatService::new(
+                    Arc::clone(&node),
+                    dir.join("chat"),
+                    key,
+                    identity_mode == nexus_core_rs::IdentityMode::Normal,
+                    crate::mailbox_protocol::parse_servers(&opts.mailbox.servers),
+                ))
+            },
         });
         // Sprint 16 Phase A (D1) + Sprint 18 audit fix D-1: resolve
         // the loopback bearer auth state (env token > rotated
@@ -1088,28 +1140,47 @@ impl DaemonRuntime {
 /// the Router accepts no post-spawn protocols, which is why the
 /// coordinator DB + nonce cache are opened BEFORE this function
 /// runs and captured by the handler factory here.
+///
+/// Chat v1 Phase E: a node configured to serve the offline mailbox also
+/// registers `MAILBOX_ALPN`; every other node does not speak it at all.
 async fn boot_node_identity(
     root: &Path,
     iroh_data_dir: &Path,
     coordinator_db: &std::sync::Arc<std::sync::Mutex<nexus_coordinator_rs::db::CoordinatorDb>>,
     seed_nonce_cache: &std::sync::Arc<crate::seed_protocol::NonceCache>,
+    mailbox_server: Option<&Arc<crate::mailbox_protocol::MailboxServer>>,
+    transport: &TransportConfig,
 ) -> Result<(Arc<Node>, Arc<KeyPair>)> {
+    info!(
+        advertise_ip = transport.advertise_ip,
+        portmapper = transport.portmapper,
+        "network posture"
+    );
+    let protocols = |pow_kp: &Arc<KeyPair>| {
+        let mut extra = vec![(
+            nexus_core_rs::SEED_ALPN.to_vec(),
+            crate::seed_protocol::seed_protocol_factory(
+                Arc::clone(coordinator_db),
+                Arc::clone(pow_kp),
+                Arc::clone(seed_nonce_cache),
+            ),
+        )];
+        if let Some(server) = mailbox_server {
+            extra.push((
+                nexus_core_rs::MAILBOX_ALPN.to_vec(),
+                crate::mailbox_protocol::mailbox_protocol_factory(Arc::clone(server)),
+            ));
+        }
+        extra
+    };
     let (node, pow_keypair) = match read_optional_identity_env() {
         Some(secret_bytes) => {
             info!("shell daemon using persistent identity from launcher keystore");
             let pow_kp = Arc::new(KeyPair::from_secret_bytes(&secret_bytes));
-            let cfg = NodeConfig::default()
-                .with_secret_key(secret_bytes)
-                .with_data_dir(iroh_data_dir.to_path_buf());
-            let factory = crate::seed_protocol::seed_protocol_factory(
-                Arc::clone(coordinator_db),
-                Arc::clone(&pow_kp),
-                Arc::clone(seed_nonce_cache),
-            );
-            let n =
-                create_node_with_protocols(cfg, vec![(nexus_core_rs::SEED_ALPN.to_vec(), factory)])
-                    .await
-                    .context("failed to boot iroh node with persistent identity")?;
+            let cfg = node_config(secret_bytes, iroh_data_dir, transport);
+            let n = create_node_with_protocols(cfg, protocols(&pow_kp))
+                .await
+                .context("failed to boot iroh node with persistent identity")?;
             (n, pow_kp)
         }
         None => {
@@ -1119,23 +1190,34 @@ async fn boot_node_identity(
                 "shell daemon using file-based persistent identity"
             );
             let pow_kp = Arc::new(KeyPair::from_secret_bytes(&secret_bytes));
-            let cfg = NodeConfig::default()
-                .with_secret_key(secret_bytes)
-                .with_data_dir(iroh_data_dir.to_path_buf());
-            let factory = crate::seed_protocol::seed_protocol_factory(
-                Arc::clone(coordinator_db),
-                Arc::clone(&pow_kp),
-                Arc::clone(seed_nonce_cache),
-            );
-            let n =
-                create_node_with_protocols(cfg, vec![(nexus_core_rs::SEED_ALPN.to_vec(), factory)])
-                    .await
-                    .context("failed to boot iroh node with file-based identity")?;
+            let cfg = node_config(secret_bytes, iroh_data_dir, transport);
+            let n = create_node_with_protocols(cfg, protocols(&pow_kp))
+                .await
+                .context("failed to boot iroh node with file-based identity")?;
             (n, pow_kp)
         }
     };
     info!(node_id = %node.node_id(), "shell daemon iroh node ready");
     Ok((Arc::new(node), pow_keypair))
+}
+
+/// The iroh node configuration of the daemon: its persistent identity and
+/// stores, and the `[transport]` posture (chat plan, Phase I).
+fn node_config(
+    secret_bytes: [u8; 32],
+    iroh_data_dir: &Path,
+    transport: &TransportConfig,
+) -> NodeConfig {
+    let addr_policy = if transport.advertise_ip {
+        nexus_core_rs::AddrPolicy::Full
+    } else {
+        nexus_core_rs::AddrPolicy::Discreet
+    };
+    NodeConfig::default()
+        .with_secret_key(secret_bytes)
+        .with_data_dir(iroh_data_dir.to_path_buf())
+        .with_addr_policy(addr_policy)
+        .with_portmapper(transport.portmapper)
 }
 
 /// Bind the daemon's TCP API listener (start() step 3). An empty
@@ -2571,7 +2653,10 @@ pub(crate) async fn mint_ticket_for_hash_with_addr(
     if !blobs.has(*hash.as_bytes()).await? {
         anyhow::bail!("blob {hash} no longer in local store");
     }
-    Ok(BlobTicket::new(addr.clone(), hash, BlobFormat::Raw).to_string())
+    // The ticket rides gossip to every node of the topic: the node's
+    // address policy decides whether its public IPs go with it.
+    let addr = nexus_core_rs::discreet_addr(addr, node.addr_policy());
+    Ok(BlobTicket::new(addr, hash, BlobFormat::Raw).to_string())
 }
 
 /// Fetch the node's current endpoint address once for a replay pass (Sprint 76
@@ -3045,7 +3130,25 @@ pub(crate) async fn boot_storage_namespace(
             match opened {
                 Some(doc) => {
                     let ticket_str = match row.doc_ticket {
-                        Some(t) => t,
+                        // Re-filtered, not re-minted: a re-mint would enter the
+                        // sync-set before the duress gate below (chat plan
+                        // Phase I — a ticket persisted by an earlier binary
+                        // may carry a public IP).
+                        Some(t) => {
+                            let filtered = docs_client.filter_ticket(&t)?;
+                            if filtered != t {
+                                let db = coordinator_db.lock().map_err(|e| anyhow!("{e}"))?;
+                                db.set_storage_namespace(
+                                    app_name,
+                                    doc.id().as_bytes(),
+                                    Some(&filtered),
+                                )
+                                .map_err(|e| {
+                                    anyhow!("failed to persist re-filtered storage ticket: {e}")
+                                })?;
+                            }
+                            filtered
+                        }
                         None => {
                             let ticket = doc.share_write().await?;
                             let t = ticket.to_string();
@@ -3173,7 +3276,25 @@ pub(crate) async fn boot_feed_namespace(
             match opened {
                 Some(doc) => {
                     let ticket_str = match row.doc_ticket {
-                        Some(t) => t,
+                        // Re-filtered, not re-minted: a re-mint would enter the
+                        // sync-set before the duress gate below (chat plan
+                        // Phase I — a ticket persisted by an earlier binary
+                        // may carry a public IP).
+                        Some(t) => {
+                            let filtered = docs_client.filter_ticket(&t)?;
+                            if filtered != t {
+                                let db = coordinator_db.lock().map_err(|e| anyhow!("{e}"))?;
+                                db.set_storage_namespace(
+                                    feed_key,
+                                    doc.id().as_bytes(),
+                                    Some(&filtered),
+                                )
+                                .map_err(|e| {
+                                    anyhow!("failed to persist re-filtered feed ticket: {e}")
+                                })?;
+                            }
+                            filtered
+                        }
                         None => {
                             let ticket = doc.share_write().await?;
                             let t = ticket.to_string();
@@ -4390,6 +4511,8 @@ mod tests {
             daemon_version: "0.1.0-test".to_string(),
             curator: CuratorConfig::default(),
             seed: SeedConfig::default(),
+            mailbox: MailboxConfig::default(),
+            transport: TransportConfig::default(),
             // Isolate the boot driver's directory-revision persistence in
             // the test root — never the developer's real ~/.sbfb.
             sbfb_home: Some(root.join(".sbfb")),
@@ -5475,5 +5598,180 @@ mod tests {
             !running_json.exists(),
             "running.json must be cleaned after recovery"
         );
+    }
+
+    /// Chat plan Phase I: an announcement's blob ticket rides gossip to
+    /// every node of the topic, so it names a public IP only on a node
+    /// configured to advertise one (`[transport] advertise_ip`).
+    #[tokio::test]
+    async fn announce_blob_ticket_respects_policy() {
+        use nexus_core_rs::{AddrPolicy, NodeConfig, create_node_with_config};
+        const PUBLIC: &str = "198.51.100.7:4433";
+        for (policy, leaks) in [(AddrPolicy::Discreet, false), (AddrPolicy::Full, true)] {
+            let node = create_node_with_config(NodeConfig::default().with_addr_policy(policy))
+                .await
+                .unwrap();
+            node.endpoint()
+                .add_external_addr(PUBLIC.parse().unwrap())
+                .await;
+            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+            while !node
+                .endpoint()
+                .addr()
+                .ip_addrs()
+                .any(|a| a.to_string() == PUBLIC)
+            {
+                assert!(
+                    tokio::time::Instant::now() < deadline,
+                    "external address never advertised"
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+            let hash = nexus_core_rs::BlobsClient::new(node.blobs_store())
+                .add_bytes(b"announced-archive".to_vec())
+                .await
+                .unwrap();
+            let ticket: iroh_blobs::ticket::BlobTicket =
+                mint_ticket_for_hash(&node, iroh_blobs::Hash::from_bytes(hash))
+                    .await
+                    .unwrap()
+                    .parse()
+                    .unwrap();
+            let named = ticket.addr().ip_addrs().any(|a| a.to_string() == PUBLIC);
+            assert_eq!(named, leaks, "{policy:?}: {ticket:?}");
+            node.shutdown().await.ok();
+        }
+    }
+
+    #[test]
+    fn transport_section_reaches_the_node_config() {
+        use nexus_core_rs::AddrPolicy;
+        let dir = Path::new("iroh");
+        let default = node_config([1; 32], dir, &TransportConfig::default());
+        assert_eq!(default.addr_policy, AddrPolicy::Discreet);
+        assert!(!default.portmapper);
+        let anchor = node_config(
+            [1; 32],
+            dir,
+            &TransportConfig {
+                advertise_ip: true,
+                portmapper: true,
+            },
+        );
+        assert_eq!(anchor.addr_policy, AddrPolicy::Full);
+        assert!(anchor.portmapper);
+        assert_eq!(anchor.data_dir.as_deref(), Some(dir));
+    }
+
+    /// Chat plan Phase I: a storage or feed ticket persisted by an earlier binary
+    /// (minted with every address) is served re-filtered after the
+    /// upgrade, and the row is rewritten — without a re-mint.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn persisted_tickets_are_refiltered_at_reopen() {
+        use nexus_core_rs::AddrPolicy;
+        const PUBLIC: &str = "198.51.100.7:4433";
+        let node = nexus_core_rs::create_node().await.unwrap();
+        node.endpoint()
+            .add_external_addr(PUBLIC.parse().unwrap())
+            .await;
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+        while !node
+            .endpoint()
+            .addr()
+            .ip_addrs()
+            .any(|a| a.to_string() == PUBLIC)
+        {
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "external address never advertised"
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        let docs_client = nexus_core_rs::docs::DocsClient::new(node.docs());
+        let author = docs_client.author_create().await.unwrap();
+        let doc = docs_client.create_doc().await.unwrap();
+        let legacy = doc
+            .share_write_with(AddrPolicy::Full)
+            .await
+            .unwrap()
+            .to_string();
+        assert!(
+            legacy_names(&legacy, PUBLIC),
+            "the legacy ticket must carry the IP"
+        );
+        let db = std::sync::Arc::new(std::sync::Mutex::new(
+            nexus_coordinator_rs::db::CoordinatorDb::open_in_memory().unwrap(),
+        ));
+        db.lock()
+            .unwrap()
+            .set_storage_namespace("sbfb-ideas", doc.id().as_bytes(), Some(&legacy))
+            .unwrap();
+
+        let state = boot_storage_namespace(
+            &docs_client,
+            &db,
+            "sbfb-ideas",
+            author,
+            nexus_core_rs::IdentityMode::Normal,
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(state.doc.id(), doc.id());
+        assert!(
+            !legacy_names(&state.ticket, PUBLIC),
+            "served ticket still names the IP"
+        );
+        let row = db
+            .lock()
+            .unwrap()
+            .get_storage_namespace("sbfb-ideas")
+            .unwrap()
+            .unwrap();
+        assert_eq!(row.doc_ticket.as_deref(), Some(state.ticket.as_str()));
+
+        // Same rule on the feed namespace (its own reopen arm).
+        let feed_doc = docs_client.create_doc().await.unwrap();
+        let feed_legacy = feed_doc
+            .share_write_with(AddrPolicy::Full)
+            .await
+            .unwrap()
+            .to_string();
+        let feed_key = crate::feed_sync::FEED_NAMESPACE_KEY;
+        db.lock()
+            .unwrap()
+            .set_storage_namespace(feed_key, feed_doc.id().as_bytes(), Some(&feed_legacy))
+            .unwrap();
+        let feed = boot_feed_namespace(
+            &docs_client,
+            &db,
+            author,
+            nexus_core_rs::IdentityMode::Normal,
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(feed.doc.id(), feed_doc.id());
+        assert!(
+            !legacy_names(&feed.ticket, PUBLIC),
+            "served feed ticket still names the IP"
+        );
+        let row = db
+            .lock()
+            .unwrap()
+            .get_storage_namespace(feed_key)
+            .unwrap()
+            .unwrap();
+        assert_eq!(row.doc_ticket.as_deref(), Some(feed.ticket.as_str()));
+        node.shutdown().await.ok();
+    }
+
+    fn legacy_names(ticket: &str, ip: &str) -> bool {
+        ticket
+            .parse::<nexus_core_rs::docs::DocsTicket>()
+            .unwrap()
+            .nodes
+            .iter()
+            .any(|n| n.ip_addrs().any(|a| a.to_string() == ip))
     }
 }

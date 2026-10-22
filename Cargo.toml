@@ -16,6 +16,7 @@ members = [
     "crates/sbfb-factory",
     "crates/sbfb-workflow-core",
     "crates/sbfb-workflow-engine",
+    "crates/nexus-messaging-core",
     "tools/png-to-icns",
 ]
 
@@ -69,6 +70,8 @@ serde_jcs = "0.2"
 # Crypto (Ed25519 signatures, BLAKE3 content hashes, SHA256 Hashcash PoW)
 ed25519-dalek = "2.1"
 blake3 = "1.5"
+# Chat v1 (2026-10-21): Olm/Megolm E2E (Matrix), audited by Least Authority.
+vodozemac = "0.11.1"
 rand = "0.8"
 # Sprint 19 Phase B : SHA256 backing the Hashcash PoW primitive
 # (crates/nexus-core-rs/src/pow.rs). Hashcash historically targets
@@ -527,6 +530,15 @@ opt-level = 1
 # Only consumed when an operator builds with `--features llm_llama_cpp*`; CI never
 # builds that feature so this override has zero impact on the standard pipeline.
 # The patch is tracked re-appliably in patches/llama-cpp-shard.patch.
+#
+# Chat plan Phase I (2026-10-22, PO decision): vendored iroh-gossip 0.101.0 with
+# one addition, `Builder::addr_filter` (mirrors `iroh::endpoint::Builder::addr_filter`):
+# the peer data gossip sends about a node reaches nodes it never connected to, and
+# upstream offers no way to keep its public IP out of it. MIT/Apache-2.0 upstream
+# (n0-computer/iroh-gossip), notice in THIRD-PARTY-NOTICES. The change is tracked
+# re-appliably in patches/iroh-gossip-addr-filter.patch and must be carried to the
+# next iroh-gossip bump (or dropped once upstream ships an equivalent).
 [patch.crates-io]
 llama-cpp-sys-2 = { path = "vendor/llama-cpp-sys-2" }
 llama-cpp-2 = { path = "vendor/llama-cpp-2" }
+iroh-gossip = { path = "vendor/iroh-gossip" }

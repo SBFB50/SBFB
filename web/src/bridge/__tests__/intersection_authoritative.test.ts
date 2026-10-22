@@ -220,4 +220,84 @@ describe("useBridge authority intersection (Sprint 83 Phase C)", () => {
       "[REDACTED:EMAIL_ADDRESS]",
     );
   });
+
+  it("chat: a declared chat verb is refused WITHOUT consent (no fetch)", () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const authority = resolveDeclaredAuthority(["chat_send"]);
+    renderHook(() =>
+      useBridge("http://localhost:8000", "chat", iframeRef, authority, "pub:chat"),
+    );
+    dispatch(
+      makeRequest({
+        id: "33333333-3333-4333-8333-333333333333",
+        method: "chat_send",
+        payload: { conversation: "c1", text: "salut" },
+      }),
+    );
+    const resp = fakeWindow.postMessage.mock.calls[0][0] as BridgeResponse;
+    expect(resp.success).toBe(false);
+    expect(resp.error).toContain("not authorized");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("chat: with consent, chat_send targets the publisher-scoped chat route", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    const authority = resolveDeclaredAuthority(["chat_send"], true);
+    renderHook(() =>
+      useBridge("http://localhost:8000", "chat", iframeRef, authority, "pub:chat"),
+    );
+    dispatch(
+      makeRequest({
+        id: "44444444-4444-4444-8444-444444444444",
+        method: "chat_send",
+        payload: { conversation: "c/1", text: "salut" },
+      }),
+    );
+    await vi.waitFor(() => expect(fakeWindow.postMessage).toHaveBeenCalled());
+    const resp = fakeWindow.postMessage.mock.calls[0][0] as BridgeResponse;
+    expect(resp.success).toBe(true);
+    const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("http://localhost:8000/app/pub%3Achat/chat/conversations/c%2F1/send");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(String(init.body))).toEqual({ text: "salut" });
+  });
+
+  it("chat_mailbox: no payload reads the state, a boolean sets it, anything else is refused", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async () => new Response(JSON.stringify({ enabled: true }), { status: 200 }));
+    const authority = resolveDeclaredAuthority(["chat_mailbox"], true);
+    renderHook(() =>
+      useBridge("http://localhost:8000", "chat", iframeRef, authority, "pub:chat"),
+    );
+    const ids = [
+      "55555555-5555-4555-8555-555555555555",
+      "66666666-6666-4666-8666-666666666666",
+      "77777777-7777-4777-8777-777777777777",
+    ];
+    const payloads = [{}, { enabled: true }, { enabled: "yes" }];
+    payloads.forEach((payload, i) =>
+      dispatch(makeRequest({ id: ids[i], method: "chat_mailbox", payload })),
+    );
+    await vi.waitFor(() => expect(fakeWindow.postMessage).toHaveBeenCalledTimes(3));
+    const byId = new Map(
+      fakeWindow.postMessage.mock.calls.map((c) => {
+        const r = c[0] as BridgeResponse;
+        return [r.id, r];
+      }),
+    );
+    expect(byId.get(ids[0])?.success).toBe(true);
+    expect(byId.get(ids[1])?.success).toBe(true);
+    expect(byId.get(ids[2])?.success).toBe(false);
+    expect(byId.get(ids[2])?.error).toContain("must be a boolean");
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    const calls = fetchSpy.mock.calls as [string, RequestInit][];
+    const get = calls.find(([, init]) => init.method === undefined);
+    const post = calls.find(([, init]) => init.method === "POST");
+    expect(get?.[0]).toBe("http://localhost:8000/app/pub%3Achat/chat/mailbox");
+    expect(post?.[0]).toBe("http://localhost:8000/app/pub%3Achat/chat/mailbox");
+    expect(JSON.parse(String(post?.[1].body))).toEqual({ enabled: true });
+  });
 });

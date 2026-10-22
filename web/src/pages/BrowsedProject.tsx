@@ -17,6 +17,12 @@ import {
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useBridge } from "@/bridge/useBridge";
+import { useChatStream } from "@/bridge/useChatStream";
+import {
+  getChatConsent,
+  setChatConsent,
+  type ChatConsent,
+} from "@/bridge/chat-consent";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -59,9 +65,8 @@ import {
   listApps,
 } from "@/api/coordinator";
 import {
-  GRANDFATHER_AUTHORITY,
+  declaredSensitiveMethods,
   resolveAuthorityFromManifest,
-  type BridgeAuthority,
 } from "@/bridge/authority";
 import {
   selectActiveCoordinator,
@@ -291,17 +296,19 @@ function FullScreenApp({
   // legacy: a pre-existing app keeps working; only an app that EXPLICITLY declares a
   // `bridge` config is fail-closed on its declared set (the per-call intersection
   // lives in useBridge). The resolver never throws.
-  const authorityQuery = useQuery({
+  // Chat v1: the manifest is fetched once (null on any failure -> grandfathered
+  // legacy) and the authority is derived from it AND the user's chat consent.
+  const manifestQuery = useQuery({
     queryKey: [
-      "bridge-authority",
+      "app-manifest",
       entry.archive_hash,
       daemonInfo?.api_host,
       daemonInfo?.api_port,
     ],
     enabled: hasArchive,
     staleTime: 60_000,
-    queryFn: async (): Promise<BridgeAuthority> => {
-      if (!daemonInfo || !entry.archive_hash) return GRANDFATHER_AUTHORITY;
+    queryFn: async (): Promise<unknown> => {
+      if (!daemonInfo || !entry.archive_hash) return null;
       try {
         const resp = await fetch(
           blobServeUrl(
@@ -310,26 +317,55 @@ function FullScreenApp({
             "SBFB.json",
           ),
         );
-        if (!resp.ok) return GRANDFATHER_AUTHORITY;
-        // The pure release-declaration -> authority resolution (grandfather vs
-        // fail-closed) is unit-tested in `@/bridge/authority`; here we only fetch
-        // and fall back on any failure.
-        return resolveAuthorityFromManifest(await resp.json());
+        if (!resp.ok) return null;
+        return (await resp.json()) as unknown;
       } catch {
-        return GRANDFATHER_AUTHORITY;
+        return null;
       }
     },
   });
+  const manifest = manifestQuery.data ?? null;
+
+  // Chat v1 (ADR_CHAT_V1): the sensitive class needs the user's explicit
+  // consent, recorded per exact archive (a new version asks again).
+  const chatDeclared = declaredSensitiveMethods(manifest).length > 0;
+  const [chatConsent, setChatConsentState] = useState<ChatConsent | null>(() =>
+    entry.archive_hash ? getChatConsent(entry.archive_hash) : null,
+  );
+  const decideChat = useCallback(
+    (decision: ChatConsent) => {
+      if (entry.archive_hash) setChatConsent(entry.archive_hash, decision);
+      setChatConsentState(decision);
+    },
+    [entry.archive_hash],
+  );
+  const authority = useMemo(
+    // The pure release-declaration -> authority resolution (grandfather vs
+    // fail-closed, sensitive class behind consent) is unit-tested in
+    // `@/bridge/authority`; a null manifest resolves to grandfathered legacy.
+    () => resolveAuthorityFromManifest(manifest, chatConsent === "granted"),
+    [manifest, chatConsent],
+  );
+  // Publisher key + name: two publishers of the same app name never share a
+  // messaging identity on this node.
+  const chatAppKey = `${entry.curator_pubkey}:${entry.project_name}`;
 
   // Sprint 13 Phase C: bridge listener for iframe ↔ coordinator.
   // Sprint 15 Phase B: also exposes the CPU watchdog state.
   // Sprint 83 Phase C: governed by the resolved per-app authority (grandfather
   // until resolved / on any failure).
-  const { watchdogState, resetWatchdog } = useBridge(
+  const { pushEvent, watchdogState, resetWatchdog } = useBridge(
     coordUrl,
     entry.project_name,
     iframeRef,
-    authorityQuery.data ?? GRANDFATHER_AUTHORITY,
+    authority,
+    chatAppKey,
+  );
+  useChatStream(
+    coordUrl,
+    chatAppKey,
+    chatDeclared && chatConsent === "granted",
+    pushEvent,
   );
 
   // Sprint 15 Phase B: reload a stalled iframe by resetting its src.
@@ -639,8 +675,60 @@ function FullScreenApp({
           </div>
         )}
 
-        {hasArchive ? (
+        {hasArchive && chatDeclared && chatConsent === null && (
+          <div
+            className="absolute inset-x-0 top-14 z-40 mx-auto w-fit max-w-xl rounded-2xl border border-white/10 bg-black/80 px-5 py-4 text-sm text-white backdrop-blur-xl"
+            role="dialog"
+            aria-labelledby="chat-consent-title"
+            data-testid="chat-consent"
+          >
+            <p id="chat-consent-title" className="font-semibold">
+              Cette app demande la messagerie chiffrée
+            </p>
+            <p className="mt-1 text-xs text-white/70">
+              Elle pourra créer des conversations, inviter des personnes et
+              rejoindre des conversations au nom de ce nœud. Les messages sont
+              chiffrés de bout en bout, mais vos contacts voient l'adresse de
+              votre nœud. Votre choix vaut pour cette version de l'app.
+            </p>
+            <div className="mt-3 flex gap-2">
+              <button
+                type="button"
+                onClick={() => decideChat("granted")}
+                className="rounded-full bg-white px-4 py-1.5 text-xs font-semibold text-black hover:bg-white/90"
+                data-testid="chat-consent-grant"
+              >
+                Autoriser
+              </button>
+              <button
+                type="button"
+                onClick={() => decideChat("denied")}
+                className="rounded-full bg-white/[0.08] px-4 py-1.5 text-xs text-white hover:bg-white/[0.15]"
+                data-testid="chat-consent-deny"
+              >
+                Refuser
+              </button>
+            </div>
+          </div>
+        )}
+
+        {hasArchive && manifestQuery.isPending ? (
+          // The app's authority comes from its manifest: an app mounted before
+          // the manifest resolves boots under the grandfathered authority and
+          // meets refusals it never retries (found by the chat T1: a revisit
+          // with consent already granted raced the manifest fetch). One local
+          // fetch, then the app boots under its final authority.
+          <div
+            className="h-full w-full"
+            aria-busy="true"
+            data-testid="app-authority-pending"
+          />
+        ) : hasArchive ? (
           <iframe
+            // A consent decision changes what the app may reach: remount it so
+            // it boots under its new authority instead of staying stuck on the
+            // refusals it met before the user answered.
+            key={chatConsent ?? "undecided"}
             src={blobServeUrl(
               daemonBaseUrlFromInfo(daemonInfo!),
               entry.archive_hash!,

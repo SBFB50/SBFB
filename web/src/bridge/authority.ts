@@ -22,7 +22,7 @@
  * evaluated per call. Parity with the Rust allowlist is a security invariant gated
  * by scripts/check-frontier-contracts.sh.
  */
-import { BRIDGE_METHODS, type BridgeMethod } from "@/bridge/protocol";
+import { BRIDGE_METHODS, CHAT_METHODS, type BridgeMethod } from "@/bridge/protocol";
 
 /** A time-bounded, revocable grant of bridge method capabilities to an app/release. */
 export interface Grant {
@@ -70,9 +70,22 @@ function intersect(
   return out;
 }
 
-/** The full dispatch set (the 16 host-dispatched verbs) as a `Set<BridgeMethod>`. */
+/** The full dispatch set (every host-dispatched verb) as a `Set<BridgeMethod>`. */
 export const ALL_DISPATCH_METHODS: ReadonlySet<BridgeMethod> = new Set(
   BRIDGE_METHODS,
+);
+
+/**
+ * Verbs that are NEVER grandfathered and never granted by a release declaration
+ * alone: they additionally need the user's explicit consent (chat v1 — an app
+ * reaching them can make the node join conversations and hand out write access
+ * to them). Mirror of Rust `SENSITIVE_BRIDGE_METHODS` (`sbfb-manifest`).
+ */
+export const SENSITIVE_METHODS: ReadonlySet<BridgeMethod> = CHAT_METHODS;
+
+/** The verbs a legacy app keeps without asking: everything but the sensitive class. */
+export const GRANDFATHER_METHODS: ReadonlySet<BridgeMethod> = new Set(
+  [...ALL_DISPATCH_METHODS].filter((m) => !SENSITIVE_METHODS.has(m)),
 );
 
 /**
@@ -90,8 +103,8 @@ export function effectiveMethods(
   if (auth.policy !== null) eff = intersect(eff, auth.policy);
   // Domain bound (belt-and-suspenders, mirrors Rust `effective_methods`): never
   // exceed the dispatchable universe, so a grant carrying an off-allowlist name
-  // authorizes nothing beyond the 16 verbs — regardless of how it was built.
-  // `req.method` is already Zod-bounded to the 16 upstream; this is defense in depth.
+  // authorizes nothing beyond the dispatch verbs — regardless of how it was built.
+  // `req.method` is already Zod-bounded upstream; this is defense in depth.
   eff = intersect(eff, ALL_DISPATCH_METHODS);
   return eff;
 }
@@ -108,9 +121,9 @@ export function isAuthorized(
   return effectiveMethods(auth, nowMs).has(method);
 }
 
-/** The legacy grandfather grant: every dispatch method, no expiry, not revoked. */
+/** The legacy grandfather grant: every NON-sensitive dispatch method, no expiry. */
 export const GRANDFATHER_GRANT: Grant = {
-  methods: ALL_DISPATCH_METHODS,
+  methods: GRANDFATHER_METHODS,
   expiresAtMs: null,
   revoked: false,
 };
@@ -119,7 +132,8 @@ export const GRANDFATHER_GRANT: Grant = {
  * Grandfather authority for a legacy app (no `bridge` declaration): the release
  * layer is absent (`declared = null`) and the grant is the full dispatch set, so a
  * pre-existing app keeps reaching the methods it always could. The intersection is
- * STILL evaluated (never bypassed) — it resolves to "allowed for the 16 verbs".
+ * STILL evaluated (never bypassed) — it resolves to "allowed for the non-sensitive
+ * verbs" (the sensitive class needs a declaration AND consent).
  */
 export const GRANDFATHER_AUTHORITY: BridgeAuthority = {
   declared: null,
@@ -139,17 +153,34 @@ export const GRANDFATHER_AUTHORITY: BridgeAuthority = {
  */
 export function resolveDeclaredAuthority(
   declaredMethods: readonly string[] | null,
+  consentedSensitive = false,
 ): BridgeAuthority {
   if (declaredMethods === null) return GRANDFATHER_AUTHORITY;
   const declared = new Set<BridgeMethod>();
   for (const m of declaredMethods) {
     if (ALL_DISPATCH_METHODS.has(m as BridgeMethod)) declared.add(m as BridgeMethod);
   }
+  // The grant only carries a declared sensitive verb once the user consented.
+  const granted = new Set(
+    [...declared].filter((m) => consentedSensitive || !SENSITIVE_METHODS.has(m)),
+  );
   return {
     declared,
-    grant: { methods: declared, expiresAtMs: null, revoked: false },
+    grant: { methods: granted, expiresAtMs: null, revoked: false },
     policy: null,
   };
+}
+
+/** Sensitive verbs a manifest declares (drives the consent prompt). */
+export function declaredSensitiveMethods(manifest: unknown): BridgeMethod[] {
+  if (manifest === null || typeof manifest !== "object") return [];
+  const bridge = (manifest as { bridge?: unknown }).bridge;
+  if (bridge === null || typeof bridge !== "object") return [];
+  const raw = (bridge as { methods?: unknown }).methods;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(
+    (m): m is BridgeMethod => typeof m === "string" && SENSITIVE_METHODS.has(m as BridgeMethod),
+  );
 }
 
 /**
@@ -159,7 +190,10 @@ export function resolveDeclaredAuthority(
  * empty). Off-allowlist names are dropped. Pure (no I/O), so the branch logic is
  * unit-tested directly; the fetch + graceful fallback wrapper lives in the shell.
  */
-export function resolveAuthorityFromManifest(manifest: unknown): BridgeAuthority {
+export function resolveAuthorityFromManifest(
+  manifest: unknown,
+  consentedSensitive = false,
+): BridgeAuthority {
   if (manifest === null || typeof manifest !== "object") return GRANDFATHER_AUTHORITY;
   const bridge = (manifest as { bridge?: unknown }).bridge;
   // A missing OR explicitly `null` `bridge` -> grandfather. `null` is read as ABSENT
@@ -172,5 +206,5 @@ export function resolveAuthorityFromManifest(manifest: unknown): BridgeAuthority
   const methods = Array.isArray(raw)
     ? raw.filter((m): m is string => typeof m === "string")
     : [];
-  return resolveDeclaredAuthority(methods);
+  return resolveDeclaredAuthority(methods, consentedSensitive);
 }

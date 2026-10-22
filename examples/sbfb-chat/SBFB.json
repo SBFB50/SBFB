@@ -1,0 +1,21 @@
+{
+  "schema_version": 2,
+  "name": "sbfb-chat",
+  "version": "0.1.0",
+  "description": "SBFB Chat — messagerie chiffrée de bout en bout (1:1 et groupes) sur iroh",
+  "category": "communication",
+  "bridge": {
+    "methods": [
+      "chat_identity",
+      "chat_set_profile",
+      "chat_list",
+      "chat_create",
+      "chat_invite",
+      "chat_accept",
+      "chat_send",
+      "chat_messages",
+      "chat_remove",
+      "chat_mailbox"
+    ]
+  }
+}

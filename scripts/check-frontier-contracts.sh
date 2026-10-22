@@ -41,8 +41,8 @@
 #       "// FRONTIER-NO-SCHEMA: <name> <reason>" exemption. UNannotated
 #       wire types are NOT violations — the registry is opt-in and grows
 #       incrementally. The backlog is accept-and-closed (S82 Phase G, D8):
-#       the DOMAIN_*_V1 family census is FROZEN by check (2b) below — 29
-#       named families, 25 without a generated schema — and a NEW family must
+#       the DOMAIN_*_V1 family census is FROZEN by check (2b) below — 31
+#       named families, 27 without a generated schema — and a NEW family must
 #       make its own conscious schema/no-schema decision instead of the
 #       count drifting silently (no exhaustive tagging of the backlog).
 #   (3) BLOB_SERVE_CSP non-regression — the canonical sandbox CSP
@@ -210,10 +210,13 @@ fi
 # ── (2b) DOMAIN_*_V1 frozen family census (S82 Phase G, D8; S83 F) ─
 # The census is a frozen NAME LIST since S83 Phase F (it was a bare count
 # before, which a net-zero add+remove could fool — docs/rust/PATTERNS.md
-# §P70): 29 distinct `const DOMAIN_*_V<n>` families across crates/ (27 in
+# §P70): 31 distinct `const DOMAIN_*_V<n>` families across crates/ (29 in
 # canonical.rs + DOMAIN_KEYSTORE_V1 + DOMAIN_TRACE_EVENT_V1), of which 4
 # carry a generated schema (COMPUTE_GROUP, SHARD_PLAN, RUN_PROOF,
-# WORKFLOW_PACK) -> 25 unschematised: 22 accept-and-closed (S82 G) + 3
+# WORKFLOW_PACK) -> 27 unschematised: 22 accept-and-closed (S82 G) + 2 chat
+# v1 (CHAT_INVITE / CHAT_ENVELOPE, 2026-10-21, D8 = no-schema: app-level
+# payloads with ONE producer/consumer crate, nexus-messaging-core, pinned by
+# its round-trip + tamper tests; not a network contract other runtimes read) + 3
 # RESERVED tags with no payload yet (COMPILED_PLAN / RUN_EVENT /
 # PACK_INSTALL_RECEIPT, S83 F, D8 rationale = no-schema until their
 # contract identities are filled — the DOMAIN_KUDOS_V1 arrangement).
@@ -226,9 +229,12 @@ fi
 # census growth, removal or rename is exactly what this tripwire catches.
 # Honest bound: a commented-out `const DOMAIN_...` line still matches the
 # grep; catching that class stays with the per-sprint review of canonical.rs.
-# S83 Phase F took the census 25 -> 29 (WORKFLOW_PACK filled + 3 reserved).
+# S83 Phase F took the census 25 -> 29 (WORKFLOW_PACK filled + 3 reserved);
+# chat v1 Phase B took it 29 -> 31 (CHAT_INVITE + CHAT_ENVELOPE, no-schema).
 DOMAIN_CENSUS_FROZEN="DOMAIN_ACTIVATION_COMMIT_V1
 DOMAIN_AGE_WITNESS_V1
+DOMAIN_CHAT_ENVELOPE_V1
+DOMAIN_CHAT_INVITE_V1
 DOMAIN_CLAIM_V1
 DOMAIN_COMPILED_PLAN_V1
 DOMAIN_COMPUTE_GROUP_V1

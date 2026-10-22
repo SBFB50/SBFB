@@ -28,6 +28,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 import BrowsedProject from "../BrowsedProject";
+import { setChatConsent } from "@/bridge/chat-consent";
 import { useProjectStore } from "@/stores/projectStore";
 
 const COORD_URL = "http://127.0.0.1:8765";
@@ -223,6 +224,78 @@ describe("BrowsedProject", () => {
       "src",
       expect.stringContaining("/blob-serve/"),
     );
+  });
+
+  it("chat consent remounts the app so it boots under the granted authority", async () => {
+    // Found by hand (chat v1 Phase F): an app loaded BEFORE the user answered
+    // met refusals at boot and stayed stuck after "Autoriser".
+    localStorage.clear();
+    mockFetch({
+      "/api/daemon/browse": {
+        entries: [
+          makeBrowseEntry({
+            project_id: REMOTE_NODE_ID,
+            archive_ticket: "blobticket_abc123",
+            archive_hash: "cd".repeat(32),
+          }),
+        ],
+      },
+      "/api/daemon/info": makeDaemonInfo(),
+      "/SBFB.json": { bridge: { methods: ["chat_identity"] } },
+    });
+    renderPage(REMOTE_NODE_ID);
+    await waitFor(() => expect(screen.getByTestId("chat-consent")).toBeInTheDocument());
+    const before = screen.getByTestId("remote-iframe-element");
+    await userEvent.click(screen.getByTestId("chat-consent-grant"));
+    await waitFor(() => expect(screen.queryByTestId("chat-consent")).not.toBeInTheDocument());
+    const after = screen.getByTestId("remote-iframe-element");
+    expect(after).not.toBe(before);
+    expect(before.isConnected).toBe(false);
+  });
+
+  it("does not mount the app before its manifest resolves (consent already granted)", async () => {
+    // Found by the chat T1 (Playwright): on a revisit the consent is already
+    // granted, so nothing remounts the app; mounted before the manifest
+    // resolved, it booted under the grandfathered authority, its chat calls
+    // were refused and it stayed stuck.
+    localStorage.clear();
+    const hash = "ef".repeat(32);
+    setChatConsent(hash, "granted");
+    mockFetch({
+      "/api/daemon/browse": {
+        entries: [
+          makeBrowseEntry({
+            project_id: REMOTE_NODE_ID,
+            archive_ticket: "blobticket_abc123",
+            archive_hash: hash,
+          }),
+        ],
+      },
+      "/api/daemon/info": makeDaemonInfo(),
+      "/SBFB.json": { bridge: { methods: ["chat_identity"] } },
+    });
+    const inner = globalThis.fetch as unknown as (url: string) => Promise<Response>;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (new URL(url).pathname.endsWith("/SBFB.json")) await gate;
+        return inner(url);
+      }),
+    );
+    renderPage(REMOTE_NODE_ID);
+    await waitFor(() =>
+      expect(screen.getByTestId("app-authority-pending")).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId("remote-iframe-element")).not.toBeInTheDocument();
+    release();
+    await waitFor(() =>
+      expect(screen.getByTestId("remote-iframe-element")).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId("chat-consent")).not.toBeInTheDocument();
   });
 
   it("renders sandbox label in top bar for iframe content", async () => {

@@ -92,7 +92,8 @@ pub use attestations::{
 };
 pub use blobs::{BlobsClient, Store};
 pub use canonical::{
-    DOMAIN_ACTIVATION_COMMIT_V1, DOMAIN_AGE_WITNESS_V1, DOMAIN_CLAIM_V1, DOMAIN_COMPUTE_GROUP_V1,
+    DOMAIN_ACTIVATION_COMMIT_V1, DOMAIN_AGE_WITNESS_V1, DOMAIN_CHAT_ENVELOPE_V1,
+    DOMAIN_CHAT_INVITE_V1, DOMAIN_CLAIM_V1, DOMAIN_COMPUTE_GROUP_V1,
     DOMAIN_CONTRIBUTOR_ATTESTATION_V1, DOMAIN_CURATOR_LIST_V1, DOMAIN_DELEGATION_CERT_V1,
     DOMAIN_DURESS_ACK_V1, DOMAIN_FEED_V1, DOMAIN_INVITE_V1, DOMAIN_KEY_ROTATION_V1,
     DOMAIN_KUDOS_V1, DOMAIN_NODE_DIRECTORY_V1, DOMAIN_POW_V1, DOMAIN_PROVENANCE_V1,
@@ -112,7 +113,7 @@ pub use curator::{
     ContributorRegistry, CuratorList, CuratorListEntry, CuratorProjectRef,
 };
 pub use dht_quorum::{QuorumError, QuorumRecord, QuorumResolver, redundant_resolve};
-pub use discovery::{DiscoveryClient, NodeAddrInfo};
+pub use discovery::{AddrPolicy, DiscoveryClient, NodeAddrInfo, discreet_addr};
 pub use discovery_override::{
     DiscoveryPlan, NetworkDefaults, SBFB_PUBLIC_NETWORK, ZERO_N0_ENV, ZERO_N0_PKARR_RELAYS_ENV,
     install_network_defaults, load_discovery_override, validate_zero_n0_pkarr_url,
@@ -144,8 +145,8 @@ pub use keystore::{
     TAG_LEN, UnlockError,
 };
 pub use node::{
-    BlobStore, ExtraProtocolFactory, Node, NodeConfig, SEED_ALPN, SHARD_ALPN, create_node,
-    create_node_with_config, create_node_with_protocols,
+    BlobStore, ExtraProtocolFactory, MAILBOX_ALPN, Node, NodeConfig, SEED_ALPN, SHARD_ALPN,
+    create_node, create_node_with_config, create_node_with_protocols,
 };
 pub use node_directory::{
     CatalogApp, NODE_DIRECTORY_ARCHIVE_HASH_MAX, NODE_DIRECTORY_CATEGORY_MAX,

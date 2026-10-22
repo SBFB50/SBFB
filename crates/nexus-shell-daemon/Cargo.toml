@@ -27,6 +27,7 @@ nexus-trace-core = { path = "../nexus-trace-core" }
 # `Node::gossip()` and `Node::blobs_store()` for the curator
 # subscribe pipeline.
 nexus-core-rs = { path = "../nexus-core-rs" }
+nexus-messaging-core = { path = "../nexus-messaging-core" }
 nexus-coordinator-rs = { path = "../nexus-coordinator-rs" }
 nexus-worker-core = { path = "../nexus-worker-core" }
 sbfb-manifest = { path = "../sbfb-manifest" }

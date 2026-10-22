@@ -205,10 +205,124 @@ impl<'a> DiscoveryClient<'a> {
     }
 }
 
+/// What an address this node hands out — in a doc ticket, a blob ticket,
+/// an announcement — may say about where it lives (chat plan, Phase I).
+///
+/// The address reaches whoever the ticket reaches: an invitation link or
+/// QR code, every node of a gossip topic. A connected peer still learns
+/// the direct paths in-band once the connection is up; this only governs
+/// what is published ahead of any connection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AddrPolicy {
+    /// Relay URLs and non-global IP addresses only (loopback, private
+    /// IPv4, IPv4 link-local, IPv6 unique-local). The default: a public IP
+    /// is never published, and a LAN peer still connects directly. A host
+    /// whose interfaces carry global addresses only hands out relay-only
+    /// tickets.
+    #[default]
+    Discreet,
+    /// Every address, public IPs included. For an always-on node whose
+    /// public address is the point (an anchor on a VPS).
+    Full,
+}
+
+/// The addresses of `addr` that `policy` lets out. Allow-list, not
+/// block-list: an address of a kind not named here (a global or CGNAT
+/// IP, a documentation range, a custom transport) is dropped under
+/// [`AddrPolicy::Discreet`].
+pub fn discreet_addr(addr: &EndpointAddr, policy: AddrPolicy) -> EndpointAddr {
+    EndpointAddr {
+        id: addr.id,
+        addrs: addr
+            .addrs
+            .iter()
+            .filter(|t| policy.keeps(t))
+            .cloned()
+            .collect(),
+    }
+}
+
+impl AddrPolicy {
+    /// Whether `addr` may leave the node under this policy — the one rule
+    /// behind [`discreet_addr`] and [`AddrPolicy::gossip_filter`].
+    pub fn keeps(self, addr: &TransportAddr) -> bool {
+        match (self, addr) {
+            (AddrPolicy::Full, _) => true,
+            (AddrPolicy::Discreet, TransportAddr::Relay(_)) => true,
+            (AddrPolicy::Discreet, TransportAddr::Ip(sa)) => is_non_global_ip(sa.ip()),
+            (AddrPolicy::Discreet, _) => false,
+        }
+    }
+
+    /// The same rule for the peer data iroh-gossip sends about this node:
+    /// it travels beyond direct neighbors (join forwarding, shuffles) to
+    /// nodes this one never connected to.
+    pub fn gossip_filter(self) -> iroh::address_lookup::AddrFilter {
+        iroh::address_lookup::AddrFilter::new(move |addrs| {
+            std::borrow::Cow::Owned(addrs.iter().filter(|a| self.keeps(a)).cloned().collect())
+        })
+    }
+}
+
+/// Loopback, private IPv4 (RFC 1918), IPv4 link-local, or IPv6
+/// unique-local. The shared CGNAT range `100.64.0.0/10` is NOT private
+/// here: it is the carrier's address space, shared by its subscribers.
+/// IPv6 link-local is not kept either: iroh never advertises one, its
+/// zone id is meaningless on another host, and an EUI-64 interface id
+/// embeds the MAC address.
+fn is_non_global_ip(ip: std::net::IpAddr) -> bool {
+    use std::net::IpAddr;
+    match ip {
+        IpAddr::V4(v4) => v4.is_loopback() || v4.is_private() || v4.is_link_local(),
+        IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
+            Some(v4) => is_non_global_ip(IpAddr::V4(v4)),
+            None => v6.is_loopback() || v6.is_unique_local(),
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::create_node;
+
+    #[test]
+    fn discreet_addr_drops_global_ips() {
+        let id = EndpointId::from_bytes(&crate::KeyPair::generate().public_bytes()).unwrap();
+        let relay: iroh::RelayUrl = "https://relay.sbfb.invalid./".parse().unwrap();
+        let ip = |s: &str| TransportAddr::Ip(s.parse().unwrap());
+        let kept = [
+            ip("127.0.0.1:1"),
+            ip("[::1]:1"),
+            ip("192.168.1.2:1"),
+            ip("10.0.0.1:1"),
+            ip("172.16.5.4:1"),
+            ip("169.254.3.3:1"),
+            ip("[fd00::1]:1"),
+            ip("[::ffff:192.168.1.9]:1"),
+            TransportAddr::Relay(relay),
+        ];
+        let dropped = [
+            ip("8.8.8.8:1"),
+            ip("[2001:4860::1]:1"),
+            ip("100.64.1.1:1"),
+            ip("100.127.255.254:1"),
+            ip("198.51.100.7:1"),
+            ip("[::ffff:8.8.8.8]:1"),
+            ip("0.0.0.0:1"),
+            ip("[fe80::1%3]:1"),
+        ];
+        let all = EndpointAddr {
+            id,
+            addrs: kept.iter().chain(dropped.iter()).cloned().collect(),
+        };
+
+        let out = discreet_addr(&all, AddrPolicy::Discreet);
+        assert_eq!(out.id, id);
+        assert_eq!(out.addrs, kept.iter().cloned().collect());
+        assert_eq!(discreet_addr(&all, AddrPolicy::Full), all);
+        assert_eq!(AddrPolicy::default(), AddrPolicy::Discreet);
+    }
 
     #[tokio::test]
     async fn my_node_id_is_stable() {

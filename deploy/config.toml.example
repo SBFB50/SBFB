@@ -44,3 +44,34 @@ default_curators = []
 # boot — trigger it live with POST /api/daemon/seed {"project_id"}
 # once the directory arrives, or restart the daemon.
 keep_online_projects = []
+
+[mailbox]
+# Chat v1 offline mailbox (ADR_CHAT_V1, decision 5).
+#
+# Client role — node ids (64 hex) this node MAY hand a READ ticket of
+# a conversation to. Nothing is sent unless the user turned the mailbox
+# on for that app. A fresh desktop install writes the public anchor
+# here at first boot; the compiled default is empty.
+servers = []
+#
+# Server role — keep read-only replicas for other nodes. Off by
+# default; turn it on for an always-on anchor only. The server sees
+# which nodes share a conversation and when, never the content.
+serve = false
+# Days a deposit is kept after its last refresh (clients refresh daily).
+ttl_days = 21
+# Worst-case disk for live documents = max_docs * max_doc_mib.
+max_docs = 256
+max_docs_per_node = 16
+max_doc_mib = 16
+
+[transport]
+# What this node reveals of its network position. A desktop node keeps
+# the compiled defaults (both false): the tickets and announcements it
+# hands out name its relay and private addresses only, never its public
+# IP, and it asks the home router to open nothing. An anchor on a VPS
+# has a public address worth publishing: peers then dial it directly
+# instead of going through the relay first.
+advertise_ip = true
+# UPnP / PCP / NAT-PMP port mapping. Pointless on a VPS (no NAT).
+portmapper = false

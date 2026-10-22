@@ -34,6 +34,9 @@ import { TEST_COORD_URL } from "./tests/global-setup";
 const BASE_URL = process.env.SBFB_E2E_BASE_URL ?? TEST_COORD_URL;
 const IS_CI = !!process.env.CI;
 
+/** Specs that publish into the shared daemon (see the second project). */
+const PUBLISHING_SPECS = /(app-authoring|chat-app)\.spec\.ts$/;
+
 export default defineConfig({
   testDir: "./e2e",
   // The daemon is a singleton: never run specs in parallel against it.
@@ -59,20 +62,20 @@ export default defineConfig({
       // zero grid), which only holds before anything is published.
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
-      testIgnore: /app-authoring\.spec\.ts$/,
+      testIgnore: PUBLISHING_SPECS,
     },
     {
-      // app-authoring is the ONLY spec that publishes into the shared
-      // singleton daemon, and no unpublish route exists (the feed is
-      // append-only pre-launch), so its two fixtures persist for the rest
-      // of the run. It MUST therefore run LAST. `dependencies` makes that
+      // app-authoring and chat-app are the ONLY specs that publish into
+      // the shared singleton daemon, and no unpublish route exists (the
+      // feed is append-only pre-launch), so their fixtures persist for the
+      // rest of the run. They MUST therefore run LAST. `dependencies` makes that
       // ordering explicit and robust, instead of relying on the fragile
       // alphabetical filename order that previously let app-authoring seed
       // before browse-search and turn its empty-state assertions red
       // (audit S81-A3-1).
       name: "chromium-authoring",
       use: { ...devices["Desktop Chrome"] },
-      testMatch: /app-authoring\.spec\.ts$/,
+      testMatch: PUBLISHING_SPECS,
       dependencies: ["chromium"],
     },
   ],

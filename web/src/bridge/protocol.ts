@@ -46,6 +46,19 @@ export const BridgeMethodSchema = z.enum([
   // the iframe polls `task_result` (no host push channel exists — a
   // daemon SSE backed by iroh-docs subscribe is scoped for S77).
   "task_result",
+  // Chat v1 (2026-10-21, ADR_CHAT_V1) — end-to-end encrypted messaging run by
+  // the local daemon (keys never reach the iframe). SENSITIVE class: never
+  // grandfathered, granted only after explicit user consent (see authority.ts).
+  "chat_identity",
+  "chat_set_profile",
+  "chat_list",
+  "chat_create",
+  "chat_invite",
+  "chat_accept",
+  "chat_send",
+  "chat_messages",
+  "chat_remove",
+  "chat_mailbox",
 ]);
 
 export type BridgeMethod = z.infer<typeof BridgeMethodSchema>;
@@ -58,6 +71,30 @@ export type BridgeMethod = z.infer<typeof BridgeMethodSchema>;
  * `scripts/check-frontier-contracts.sh`.
  */
 export const BRIDGE_METHODS = BridgeMethodSchema.options;
+
+/**
+ * Chat v1 verbs — the SENSITIVE class. A grandfathered (undeclared) app never
+ * reaches them, and a declaring app only after the user consents for that exact
+ * archive (consent is re-asked on every new version).
+ */
+export const CHAT_METHODS: ReadonlySet<BridgeMethod> = new Set<BridgeMethod>([
+  "chat_identity",
+  "chat_set_profile",
+  "chat_list",
+  "chat_create",
+  "chat_invite",
+  "chat_accept",
+  "chat_send",
+  "chat_messages",
+  "chat_remove",
+  "chat_mailbox",
+]);
+
+/** Name of the push event carrying chat updates (host → iframe). */
+export const CHAT_EVENT = "chat_event";
+
+/** Upper bound on one outgoing chat text (mirror of Rust `MAX_TEXT_BYTES`). */
+export const CHAT_MAX_TEXT_LENGTH = 16 * 1024;
 
 export const BridgeRequestSchema = z.object({
   type: z.literal("sbfb-bridge-request"),

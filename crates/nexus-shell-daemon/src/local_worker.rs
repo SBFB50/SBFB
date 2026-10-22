@@ -303,8 +303,11 @@ async fn provision(
         .map_err(|e| anyhow::anyhow!("worker keypair: {e}"))?;
 
     let project_id = project_doc.id().to_string();
+    // Every address: this ticket only reaches the co-located worker on
+    // this machine, and a host whose interfaces carry global IPs only
+    // would otherwise reach its own worker through the relay.
     let ticket = project_doc
-        .share_write()
+        .share_write_with(nexus_core_rs::AddrPolicy::Full)
         .await
         .map_err(|e| anyhow::anyhow!("share_write project doc: {e}"))?
         .to_string();
